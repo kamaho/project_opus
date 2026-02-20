@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { parseFile, detectFileTypeFromFile, readExcelRows, readCsvRawRows } from "@/lib/parsers";
 import type { ParsedTransaction, CsvParserConfig, ExcelParserConfig } from "@/lib/parsers";
-import { MatchingToolbar } from "@/components/matching/matching-toolbar";
-import { TransactionPanel, type TransactionRow } from "@/components/matching/transaction-panel";
+import { MatchingToolbar, type ViewMode } from "@/components/matching/matching-toolbar";
+import { TransactionPanel, type TransactionRow, type CellContextAction } from "@/components/matching/transaction-panel";
 import { SetDropzone } from "@/components/matching/set-dropzone";
 import type { WizardResult } from "@/components/import/column-import-wizard";
+import type { MatchGroup } from "@/components/matching/matched-groups-view";
 import {
   Dialog,
   DialogContent,
@@ -16,9 +17,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, CheckCircle2, Copy } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Link2, Search, Sparkles, X, Pencil } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { SmartPanel } from "@/components/smart-panel/smart-panel";
 
 const ImportPreview = dynamic(
   () => import("@/components/import/import-preview").then((m) => ({ default: m.ImportPreview })),
@@ -33,6 +37,11 @@ const ColumnImportWizard = dynamic(
 const FileManagerPanel = dynamic(
   () => import("@/components/matching/file-manager-panel").then((m) => ({ default: m.FileManagerPanel })),
   { ssr: false, loading: () => null }
+);
+
+const MatchedGroupsView = dynamic(
+  () => import("@/components/matching/matched-groups-view").then((m) => ({ default: m.MatchedGroupsView })),
+  { ssr: false, loading: () => <div className="p-4 text-sm text-muted-foreground">Laster matchede poster…</div> }
 );
 
 function cellToString(val: unknown): string {
@@ -63,6 +72,41 @@ function detectDelimiterFromContent(content: string): ";" | "," | "\t" {
   return ",";
 }
 
+function formatAmountDisplay(raw: string): string {
+  const num = parseFloat(raw);
+  if (isNaN(num)) return raw;
+  return num.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function FormattedAmountInput({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const display = focused ? value : formatAmountDisplay(value);
+
+  return (
+    <Input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      className="font-mono text-right"
+      value={display}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        const v = e.target.value.replace(/[^\d.,-]/g, "").replace(",", ".");
+        onChange(v);
+      }}
+    />
+  );
+}
+
 interface DuplicateReport {
   totalCount: number;
   duplicateCount: number;
@@ -79,6 +123,10 @@ export interface MatchingViewClientProps {
   rows2: TransactionRow[];
   balance1: number;
   balance2: number;
+  matchedGroups: MatchGroup[];
+  openingBalanceSet1: string;
+  openingBalanceSet2: string;
+  openingBalanceDate: string | null;
 }
 
 export function MatchingViewClient({
@@ -90,8 +138,247 @@ export function MatchingViewClient({
   rows2,
   balance1,
   balance2,
+  matchedGroups,
+  openingBalanceSet1,
+  openingBalanceSet2,
+  openingBalanceDate,
 }: MatchingViewClientProps) {
   const router = useRouter();
+
+  // --- View mode ---
+  const [viewMode, setViewMode] = useState<ViewMode>("open");
+
+  // --- Selection state for matching ---
+  const [selectedSet1, setSelectedSet1] = useState<Set<string>>(new Set());
+  const [selectedSet2, setSelectedSet2] = useState<Set<string>>(new Set());
+
+  const toggleSelect = useCallback((setNumber: 1 | 2, id: string) => {
+    const setter = setNumber === 1 ? setSelectedSet1 : setSelectedSet2;
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Context filter state — shows only matching rows
+  const [contextFilter1, setContextFilter1] = useState<Set<string> | null>(null);
+  const [contextFilter2, setContextFilter2] = useState<Set<string> | null>(null);
+
+  // Smart panel state
+  const [smartPanelOpen, setSmartPanelOpen] = useState(false);
+  const [smartPanelPos, setSmartPanelPos] = useState({ x: 0, y: 0 });
+  const [smartPanelActiveOption, setSmartPanelActiveOption] = useState<string | null>(null);
+  const [pendingCellAction, setPendingCellAction] = useState<{ action: CellContextAction; sourceSet: 1 | 2 } | null>(null);
+  const [smartPanelResult, setSmartPanelResult] = useState<{ matchCount1: number; matchCount2: number } | null>(null);
+
+  const closeSmartPanel = useCallback(() => {
+    setSmartPanelOpen(false);
+    setSmartPanelActiveOption(null);
+    setPendingCellAction(null);
+    setSmartPanelResult(null);
+    setContextFilter1(null);
+    setContextFilter2(null);
+    setSelectedSet1(new Set());
+    setSelectedSet2(new Set());
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedSet1(new Set());
+    setSelectedSet2(new Set());
+    closeSmartPanel();
+  }, [closeSmartPanel]);
+
+  const findMatchingIds = useCallback(
+    (source: TransactionRow[], action: CellContextAction): Set<string> => {
+      const ids = new Set<string>();
+      ids.add(action.txId);
+      for (const tx of source) {
+        const match = action.field === "amount"
+          ? tx.amount === action.numericValue
+          : action.field === "voucher"
+            ? (tx.voucher ?? "") === action.value
+            : tx[action.field] === action.value;
+        if (match) ids.add(tx.id);
+      }
+      return ids;
+    },
+    []
+  );
+
+  const fieldLabels: Record<string, string> = {
+    date: "Dato",
+    amount: "Beløp",
+    voucher: "Bilag",
+    text: "Tekst",
+  };
+
+  const handleCellContextMenu = useCallback(
+    (setNumber: 1 | 2, action: CellContextAction, position: { x: number; y: number }) => {
+      setPendingCellAction({ action, sourceSet: setNumber });
+      setSmartPanelPos(position);
+      setSmartPanelActiveOption(null);
+      setSmartPanelResult(null);
+      setContextFilter1(null);
+      setContextFilter2(null);
+      setSelectedSet1(new Set());
+      setSelectedSet2(new Set());
+      setSmartPanelOpen(true);
+    },
+    []
+  );
+
+  const selectedSum = useMemo(() => {
+    let sum = 0;
+    for (const tx of rows1) if (selectedSet1.has(tx.id)) sum += tx.amount;
+    for (const tx of rows2) if (selectedSet2.has(tx.id)) sum += tx.amount;
+    return Math.round(sum * 100) / 100;
+  }, [selectedSet1, selectedSet2, rows1, rows2]);
+
+  const selectedCount = selectedSet1.size + selectedSet2.size;
+  const canMatch = selectedCount >= 2 && selectedSum === 0;
+
+  // --- Matching action ---
+  const [matching, setMatching] = useState(false);
+  const [matchError, setMatchError] = useState<string | null>(null);
+
+  const handleMatch = useCallback(async () => {
+    const allIds = [
+      ...Array.from(selectedSet1),
+      ...Array.from(selectedSet2),
+    ];
+    if (allIds.length < 2) return;
+
+    setMatching(true);
+    setMatchError(null);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/matches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactionIds: allIds }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMatchError(data.details ?? data.error ?? "Matching feilet");
+        return;
+      }
+      clearSelection();
+      router.refresh();
+    } catch {
+      setMatchError("Nettverksfeil — prøv igjen.");
+    } finally {
+      setMatching(false);
+    }
+  }, [selectedSet1, selectedSet2, clientId, clearSelection, router]);
+
+  const handleSmartPanelOptionSelect = useCallback(
+    (optionId: string) => {
+      if (!optionId) {
+        setSmartPanelActiveOption(null);
+        setSmartPanelResult(null);
+        setContextFilter1(null);
+        setContextFilter2(null);
+        setSelectedSet1(new Set());
+        setSelectedSet2(new Set());
+        return;
+      }
+
+      if (optionId === "match") {
+        closeSmartPanel();
+        handleMatch();
+        return;
+      }
+
+      if (optionId === "smartMatch") {
+        setSmartPanelActiveOption(optionId);
+        return;
+      }
+
+      if (!pendingCellAction) return;
+      const { action, sourceSet } = pendingCellAction;
+
+      if (optionId === "findInThisSet") {
+        const source = sourceSet === 1 ? rows1 : rows2;
+        const ids = findMatchingIds(source, action);
+        if (sourceSet === 1) { setSelectedSet1(ids); setSelectedSet2(new Set()); setContextFilter1(ids); setContextFilter2(null); }
+        else { setSelectedSet1(new Set()); setSelectedSet2(ids); setContextFilter1(null); setContextFilter2(ids); }
+        setSmartPanelResult({ matchCount1: sourceSet === 1 ? ids.size : 0, matchCount2: sourceSet === 2 ? ids.size : 0 });
+      } else if (optionId === "findInBothSets") {
+        const ids1 = findMatchingIds(rows1, action);
+        const ids2 = findMatchingIds(rows2, action);
+        setSelectedSet1(ids1);
+        setSelectedSet2(ids2);
+        setContextFilter1(ids1);
+        setContextFilter2(ids2);
+        setSmartPanelResult({ matchCount1: ids1.size, matchCount2: ids2.size });
+      }
+      setSmartPanelActiveOption(optionId);
+    },
+    [pendingCellAction, rows1, rows2, findMatchingIds, closeSmartPanel, handleMatch]
+  );
+
+  // --- Unmatch action ---
+  const [unmatchingId, setUnmatchingId] = useState<string | null>(null);
+
+  const handleUnmatch = useCallback(async (matchId: string) => {
+    setUnmatchingId(matchId);
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/matches?matchId=${matchId}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMatchError(data.error ?? "Kunne ikke oppheve match");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setMatchError("Nettverksfeil — prøv igjen.");
+    } finally {
+      setUnmatchingId(null);
+    }
+  }, [clientId, router]);
+
+  // --- Opening balance ---
+  const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
+  const [editBalS1, setEditBalS1] = useState(openingBalanceSet1);
+  const [editBalS2, setEditBalS2] = useState(openingBalanceSet2);
+  const [editBalDate, setEditBalDate] = useState(openingBalanceDate ?? "");
+  const [savingBalance, setSavingBalance] = useState(false);
+
+  const handleSaveBalance = useCallback(async () => {
+    setSavingBalance(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/balance`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openingBalanceSet1: editBalS1,
+          openingBalanceSet2: editBalS2,
+          openingBalanceDate: editBalDate || null,
+        }),
+      });
+      if (res.ok) {
+        setBalanceDialogOpen(false);
+        router.refresh();
+      }
+    } finally {
+      setSavingBalance(false);
+    }
+  }, [clientId, editBalS1, editBalS2, editBalDate, router]);
+
+  // Live saldo = opening balance + sum of all unmatched transactions
+  const liveBalance1 = useMemo(() => {
+    return parseFloat(openingBalanceSet1 || "0") + balance1;
+  }, [openingBalanceSet1, balance1]);
+
+  const liveBalance2 = useMemo(() => {
+    return parseFloat(openingBalanceSet2 || "0") + balance2;
+  }, [openingBalanceSet2, balance2]);
+
+  // --- Import dialog state ---
   const [importOpen, setImportOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pendingSet, setPendingSet] = useState<1 | 2>(1);
@@ -108,15 +395,12 @@ export function MatchingViewClient({
   const [wizardRawRows, setWizardRawRows] = useState<string[][] | null>(null);
   const [excelBuffer, setExcelBuffer] = useState<ArrayBuffer | null>(null);
 
-  // File manager state
   const [fileManagerOpen, setFileManagerOpen] = useState(false);
 
-  // Duplicate dialog state
   const [dupReport, setDupReport] = useState<DuplicateReport | null>(null);
   const [dupDialogOpen, setDupDialogOpen] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
 
-  // Exact duplicate state (for legacy camt/klink flow)
   const [exactDuplicate, setExactDuplicate] = useState(false);
   const [selectedTxIndices, setSelectedTxIndices] = useState<Set<number>>(new Set());
 
@@ -271,7 +555,6 @@ export function MatchingViewClient({
     []
   );
 
-  /** Wizard complete: build config, dry-run for duplicates, then import */
   const handleWizardComplete = useCallback(
     async (result: WizardResult) => {
       if (!pendingFile) return;
@@ -280,7 +563,6 @@ export function MatchingViewClient({
       try {
         const formData = buildFormData(result);
 
-        // Step 1: dry-run to check duplicates
         const dryRunFd = new FormData();
         for (const [k, v] of formData.entries()) dryRunFd.set(k, v);
         dryRunFd.set("dryRun", "true");
@@ -290,11 +572,8 @@ export function MatchingViewClient({
 
         const dryData = await dryRes.json().catch(() => ({}));
 
-        // 409 = exact file duplicate
         if (dryRes.status === 409) {
-          setImportError(
-            dryData.details ?? "Denne filen er allerede importert."
-          );
+          setImportError(dryData.details ?? "Denne filen er allerede importert.");
           return;
         }
 
@@ -307,7 +586,6 @@ export function MatchingViewClient({
           return;
         }
 
-        // If duplicates found, show dialog
         if (dryData.duplicateCount > 0 && dryData.newCount > 0) {
           setDupReport(dryData as DuplicateReport);
           setPendingFormData(formData);
@@ -315,7 +593,6 @@ export function MatchingViewClient({
           return;
         }
 
-        // All duplicates, no new rows
         if (dryData.duplicateCount > 0 && dryData.newCount === 0) {
           setImportError(
             `Alle ${dryData.duplicateCount} transaksjoner finnes allerede. Ingen nye rader å importere.`
@@ -323,7 +600,6 @@ export function MatchingViewClient({
           return;
         }
 
-        // No duplicates — proceed with import
         const res = await doImport(formData);
         if (!res) return;
 
@@ -353,7 +629,6 @@ export function MatchingViewClient({
     [pendingFile, buildFormData, doImport, router]
   );
 
-  /** Handle duplicate dialog choice */
   const handleDuplicateChoice = useCallback(
     async (action: "skip" | "force" | "cancel") => {
       setDupDialogOpen(false);
@@ -400,7 +675,6 @@ export function MatchingViewClient({
     [pendingFormData, doImport, router]
   );
 
-  /** Build FormData for legacy camt/klink import */
   const buildLegacyFormData = useCallback(() => {
     if (!pendingFile) return null;
     const formData = new FormData();
@@ -414,7 +688,6 @@ export function MatchingViewClient({
     return formData;
   }, [pendingFile, clientId, pendingSet, parserType, klinkSpec]);
 
-  /** Legacy import for camt/klink — now with dry-run + duplicate handling */
   const handleImport = async (importSelected = false) => {
     if (!pendingFile || !preview) return;
     setLoading(true);
@@ -424,7 +697,6 @@ export function MatchingViewClient({
       if (!formData) return;
 
       if (!importSelected) {
-        // Step 1: dry-run
         const dryFd = new FormData();
         for (const [k, v] of formData.entries()) dryFd.set(k, v);
         dryFd.set("dryRun", "true");
@@ -468,7 +740,6 @@ export function MatchingViewClient({
         }
       }
 
-      // Step 2: actual import — send only selected indices if applicable
       if (importSelected && selectedTxIndices.size > 0) {
         formData.set(
           "selectedIndices",
@@ -535,75 +806,273 @@ export function MatchingViewClient({
     [clientId, router]
   );
 
+  // --- Keyboard shortcut for matching (M key) ---
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "m" && !e.metaKey && !e.ctrlKey && canMatch && !matching) {
+        e.preventDefault();
+        handleMatch();
+      }
+      if (e.key === "Escape" && selectedCount > 0) {
+        clearSelection();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [canMatch, matching, handleMatch, selectedCount, clearSelection]);
+
   return (
     <>
       <div className="flex h-[calc(100vh-10rem)] flex-col -m-4 p-4">
+       <div className="flex flex-1 flex-col min-h-0 rounded-md border overflow-hidden">
         <MatchingToolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          onMatch={handleMatch}
+          matchDisabled={!canMatch || matching}
           onFileManager={() => setFileManagerOpen(true)}
         />
-        <div className="flex flex-1 min-h-0">
-          <div className="flex flex-1 flex-col min-w-0">
-            <div className="flex items-center gap-3 border-b px-3 py-1.5 text-xs">
-              <span className="font-medium text-muted-foreground">{set1Label}</span>
-              <span>
-                <span className="text-muted-foreground">Poster:</span>{" "}
-                <span className="font-medium">{rows1.length}</span>
-              </span>
-              <span>
-                <span className="text-muted-foreground">Saldo:</span>{" "}
-                <span className="font-medium">
-                  {balance1.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </span>
-            </div>
-            {rows1.length > 0 ? (
-              <TransactionPanel
-                transactions={rows1}
-                setLabel={set1Label}
-                onEject={() => ejectSet(1)}
-                ejecting={ejectingSet === 1}
-                onImportFile={(file) => openImportDialog(file, 1)}
-              />
-            ) : (
-              <SetDropzone
-                label="Dra hovedboksfil hit"
-                onFile={(file) => openImportDialog(file, 1)}
-              />
-            )}
+
+        {matchError && (
+          <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive flex items-center gap-2 shrink-0">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {matchError}
+            <button className="ml-auto hover:underline text-xs" onClick={() => setMatchError(null)}>Lukk</button>
           </div>
-          <div className="flex flex-1 flex-col min-w-0">
-            <div className="flex items-center justify-between border-b px-3 py-1.5">
-              <span className="text-xs font-medium text-muted-foreground">{set2Label}</span>
-              <div className="flex items-center gap-3 text-xs">
+        )}
+
+        {viewMode === "open" ? (
+          <>
+          <div className="flex flex-1 min-h-0 gap-[3px] bg-border">
+            <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
+              <div className="flex items-center gap-3 border-b px-3 py-1.5 text-xs shrink-0" data-smart-info={`Overskrift for mengde 1 (${set1Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
+                <span className="font-medium text-muted-foreground">{set1Label}</span>
                 <span>
                   <span className="text-muted-foreground">Poster:</span>{" "}
-                  <span className="font-medium">{rows2.length}</span>
+                  <span className="font-medium">{rows1.length}</span>
                 </span>
                 <span>
                   <span className="text-muted-foreground">Saldo:</span>{" "}
-                  <span className="font-medium">
-                    {balance2.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  <span className="font-medium font-mono">
+                    {liveBalance1.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </span>
+                <button
+                  className="text-muted-foreground hover:text-foreground ml-1"
+                  onClick={() => {
+                    setEditBalS1(openingBalanceSet1);
+                    setEditBalS2(openingBalanceSet2);
+                    setEditBalDate(openingBalanceDate ?? "");
+                    setBalanceDialogOpen(true);
+                  }}
+                  data-smart-info="Rediger inngående saldo for begge mengder. Saldo brukes til å beregne løpende balanse."
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
               </div>
+              {rows1.length > 0 ? (
+                <TransactionPanel
+                  transactions={rows1}
+                  setLabel={set1Label}
+                  onEject={() => ejectSet(1)}
+                  ejecting={ejectingSet === 1}
+                  onImportFile={(file) => openImportDialog(file, 1)}
+                  onSelect={(id) => toggleSelect(1, id)}
+                  selectedIds={selectedSet1}
+                  onCellContextMenu={(a, pos) => handleCellContextMenu(1, a, pos)}
+                  contextFilterIds={contextFilter1}
+                />
+              ) : (
+                <SetDropzone
+                  label="Dra hovedboksfil hit"
+                  onFile={(file) => openImportDialog(file, 1)}
+                />
+              )}
             </div>
-            {rows2.length > 0 ? (
-              <TransactionPanel
-                transactions={rows2}
-                setLabel={set2Label}
-                onEject={() => ejectSet(2)}
-                ejecting={ejectingSet === 2}
-                onImportFile={(file) => openImportDialog(file, 2)}
-              />
+            <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
+              <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0" data-smart-info={`Overskrift for mengde 2 (${set2Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
+                <span className="text-xs font-medium text-muted-foreground">{set2Label}</span>
+                <div className="flex items-center gap-3 text-xs">
+                  <span>
+                    <span className="text-muted-foreground">Poster:</span>{" "}
+                    <span className="font-medium">{rows2.length}</span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">Saldo:</span>{" "}
+                    <span className="font-medium font-mono">
+                      {liveBalance2.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </span>
+                  <button
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setEditBalS1(openingBalanceSet1);
+                      setEditBalS2(openingBalanceSet2);
+                      setEditBalDate(openingBalanceDate ?? "");
+                      setBalanceDialogOpen(true);
+                    }}
+                    data-smart-info="Rediger inngående saldo for begge mengder. Saldo brukes til å beregne løpende balanse."
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+              {rows2.length > 0 ? (
+                <TransactionPanel
+                  transactions={rows2}
+                  setLabel={set2Label}
+                  onEject={() => ejectSet(2)}
+                  ejecting={ejectingSet === 2}
+                  onImportFile={(file) => openImportDialog(file, 2)}
+                  onSelect={(id) => toggleSelect(2, id)}
+                  selectedIds={selectedSet2}
+                  onCellContextMenu={(a, pos) => handleCellContextMenu(2, a, pos)}
+                  contextFilterIds={contextFilter2}
+                />
+              ) : (
+                <SetDropzone
+                  label="Dra bankfil hit"
+                  onFile={(file) => openImportDialog(file, 2)}
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Status bar — always visible, changes based on selection state */}
+          <div
+            className={cn(
+              "flex items-center gap-3 border-t px-4 text-sm shrink-0 h-10 transition-colors",
+              selectedCount > 0
+                ? "bg-blue-50 dark:bg-blue-950/30"
+                : "bg-muted/30"
+            )}
+            data-smart-info="Statuslinjen viser valgte poster og matchinformasjon. Når poster er markert vises sum og match-knapp. Summen av markerte poster må være 0 for at matching er mulig."
+          >
+            {selectedCount > 0 ? (
+              <>
+                <span className="font-medium">
+                  {selectedSet1.size > 0 && (
+                    <span>{selectedSet1.size} fra {set1Label}</span>
+                  )}
+                  {selectedSet1.size > 0 && selectedSet2.size > 0 && <span> + </span>}
+                  {selectedSet2.size > 0 && (
+                    <span>{selectedSet2.size} fra {set2Label}</span>
+                  )}
+                </span>
+                <span className="text-muted-foreground">|</span>
+                <span className={cn(
+                  "font-mono font-medium",
+                  selectedSum === 0 ? "text-green-600" : "text-amber-600"
+                )}>
+                  Sum: {selectedSum.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                {selectedSum !== 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    (må være 0 for å matche)
+                  </span>
+                )}
+                <div className="flex gap-2 ml-auto">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1.5"
+                    onClick={clearSelection}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Avbryt
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={!canMatch || matching}
+                    onClick={handleMatch}
+                  >
+                    <Link2 className="h-3.5 w-3.5" />
+                    {matching ? "Matcher…" : "Match"}
+                  </Button>
+                </div>
+              </>
             ) : (
-              <SetDropzone
-                label="Dra bankfil hit"
-                onFile={(file) => openImportDialog(file, 2)}
-              />
+              <>
+                <span className="text-muted-foreground">
+                  {rows1.length === 0 && rows2.length === 0
+                    ? "Importer filer i begge mengder for å starte matching"
+                    : rows1.length === 0 || rows2.length === 0
+                      ? "Importer fil i begge mengder for å starte matching"
+                      : "Marker poster i begge mengder og trykk Match (M)"}
+                </span>
+                {(rows1.length > 0 || rows2.length > 0) && (
+                  <div className="flex items-center gap-4 ml-auto text-xs text-muted-foreground">
+                    {matchedGroups.length > 0 && (
+                      <span>
+                        <span className="font-medium text-foreground">{matchedGroups.length}</span> matchgrupper
+                      </span>
+                    )}
+                    <span>
+                      <span className="font-medium text-foreground">{rows1.length + rows2.length}</span> åpne poster
+                    </span>
+                  </div>
+                )}
+              </>
             )}
           </div>
-        </div>
+          </>
+        ) : (
+          <MatchedGroupsView
+            groups={matchedGroups}
+            onUnmatch={handleUnmatch}
+            unmatchingId={unmatchingId}
+            set1Label={set1Label}
+            set2Label={set2Label}
+          />
+        )}
+       </div>
       </div>
+
+      {/* Opening balance dialog */}
+      <Dialog open={balanceDialogOpen} onOpenChange={setBalanceDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Inngående saldo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="bal-s1">{set1Label} — inngående saldo</Label>
+              <FormattedAmountInput
+                id="bal-s1"
+                value={editBalS1}
+                onChange={setEditBalS1}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bal-s2">{set2Label} — inngående saldo</Label>
+              <FormattedAmountInput
+                id="bal-s2"
+                value={editBalS2}
+                onChange={setEditBalS2}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="bal-date">Saldodato</Label>
+              <Input
+                id="bal-date"
+                type="date"
+                value={editBalDate}
+                onChange={(e) => setEditBalDate(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setBalanceDialogOpen(false)}>
+                Avbryt
+              </Button>
+              <Button onClick={handleSaveBalance} disabled={savingBalance}>
+                {savingBalance ? "Lagrer…" : "Lagre"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Import dialog */}
       <Dialog open={importOpen} onOpenChange={(open) => !open && handleCloseImport()}>
@@ -613,6 +1082,51 @@ export function MatchingViewClient({
               Importer til {pendingSet === 1 ? set1Label : set2Label}
             </DialogTitle>
           </DialogHeader>
+
+          {/* Balance summary */}
+          {pendingFile && (() => {
+            const currentBal = pendingSet === 1 ? liveBalance1 : liveBalance2;
+            const fileSum = preview
+              ? preview.transactions.reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0)
+              : null;
+            const newBal = fileSum !== null ? currentBal + fileSum : null;
+            const fmt = (n: number) => n.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const setName = pendingSet === 1 ? set1Label : set2Label;
+            return (
+              <div className="rounded-md border bg-muted/30 px-4 py-2 text-sm shrink-0">
+                <div className="text-xs text-muted-foreground mb-1.5">
+                  Saldoeffekt for <span className="font-medium text-foreground">{setName}</span> ved import av denne filen
+                </div>
+                <div className="flex items-center gap-4 font-mono">
+                <div className="text-center">
+                  <div className="text-[10px] text-muted-foreground font-sans uppercase tracking-wide">Saldo nå</div>
+                  <div className="font-medium">{fmt(currentBal)}</div>
+                </div>
+                {fileSum !== null && (
+                  <>
+                    <div className="text-muted-foreground">+</div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-muted-foreground font-sans uppercase tracking-wide">Bevegelse</div>
+                      <div className={cn("font-medium", fileSum < 0 ? "text-destructive" : fileSum > 0 ? "text-green-600" : "")}>
+                        {fileSum >= 0 ? "+" : ""}{fmt(fileSum)}
+                      </div>
+                    </div>
+                    <div className="text-muted-foreground">=</div>
+                    <div className="text-center">
+                      <div className="text-[10px] text-muted-foreground font-sans uppercase tracking-wide">Saldo etter</div>
+                      <div className="font-semibold">{fmt(newBal!)}</div>
+                    </div>
+                  </>
+                )}
+                {fileSum === null && (
+                  <div className="text-xs text-muted-foreground font-sans">
+                    Bevegelse vises etter forhåndsvisning
+                  </div>
+                )}
+                </div>
+              </div>
+            );
+          })()}
 
           {(parserType === "excel" || parserType === "csv") && wizardRawRows ? (
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -846,6 +1360,50 @@ export function MatchingViewClient({
         set1Label={set1Label}
         set2Label={set2Label}
         onRefresh={() => router.refresh()}
+      />
+
+      {/* Smart panel overlay */}
+      <SmartPanel
+        open={smartPanelOpen}
+        onClose={closeSmartPanel}
+        position={smartPanelPos}
+        options={[
+          { id: "findInThisSet", label: "Finn like verdier i denne mengden", icon: <Search className="h-3.5 w-3.5" /> },
+          { id: "findInBothSets", label: "Finn like verdier i begge mengder", icon: <Search className="h-3.5 w-3.5" /> },
+          { id: "match", label: "Match markerte poster", icon: <Link2 className="h-3.5 w-3.5" />, separator: true, disabled: !canMatch, hint: "M" },
+          { id: "smartMatch", label: "Smart match", icon: <Sparkles className="h-3.5 w-3.5" />, disabled: true, hint: "Kommer" },
+        ]}
+        onOptionSelect={handleSmartPanelOptionSelect}
+        activeOptionId={smartPanelActiveOption}
+        resultContent={
+          smartPanelResult && pendingCellAction ? (
+            <div className="p-3 space-y-3">
+              <div className="rounded-md border bg-muted/30 px-3 py-2">
+                <div className="text-xs text-muted-foreground">{fieldLabels[pendingCellAction.action.field]}</div>
+                <div className="text-sm font-medium font-mono mt-0.5 truncate">
+                  {pendingCellAction.action.value || "—"}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {smartPanelResult.matchCount1 > 0 && (
+                  <div className="rounded-md border px-3 py-2 text-center">
+                    <div className="text-lg font-bold">{smartPanelResult.matchCount1}</div>
+                    <div className="text-xs text-muted-foreground truncate">{set1Label}</div>
+                  </div>
+                )}
+                {smartPanelResult.matchCount2 > 0 && (
+                  <div className="rounded-md border px-3 py-2 text-center">
+                    <div className="text-lg font-bold">{smartPanelResult.matchCount2}</div>
+                    <div className="text-xs text-muted-foreground truncate">{set2Label}</div>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {smartPanelResult.matchCount1 + smartPanelResult.matchCount2} poster markert og filtrert.
+              </p>
+            </div>
+          ) : undefined
+        }
       />
     </>
   );

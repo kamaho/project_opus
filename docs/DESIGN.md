@@ -1,33 +1,36 @@
 # Design — Account Control
 
-Designet er inspirert av **Railway**, **Linear**, **Vercel** og **Supabase**. De utgjør vårt faste utgangspunkt for UI og visuell stil.
+Designet er inspirert av **Vercel**, **Linear**, **Apple** og **Supabase**. De utgjør vårt faste utgangspunkt for UI og visuell stil.
+
+> **Komplett designsystem:** Se [DESIGN_SYSTEM.md](./DESIGN_SYSTEM.md) for farger, typografi, spacing, komponentregler, interaksjonsmønstre og avviksprotokoll. Alle UI-endringer **må** følge det dokumentet.
 
 ## Referanser
 
 | Tjeneste   | Styrker vi tar inn |
 |-----------|--------------------|
-| **Linear** | Minimal layout, mørk sidebar, lav kontrast, liten radius, diskré violet/blå accent |
-| **Vercel** | Svart/hvit, skarpe kanter, Geist, mye hvitt, tydelige CTA-er |
-| **Railway** | Ren dashboard, enkle kort og tabeller, lite dekor |
-| **Supabase** | Lesbare tabeller, tydelig grønn accent, mørkmodus-vennlig |
+| **Vercel** | Monokrom palett, Geist-font, skarp presisjon, mørke CTA-knapper, balanse mellom tetthet og luft |
+| **Linear** | Minimal sidebar, lav kontrast grå, subtil accent, keyboard-first, glatte mikro-overganger |
+| **Apple**  | Piksel-perfekt justering, optisk balanse, gjennomtenkte tomme tilstander, hvert detalj med hensikt |
+| **Supabase** | Lesbare datatabeller, tydelig statushierarki, mørkmodus gjort riktig |
 
 ## Prinsipper
 
-- **Minimal** — få elementer, tydelig hierarki
-- **Profesjonell SaaS** — troverdig, raskt å skanne
-- **Konsistent spacing og typografi** — god lesbarhet
-- **Subtil farge** — nøytral grå som base, én tydelig accent
-- **Tynde rammer** — diskré borders, lette skygger
+- **Minimal** — få elementer, tydelig hierarki, ingen visuell støy
+- **Profesjonell SaaS** — troverdig, raskt å skanne, fokus på innhold
+- **Konsistent spacing og typografi** — god lesbarhet, forutsigbare avstander
+- **Subtil farge** — nøytral grå som base, oransje brand-accent brukt sparsomt
+- **Tynne rammer** — diskré borders, lette skygger kun der det trengs
 
 ## Teknisk
 
-- **Fonter**: Geist (sans + mono)
-- **Radius**: 6–8px (Tailwind `--radius`)
-- **Palett**: Definert i `src/app/globals.css` (oklch)
-- **Komponenter**: shadcn/ui, tilpasset til denne stilen
+- **Fonter**: Geist Sans + Geist Mono (via `next/font`)
+- **Radius**: 8px (`--radius: 0.5rem`)
+- **Palett**: oklch-basert i `src/app/globals.css`
+- **Brand-farge**: Oransje — kun til identitetsdetaljer (se DESIGN_SYSTEM.md §14)
+- **Komponenter**: shadcn/ui (New York variant), tilpasset gjennom CSS-variabler
+- **Ikoner**: Lucide React — ingen andre ikonbiblioteker
 
-Nye sider og komponenter skal følge dette utgangspunktet.
+## Referanse-frontend
 
-## Referanse-frontend (views og tabeller)
-
-For konkrete mønstre på **kontooversikt**, **matching-visning** (to tabeller), **toolbar** og **transaksjonstabeller** er det lagt ved en egen frontend (mappen *account control client*). En oppsummert guide til strukturen og hvordan du bruker den som inspirasjon står i [ACCOUNT_CONTROL_CLIENT_REFERENCE.md](./ACCOUNT_CONTROL_CLIENT_REFERENCE.md).
+For konkrete mønstre på kontooversikt, matching-visning, toolbar og transaksjonstabeller:
+se [ACCOUNT_CONTROL_CLIENT_REFERENCE.md](./ACCOUNT_CONTROL_CLIENT_REFERENCE.md).

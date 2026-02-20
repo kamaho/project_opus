@@ -16,9 +16,9 @@ import {
 import { UserButton, useUser, useOrganization } from "@clerk/nextjs";
 
 const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Kontoer", href: "/dashboard/clients", icon: Wallet },
-  { label: "Innstillinger", href: "/dashboard/settings", icon: Settings },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, smartInfo: "Dashboard — oversikt over kontoer, status og snarveier." },
+  { label: "Kontoer", href: "/dashboard/clients", icon: Wallet, smartInfo: "Kontoer — administrer klienter og deres matching-oppsett." },
+  { label: "Innstillinger", href: "/dashboard/settings", icon: Settings, smartInfo: "Innstillinger — konfigurer profil, organisasjon og systemvalg." },
 ];
 
 export function AppSidebar() {
@@ -58,7 +58,7 @@ export function AppSidebar() {
                     isActive={pathname === item.href}
                     tooltip={item.label}
                   >
-                    <Link href={item.href}>
+                    <Link href={item.href} data-smart-info={item.smartInfo}>
                       <item.icon />
                       <span>{item.label}</span>
                     </Link>
