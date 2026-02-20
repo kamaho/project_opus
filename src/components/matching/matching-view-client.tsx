@@ -207,11 +207,21 @@ export function MatchingViewClient({
     []
   );
 
-  const fieldLabels: Record<string, string> = {
-    date: "Dato",
-    amount: "Beløp",
-    voucher: "Bilag",
-    text: "Tekst",
+  const findCounterpartIds = useCallback(
+    (source: TransactionRow[], amount: number): Set<string> => {
+      const target = Math.round(-amount * 100) / 100;
+      const ids = new Set<string>();
+      for (const tx of source) {
+        if (Math.round(tx.amount * 100) / 100 === target) ids.add(tx.id);
+      }
+      return ids;
+    },
+    []
+  );
+
+  const formatAmount = (n: number): string => {
+    const abs = Math.abs(n).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n < 0 ? `−${abs}` : abs;
   };
 
   const handleCellContextMenu = useCallback(
@@ -297,25 +307,71 @@ export function MatchingViewClient({
 
       if (!pendingCellAction) return;
       const { action, sourceSet } = pendingCellAction;
+      const isAmount = action.field === "amount";
+      const otherRows = sourceSet === 1 ? rows2 : rows1;
+      const sameRows = sourceSet === 1 ? rows1 : rows2;
 
-      if (optionId === "findInThisSet") {
-        const source = sourceSet === 1 ? rows1 : rows2;
-        const ids = findMatchingIds(source, action);
-        if (sourceSet === 1) { setSelectedSet1(ids); setSelectedSet2(new Set()); setContextFilter1(ids); setContextFilter2(null); }
-        else { setSelectedSet1(new Set()); setSelectedSet2(ids); setContextFilter1(null); setContextFilter2(ids); }
-        setSmartPanelResult({ matchCount1: sourceSet === 1 ? ids.size : 0, matchCount2: sourceSet === 2 ? ids.size : 0 });
-      } else if (optionId === "findInBothSets") {
-        const ids1 = findMatchingIds(rows1, action);
-        const ids2 = findMatchingIds(rows2, action);
-        setSelectedSet1(ids1);
-        setSelectedSet2(ids2);
-        setContextFilter1(ids1);
-        setContextFilter2(ids2);
-        setSmartPanelResult({ matchCount1: ids1.size, matchCount2: ids2.size });
+      if (optionId === "counterpartOther") {
+        const amount = action.numericValue ?? 0;
+        const originIds = new Set<string>([action.txId]);
+        const counterIds = findCounterpartIds(otherRows, amount);
+        if (sourceSet === 1) {
+          setSelectedSet1(originIds); setSelectedSet2(counterIds);
+          setContextFilter1(originIds); setContextFilter2(counterIds.size > 0 ? counterIds : null);
+        } else {
+          setSelectedSet1(counterIds); setSelectedSet2(originIds);
+          setContextFilter1(counterIds.size > 0 ? counterIds : null); setContextFilter2(originIds);
+        }
+        setSmartPanelResult({
+          matchCount1: sourceSet === 1 ? 1 : counterIds.size,
+          matchCount2: sourceSet === 2 ? 1 : counterIds.size,
+        });
+      } else if (optionId === "counterpartSame") {
+        const amount = action.numericValue ?? 0;
+        const ids = findCounterpartIds(sameRows, amount);
+        ids.add(action.txId);
+        if (sourceSet === 1) {
+          setSelectedSet1(ids); setSelectedSet2(new Set());
+          setContextFilter1(ids); setContextFilter2(null);
+        } else {
+          setSelectedSet1(new Set()); setSelectedSet2(ids);
+          setContextFilter1(null); setContextFilter2(ids);
+        }
+        setSmartPanelResult({
+          matchCount1: sourceSet === 1 ? ids.size : 0,
+          matchCount2: sourceSet === 2 ? ids.size : 0,
+        });
+      } else if (optionId === "filterSame") {
+        const ids = findMatchingIds(sameRows, action);
+        if (sourceSet === 1) {
+          setSelectedSet1(ids); setSelectedSet2(new Set());
+          setContextFilter1(ids); setContextFilter2(null);
+        } else {
+          setSelectedSet1(new Set()); setSelectedSet2(ids);
+          setContextFilter1(null); setContextFilter2(ids);
+        }
+        setSmartPanelResult({
+          matchCount1: sourceSet === 1 ? ids.size : 0,
+          matchCount2: sourceSet === 2 ? ids.size : 0,
+        });
+      } else if (optionId === "filterOther") {
+        const ids = findMatchingIds(otherRows, action);
+        const originIds = new Set<string>([action.txId]);
+        if (sourceSet === 1) {
+          setSelectedSet1(originIds); setSelectedSet2(ids);
+          setContextFilter1(originIds); setContextFilter2(ids.size > 0 ? ids : null);
+        } else {
+          setSelectedSet1(ids); setSelectedSet2(originIds);
+          setContextFilter1(ids.size > 0 ? ids : null); setContextFilter2(originIds);
+        }
+        setSmartPanelResult({
+          matchCount1: sourceSet === 1 ? 1 : ids.size,
+          matchCount2: sourceSet === 2 ? 1 : ids.size,
+        });
       }
       setSmartPanelActiveOption(optionId);
     },
-    [pendingCellAction, rows1, rows2, findMatchingIds, closeSmartPanel, handleMatch]
+    [pendingCellAction, rows1, rows2, findMatchingIds, findCounterpartIds, closeSmartPanel, handleMatch]
   );
 
   // --- Unmatch action ---
@@ -1363,48 +1419,88 @@ export function MatchingViewClient({
       />
 
       {/* Smart panel overlay */}
-      <SmartPanel
-        open={smartPanelOpen}
-        onClose={closeSmartPanel}
-        position={smartPanelPos}
-        options={[
-          { id: "findInThisSet", label: "Finn like verdier i denne mengden", icon: <Search className="h-3.5 w-3.5" /> },
-          { id: "findInBothSets", label: "Finn like verdier i begge mengder", icon: <Search className="h-3.5 w-3.5" /> },
+      {(() => {
+        const pa = pendingCellAction;
+        const isAmount = pa?.action.field === "amount";
+        const otherLabel = pa ? (pa.sourceSet === 1 ? set2Label : set1Label) : "";
+        const sameLabel = pa ? (pa.sourceSet === 1 ? set1Label : set2Label) : "";
+        const displayValue = pa
+          ? isAmount
+            ? formatAmount(pa.action.numericValue ?? 0)
+            : `«${pa.action.value}»`
+          : "";
+        const counterValue = pa && isAmount
+          ? formatAmount(-(pa.action.numericValue ?? 0))
+          : "";
+
+        const options = isAmount
+          ? [
+              { id: "counterpartOther", label: `Finn motpost: ${counterValue} i ${otherLabel}`, icon: <Search className="h-3.5 w-3.5" /> },
+              { id: "counterpartSame", label: `Finn intern motpost: ${counterValue}`, icon: <Search className="h-3.5 w-3.5" /> },
+            ]
+          : [
+              { id: "filterSame", label: `Filtrer: ${displayValue} i denne mengden`, icon: <Search className="h-3.5 w-3.5" /> },
+              { id: "filterOther", label: `Filtrer: ${displayValue} i ${otherLabel}`, icon: <Search className="h-3.5 w-3.5" /> },
+            ];
+
+        const allOptions = [
+          ...options,
           { id: "match", label: "Match markerte poster", icon: <Link2 className="h-3.5 w-3.5" />, separator: true, disabled: !canMatch, hint: "M" },
           { id: "smartMatch", label: "Smart match", icon: <Sparkles className="h-3.5 w-3.5" />, disabled: true, hint: "Kommer" },
-        ]}
-        onOptionSelect={handleSmartPanelOptionSelect}
-        activeOptionId={smartPanelActiveOption}
-        resultContent={
-          smartPanelResult && pendingCellAction ? (
-            <div className="p-3 space-y-3">
-              <div className="rounded-md border bg-muted/30 px-3 py-2">
-                <div className="text-xs text-muted-foreground">{fieldLabels[pendingCellAction.action.field]}</div>
-                <div className="text-sm font-medium font-mono mt-0.5 truncate">
-                  {pendingCellAction.action.value || "—"}
+        ];
+
+        const resultLabel = smartPanelActiveOption === "counterpartOther" || smartPanelActiveOption === "filterOther"
+          ? otherLabel
+          : sameLabel;
+
+        return (
+          <SmartPanel
+            open={smartPanelOpen}
+            onClose={closeSmartPanel}
+            position={smartPanelPos}
+            options={allOptions}
+            onOptionSelect={handleSmartPanelOptionSelect}
+            activeOptionId={smartPanelActiveOption}
+            resultContent={
+              smartPanelResult && pa ? (
+                <div className="p-3 space-y-3">
+                  <div className="rounded-md border bg-muted/30 px-3 py-2">
+                    <div className="text-xs text-muted-foreground">
+                      {isAmount ? "Søker etter motpost" : "Filtrerer på verdi"}
+                    </div>
+                    <div className="text-sm font-medium font-mono mt-0.5 truncate">
+                      {isAmount ? counterValue : pa.action.value || "—"}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {smartPanelResult.matchCount1 > 0 && (
+                      <div className="rounded-md border px-3 py-2 text-center">
+                        <div className="text-lg font-bold">{smartPanelResult.matchCount1}</div>
+                        <div className="text-xs text-muted-foreground truncate">{set1Label}</div>
+                      </div>
+                    )}
+                    {smartPanelResult.matchCount2 > 0 && (
+                      <div className="rounded-md border px-3 py-2 text-center">
+                        <div className="text-lg font-bold">{smartPanelResult.matchCount2}</div>
+                        <div className="text-xs text-muted-foreground truncate">{set2Label}</div>
+                      </div>
+                    )}
+                  </div>
+                  {smartPanelResult.matchCount1 + smartPanelResult.matchCount2 > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {smartPanelResult.matchCount1 + smartPanelResult.matchCount2} poster markert og filtrert.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Ingen treff i {resultLabel}.
+                    </p>
+                  )}
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {smartPanelResult.matchCount1 > 0 && (
-                  <div className="rounded-md border px-3 py-2 text-center">
-                    <div className="text-lg font-bold">{smartPanelResult.matchCount1}</div>
-                    <div className="text-xs text-muted-foreground truncate">{set1Label}</div>
-                  </div>
-                )}
-                {smartPanelResult.matchCount2 > 0 && (
-                  <div className="rounded-md border px-3 py-2 text-center">
-                    <div className="text-lg font-bold">{smartPanelResult.matchCount2}</div>
-                    <div className="text-xs text-muted-foreground truncate">{set2Label}</div>
-                  </div>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {smartPanelResult.matchCount1 + smartPanelResult.matchCount2} poster markert og filtrert.
-              </p>
-            </div>
-          ) : undefined
-        }
-      />
+              ) : undefined
+            }
+          />
+        );
+      })()}
     </>
   );
 }
