@@ -1,0 +1,40 @@
+---
+description: Designutgangspunkt inspirert av Railway, Linear, Vercel og Supabase
+alwaysApply: true
+---
+
+# Design — Account Control
+
+Vi bruker **Railway**, **Linear**, **Vercel** og **Supabase** som designreferanse. Alt UI skal følge dette utgangspunktet.
+
+## Prinsipper
+
+- **Minimal og ryddig** — få elementer, tydelig hierarki, ingen støy
+- **Profesjonell SaaS** — troverdig, raskt å skanne, fokus på innhold
+- **Konsistent spacing og typografi** — god lesbarhet, forutsigbare avstander
+- **Subtil bruk av farge** — nøytral grå som base, én tydelig accent (knapper, lenker, status)
+- **Tynde rammer og skygger** — diskré borders, lette skygger der det trengs
+
+## Referansesider
+
+- **Linear**: Mørk sidebar, lys innhold, lav kontrast-grader, liten radius, violet/blå accent
+- **Vercel**: Svart/hvit, skarpe kanter, Geist-font, mye hvitt, svarte CTA-knapper
+- **Railway**: Ren dashboard, lite dekor, tydelige kort og tabeller
+- **Supabase**: Grønn accent, mørk modus-vennlig, lesbare tabeller og kode
+
+## Konkrete valg
+
+- **Fonter**: Behold Geist (sans + mono) — matcher Vercel
+- **Radius**: Liten til moderat (6–8px) — ikke runde «bobler»
+- **Borders**: Lyse, tynne (1px), nøytral grå
+- **Primærknapper**: Mørk (nesten svart) eller diskré fargeaccent — aldri skrikende
+- **Tabeller**: Alternerende rader valgfritt; hover tydelig; god padding i celler
+- **Sidebar**: Lys eller veldig diskré nøytral — ingen sterk farge
+- **Feil/advarsler**: Rød brukes sparsomt; gul/amber for advarsler
+
+## Språk i UI
+
+- Norsk i brukergrensesnitt (knapper, menyer, etiketter)
+- Engelsk i kode, variabler og tekniske meldinger
+
+Når du lager eller endrer komponenter, sider eller stiler: sjekk at valgene føles som Linear/Vercel/Railway/Supabase — minimalt, profesjonelt og konsistent.
