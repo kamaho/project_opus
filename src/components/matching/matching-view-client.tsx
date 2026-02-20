@@ -209,10 +209,10 @@ export function MatchingViewClient({
 
   const findCounterpartIds = useCallback(
     (source: TransactionRow[], amount: number): Set<string> => {
-      const target = Math.round(-amount * 100) / 100;
+      const absTarget = Math.round(Math.abs(amount) * 100) / 100;
       const ids = new Set<string>();
       for (const tx of source) {
-        if (Math.round(tx.amount * 100) / 100 === target) ids.add(tx.id);
+        if (Math.round(Math.abs(tx.amount) * 100) / 100 === absTarget) ids.add(tx.id);
       }
       return ids;
     },
@@ -1424,19 +1424,19 @@ export function MatchingViewClient({
         const isAmount = pa?.action.field === "amount";
         const otherLabel = pa ? (pa.sourceSet === 1 ? set2Label : set1Label) : "";
         const sameLabel = pa ? (pa.sourceSet === 1 ? set1Label : set2Label) : "";
+        const amountAbs = pa && isAmount
+          ? Math.abs(pa.action.numericValue ?? 0).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : "";
         const displayValue = pa
           ? isAmount
             ? formatAmount(pa.action.numericValue ?? 0)
             : `«${pa.action.value}»`
           : "";
-        const counterValue = pa && isAmount
-          ? formatAmount(-(pa.action.numericValue ?? 0))
-          : "";
 
         const options = isAmount
           ? [
-              { id: "counterpartOther", label: `Finn motpost: ${counterValue} i ${otherLabel}`, icon: <Search className="h-3.5 w-3.5" /> },
-              { id: "counterpartSame", label: `Finn intern motpost: ${counterValue}`, icon: <Search className="h-3.5 w-3.5" /> },
+              { id: "counterpartOther", label: `Finn motpost: ${amountAbs} i ${otherLabel}`, icon: <Search className="h-3.5 w-3.5" /> },
+              { id: "counterpartSame", label: `Finn intern motpost: ${amountAbs}`, icon: <Search className="h-3.5 w-3.5" /> },
             ]
           : [
               { id: "filterSame", label: `Filtrer: ${displayValue} i denne mengden`, icon: <Search className="h-3.5 w-3.5" /> },
@@ -1469,7 +1469,7 @@ export function MatchingViewClient({
                       {isAmount ? "Søker etter motpost" : "Filtrerer på verdi"}
                     </div>
                     <div className="text-sm font-medium font-mono mt-0.5 truncate">
-                      {isAmount ? counterValue : pa.action.value || "—"}
+                      {isAmount ? amountAbs : pa.action.value || "—"}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">

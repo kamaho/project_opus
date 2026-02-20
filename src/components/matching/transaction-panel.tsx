@@ -54,6 +54,20 @@ function formatNO(n: number): string {
   });
 }
 
+function normalizeAmountQuery(input: string): string {
+  return input.replace(/[\s\u00a0]/g, "").replace(",", ".");
+}
+
+function matchesAmount(amount: number, query: string): boolean {
+  const norm = normalizeAmountQuery(query);
+  const raw = String(amount);
+  const rawAbs = String(Math.abs(amount));
+  const formatted = formatNO(amount);
+  const formattedNorm = normalizeAmountQuery(formatted);
+  return raw.includes(norm) || rawAbs.includes(norm) || formattedNorm.includes(norm)
+    || formatted.includes(query);
+}
+
 export function TransactionPanel({
   title,
   transactions,
@@ -106,8 +120,7 @@ export function TransactionPanel({
     if (q) {
       rows = rows.filter((tx) =>
         tx.date.toLowerCase().includes(q) ||
-        String(tx.amount).includes(q) ||
-        formatNO(tx.amount).includes(q) ||
+        matchesAmount(tx.amount, q) ||
         (tx.voucher ?? "").toLowerCase().includes(q) ||
         tx.text.toLowerCase().includes(q)
       );
@@ -118,7 +131,7 @@ export function TransactionPanel({
       const v = val.toLowerCase().trim();
       rows = rows.filter((tx) => {
         const field = key as SortKey;
-        if (field === "amount") return String(tx.amount).includes(v) || formatNO(tx.amount).includes(v);
+        if (field === "amount") return matchesAmount(tx.amount, v);
         const cellVal = field === "voucher" ? (tx.voucher ?? "") : (tx[field] ?? "");
         return cellVal.toLowerCase().includes(v);
       });
