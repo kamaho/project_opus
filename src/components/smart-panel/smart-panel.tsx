@@ -1,11 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, GripHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowLeft, GripHorizontal, SendHorizonal, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_WIDTH = 320;
+
+const AGENT_PLACEHOLDERS = [
+  "Spør meg om hva som helst…",
+  "Hva er differansen mellom mengdene?",
+  "Finn poster uten motpost",
+  "Forklar denne transaksjonen",
+  "Vis alle poster over 100 000",
+  "Hjelp meg med avstemming",
+];
 
 export interface SmartPanelOption {
   id: string;
@@ -27,6 +36,156 @@ interface SmartPanelProps {
   resultContent?: ReactNode;
 }
 
+interface ChatMessage {
+  role: "user" | "agent";
+  text: string;
+}
+
+function AgentPlaceholderInput({ onClick }: { onClick: () => void }) {
+  const [idx, setIdx] = useState(0);
+  const [fade, setFade] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFade(false);
+      setTimeout(() => {
+        setIdx((i) => (i + 1) % AGENT_PLACEHOLDERS.length);
+        setFade(true);
+      }, 200);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="px-3 pt-3 pb-2">
+      <div
+        className="relative flex items-center cursor-text rounded-lg border bg-muted/30 h-9 px-3 pl-8 hover:border-primary/40 transition-colors"
+        onClick={onClick}
+      >
+        <Sparkles className="absolute left-2.5 h-3.5 w-3.5 text-primary/60" />
+        <span
+          className={cn(
+            "text-sm text-muted-foreground/60 transition-opacity duration-200",
+            fade ? "opacity-100" : "opacity-0"
+          )}
+        >
+          {AGENT_PLACEHOLDERS[idx]}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AgentChatView() {
+  const [query, setQuery] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [thinking, setThinking] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, thinking]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const text = query.trim();
+    if (!text || thinking) return;
+    setMessages((prev) => [...prev, { role: "user", text }]);
+    setQuery("");
+    setThinking(true);
+    setTimeout(() => {
+      setMessages((prev) => [
+        ...prev,
+        { role: "agent", text: "Denne funksjonen er under utvikling. Snart kan du stille spørsmål om transaksjoner, avstemming og regnskap direkte her." },
+      ]);
+      setThinking(false);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }, 1500);
+  };
+
+  return (
+    <div className="flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto px-3 pt-3 pb-1 space-y-2.5 max-h-[280px]">
+        {messages.length === 0 && !thinking && (
+          <div className="flex flex-col items-center justify-center py-6 text-center">
+            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+              <Sparkles className="h-5 w-5 text-primary" />
+            </div>
+            <p className="text-sm font-medium">Hei! Jeg er din assistent.</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
+              Still spørsmål om transaksjoner, poster, avstemming eller regnskap.
+            </p>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex gap-2 text-sm animate-in fade-in slide-in-from-bottom-1 duration-150",
+              msg.role === "user" ? "justify-end" : "justify-start"
+            )}
+          >
+            {msg.role === "agent" && (
+              <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                <Sparkles className="h-3 w-3 text-primary" />
+              </div>
+            )}
+            <div
+              className={cn(
+                "rounded-lg px-3 py-2 max-w-[85%] leading-relaxed",
+                msg.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted/60 text-foreground"
+              )}
+            >
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        {thinking && (
+          <div className="flex gap-2 text-sm animate-in fade-in duration-150">
+            <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+              <Sparkles className="h-3 w-3 text-primary" />
+            </div>
+            <div className="rounded-lg bg-muted/60 px-3 py-2.5 flex gap-1 items-center">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/40 animate-bounce [animation-delay:0ms]" />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/40 animate-bounce [animation-delay:150ms]" />
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/40 animate-bounce [animation-delay:300ms]" />
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+      <form onSubmit={handleSubmit} className="border-t px-3 py-2">
+        <div className="relative flex items-center gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Skriv en melding…"
+            className="flex-1 h-9 rounded-lg border bg-muted/30 pl-3 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
+          />
+          <Button
+            type="submit"
+            size="icon"
+            variant="ghost"
+            className={cn("h-8 w-8 shrink-0", query.trim() ? "text-primary" : "text-muted-foreground/40")}
+            disabled={!query.trim() || thinking}
+          >
+            <SendHorizonal className="h-4 w-4" />
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function SmartPanel({
   open,
   onClose,
@@ -42,9 +201,10 @@ export function SmartPanel({
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
   const prevPosition = useRef({ x: 0, y: 0 });
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) { setChatOpen(false); return; }
     if (position.x === prevPosition.current.x && position.y === prevPosition.current.y) return;
     prevPosition.current = { x: position.x, y: position.y };
     setPos({
@@ -77,89 +237,113 @@ export function SmartPanel({
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (chatOpen) { setChatOpen(false); return; }
+        onClose();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [open, onClose, chatOpen]);
 
   if (!open) return null;
 
   const activeLabel = options.find((o) => o.id === activeOptionId)?.label;
+  const showingSubPage = activeOptionId || chatOpen;
+  const headerTitle = chatOpen ? "Assistent" : activeOptionId ? activeLabel : title;
 
   return (
-    <div
-      ref={panelRef}
-      className={cn(
-        "fixed z-50 flex flex-col rounded-lg border bg-background shadow-xl",
-        dragging && "select-none",
-      )}
-      style={{ left: pos.x, top: pos.y, width: DEFAULT_WIDTH }}
-    >
-      {/* Draggable header */}
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
-        className="flex items-center gap-2 border-b px-3 py-2 cursor-grab active:cursor-grabbing shrink-0"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
+        ref={panelRef}
+        className={cn(
+          "fixed z-50 flex flex-col rounded-lg border bg-background shadow-xl",
+          dragging && "select-none",
+        )}
+        style={{ left: pos.x, top: pos.y, width: DEFAULT_WIDTH }}
       >
-        {activeOptionId ? (
+        {/* Draggable header */}
+        <div
+          className="flex items-center gap-2 border-b px-3 py-2 cursor-grab active:cursor-grabbing shrink-0"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          {showingSubPage ? (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6 shrink-0 -ml-1"
+              onClick={() => {
+                if (chatOpen) setChatOpen(false);
+                else onOptionSelect("");
+              }}
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <Sparkles className="h-4 w-4 text-primary shrink-0" />
+          )}
+          <span className="text-sm font-medium flex-1 truncate">
+            {headerTitle}
+          </span>
+          <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
           <Button
             size="icon"
             variant="ghost"
-            className="h-6 w-6 shrink-0 -ml-1"
-            onClick={() => onOptionSelect("")}
+            className="h-6 w-6 shrink-0"
+            onClick={onClose}
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <X className="h-3.5 w-3.5" />
           </Button>
-        ) : (
-          <Sparkles className="h-4 w-4 text-primary shrink-0" />
-        )}
-        <span className="text-sm font-medium flex-1 truncate">
-          {activeOptionId ? activeLabel : title}
-        </span>
-        <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6 shrink-0"
-          onClick={onClose}
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+        </div>
 
-      {/* Content: options list or result */}
-      <div className="overflow-auto">
-        {activeOptionId && resultContent ? (
-          resultContent
-        ) : options.length > 0 ? (
-          <div className="py-1">
-            {options.map((opt) => (
-              <div key={opt.id}>
-                {opt.separator && <div className="my-1 border-t" />}
-                <button
-                  type="button"
-                  disabled={opt.disabled}
-                  className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors text-left",
-                    opt.disabled
-                      ? "text-muted-foreground/50 cursor-not-allowed"
-                      : "hover:bg-muted/60"
-                  )}
-                  onClick={() => !opt.disabled && onOptionSelect(opt.id)}
-                >
-                  {opt.icon && <span className="shrink-0 text-muted-foreground">{opt.icon}</span>}
-                  <span className="flex-1">{opt.label}</span>
-                  {opt.hint && <span className="text-xs text-muted-foreground/60 shrink-0">{opt.hint}</span>}
-                </button>
+        {/* Chat page */}
+        {chatOpen && !activeOptionId && <AgentChatView />}
+
+        {/* Main page: agent input + options */}
+        {!chatOpen && !activeOptionId && (
+          <>
+            <AgentPlaceholderInput onClick={() => setChatOpen(true)} />
+            {options.length > 0 && <div className="border-t" />}
+          </>
+        )}
+
+        {/* Content: options list or result */}
+        {!chatOpen && (
+          <div className="overflow-auto">
+            {activeOptionId && resultContent ? (
+              resultContent
+            ) : !activeOptionId && options.length > 0 ? (
+              <div className="py-1">
+                {options.map((opt) => (
+                  <div key={opt.id}>
+                    {opt.separator && <div className="my-1 border-t" />}
+                    <button
+                      type="button"
+                      disabled={opt.disabled}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors text-left",
+                        opt.disabled
+                          ? "text-muted-foreground/50 cursor-not-allowed"
+                          : "hover:bg-muted/60"
+                      )}
+                      onClick={() => !opt.disabled && onOptionSelect(opt.id)}
+                    >
+                      {opt.icon && <span className="shrink-0 text-muted-foreground">{opt.icon}</span>}
+                      <span className="flex-1">{opt.label}</span>
+                      {opt.hint && <span className="text-xs text-muted-foreground/60 shrink-0">{opt.hint}</span>}
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
+            ) : resultContent ? (
+              resultContent
+            ) : null}
           </div>
-        ) : resultContent ? (
-          resultContent
-        ) : null}
+        )}
       </div>
-    </div>
+    </>
   );
 }

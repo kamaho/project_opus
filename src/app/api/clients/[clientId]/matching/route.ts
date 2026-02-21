@@ -7,7 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { validateClientTenant } from "@/lib/db/tenant";
 
 /**
- * DELETE: Soft-delete all imports for a set (1 or 2).
+ * DELETE: Soft-delete a specific import by importId, or all imports for a set.
  * Sets deleted_at on matching import rows; transactions remain but are
  * filtered out in queries. Files are permanently removed after 14 days.
  */
@@ -22,19 +22,49 @@ export async function DELETE(
 
   const { clientId } = await params;
   const url = new URL(_request.url);
+  const importId = url.searchParams.get("importId");
   const setNumberParam = url.searchParams.get("setNumber");
-  const setNumber = setNumberParam === "1" ? 1 : setNumberParam === "2" ? 2 : null;
-
-  if (!clientId || setNumber === null) {
-    return NextResponse.json(
-      { error: "Mangler clientId eller setNumber (1 eller 2)" },
-      { status: 400 }
-    );
-  }
 
   const clientRow = await validateClientTenant(clientId, orgId);
   if (!clientRow) {
     return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
+  }
+
+  if (importId) {
+    const deleted = await db
+      .update(imports)
+      .set({ deletedAt: sql`NOW()` })
+      .where(
+        and(
+          eq(imports.id, importId),
+          eq(imports.clientId, clientId),
+          sql`${imports.deletedAt} IS NULL`
+        )
+      )
+      .returning({ id: imports.id, setNumber: imports.setNumber });
+
+    if (deleted.length === 0) {
+      return NextResponse.json({ error: "Import ikke funnet" }, { status: 404 });
+    }
+
+    await logAudit({
+      tenantId: orgId,
+      userId,
+      action: "import.deleted",
+      entityType: "import",
+      entityId: importId,
+      metadata: { setNumber: deleted[0].setNumber },
+    });
+
+    return NextResponse.json({ ok: true });
+  }
+
+  const setNumber = setNumberParam === "1" ? 1 : setNumberParam === "2" ? 2 : null;
+  if (setNumber === null) {
+    return NextResponse.json(
+      { error: "Mangler importId eller setNumber" },
+      { status: 400 }
+    );
   }
 
   const deleted = await db

@@ -135,7 +135,7 @@ export const imports = pgTable("imports", {
   parserConfigId: uuid("parser_config_id").references(() => parserConfigs.id),
   recordCount: integer("record_count").default(0),
   status: text("status", {
-    enum: ["pending", "processing", "completed", "failed"],
+    enum: ["pending", "processing", "completed", "failed", "duplicate"],
   }).default("pending"),
   errorMessage: text("error_message"),
   importedBy: text("imported_by"),

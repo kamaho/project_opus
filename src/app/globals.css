@@ -140,4 +140,97 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  :focus:not(:focus-visible) {
+    outline: none !important;
+    box-shadow: none !important;
+  }
+}
+
+/* ── Input-mode awareness ───────────────────────────────────────────
+   InputModeTracker sets data-input="mouse"|"keyboard" on <html>.    */
+
+html[data-input="mouse"] .kb-focused {
+  outline-color: transparent !important;
+}
+
+html[data-input="keyboard"] .row-action-bar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* ── Match animation ─────────────────────────────────────────────────
+   Only animate opacity + transform (GPU-composited, zero layout cost).
+   will-change promotes the row to its own layer for 60 fps. */
+
+@keyframes match-glow {
+  0%   { opacity: 1; transform: scale(1);     background-color: transparent; }
+  35%  { opacity: 1; transform: scale(1.006);  background-color: oklch(0.85 0.14 145 / 0.35); }
+  100% { opacity: 1; transform: scale(1);      background-color: oklch(0.85 0.14 145 / 0.35); }
+}
+
+@keyframes match-fly-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-48px) scaleY(0.2);
+  }
+}
+
+.match-animating {
+  animation: match-glow 450ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+  position: relative;
+  z-index: 1;
+}
+
+.match-animating.match-exit {
+  animation: match-fly-out 550ms cubic-bezier(0.55, 0, 0.15, 1) forwards;
+  transform-origin: center top;
+  pointer-events: none;
+}
+
+.dark .match-animating:not(.match-exit) {
+  animation: none;
+  background-color: oklch(0.45 0.14 145 / 0.3);
+}
+
+/* ── "Lukkede" button pulse when matches land ────────────────────── */
+@keyframes closed-btn-ring {
+  0%   { box-shadow: 0 0 0 0   oklch(0.65 0.19 150 / 0.55); }
+  50%  { box-shadow: 0 0 0 5px oklch(0.65 0.19 150 / 0.25); }
+  100% { box-shadow: 0 0 0 9px oklch(0.65 0.19 150 / 0); }
+}
+
+.closed-btn-pulse {
+  animation: closed-btn-ring 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  background-color: oklch(0.92 0.08 145 / 0.45) !important;
+  transition: background-color 400ms ease-out;
+}
+
+.dark .closed-btn-pulse {
+  background-color: oklch(0.35 0.1 145 / 0.4) !important;
+}
+
+/* ── Match success overlay ───────────────────────────────────────── */
+@keyframes match-success-enter {
+  0%   { opacity: 0; transform: scale(0.85) translateY(6px); }
+  60%  { opacity: 1; transform: scale(1.03) translateY(0); }
+  100% { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+@keyframes match-success-exit {
+  0%   { opacity: 1; transform: scale(1)   translateY(0); }
+  100% { opacity: 0; transform: scale(0.92) translateY(-4px); }
+}
+
+.match-success-overlay {
+  animation: match-success-enter 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.match-success-overlay.exiting {
+  animation: match-success-exit 300ms cubic-bezier(0.55, 0, 0.15, 1) forwards;
 }

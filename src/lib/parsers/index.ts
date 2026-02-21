@@ -10,6 +10,31 @@ export {
   type ExcelColumnMeta,
 } from "./excel-parser";
 
+/**
+ * Read a File as text with automatic encoding detection.
+ * Tries UTF-8 first; falls back to ISO-8859-1 if replacement chars appear
+ * (common for Norwegian files with æ, ø, å from legacy systems).
+ */
+export async function readFileAsText(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const utf8 = new TextDecoder("utf-8").decode(buf);
+  if (utf8.includes("\uFFFD")) {
+    return new TextDecoder("iso-8859-1").decode(buf);
+  }
+  return utf8;
+}
+
+/**
+ * Decode an ArrayBuffer/Uint8Array to text with automatic encoding detection.
+ */
+export function decodeTextBuffer(buf: ArrayBuffer | Uint8Array): string {
+  const utf8 = new TextDecoder("utf-8").decode(buf);
+  if (utf8.includes("\uFFFD")) {
+    return new TextDecoder("iso-8859-1").decode(buf);
+  }
+  return utf8;
+}
+
 import type { ParserFileType, ParseResult } from "./types";
 import { parseCsv } from "./csv-parser";
 import { parseCamt } from "./camt-parser";

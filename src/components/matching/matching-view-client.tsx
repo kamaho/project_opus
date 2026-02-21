@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { parseFile, detectFileTypeFromFile, readExcelRows, readCsvRawRows } from "@/lib/parsers";
+import { parseFile, detectFileTypeFromFile, readExcelRows, readCsvRawRows, readFileAsText } from "@/lib/parsers";
 import type { ParsedTransaction, CsvParserConfig, ExcelParserConfig } from "@/lib/parsers";
 import { MatchingToolbar, type ViewMode } from "@/components/matching/matching-toolbar";
 import { TransactionPanel, type TransactionRow, type CellContextAction } from "@/components/matching/transaction-panel";
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, CheckCircle2, Copy, Link2, Search, Sparkles, X, Pencil } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Link2, Search, X, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SmartPanel } from "@/components/smart-panel/smart-panel";
 
@@ -148,9 +148,38 @@ export function MatchingViewClient({
   // --- View mode ---
   const [viewMode, setViewMode] = useState<ViewMode>("open");
 
+  // --- Global date filter (shared across both panels) ---
+  const [globalDateFrom, setGlobalDateFrom] = useState("");
+  const [globalDateTo, setGlobalDateTo] = useState("");
+
+  // --- Keyboard navigation ---
+  const [kbPanel, setKbPanel] = useState<1 | 2 | null>(null);
+  const [kbRowIndex, setKbRowIndex] = useState<number>(0);
+  const rowCount1Ref = useRef(0);
+  const rowCount2Ref = useRef(0);
+  const visibleIds1Ref = useRef<string[]>([]);
+  const visibleIds2Ref = useRef<string[]>([]);
+  const handleRowCount1 = useCallback((n: number) => { rowCount1Ref.current = n; }, []);
+  const handleRowCount2 = useCallback((n: number) => { rowCount2Ref.current = n; }, []);
+
   // --- Selection state for matching ---
   const [selectedSet1, setSelectedSet1] = useState<Set<string>>(new Set());
   const [selectedSet2, setSelectedSet2] = useState<Set<string>>(new Set());
+  const [focusMode, setFocusMode] = useState(false);
+  const focusPrimarySetRef = useRef<1 | 2 | null>(null);
+
+  // Optimistic: hide matched rows instantly before server refresh completes.
+  // The filter is cheap (Set.has is O(1)) and harmless on new server data that
+  // already excludes matched rows — it simply returns the same array.
+  const [locallyMatchedIds, setLocallyMatchedIds] = useState<Set<string>>(new Set());
+  const visibleRows1 = useMemo(() =>
+    locallyMatchedIds.size === 0 ? rows1 : rows1.filter((r) => !locallyMatchedIds.has(r.id)),
+    [rows1, locallyMatchedIds]
+  );
+  const visibleRows2 = useMemo(() =>
+    locallyMatchedIds.size === 0 ? rows2 : rows2.filter((r) => !locallyMatchedIds.has(r.id)),
+    [rows2, locallyMatchedIds]
+  );
 
   const toggleSelect = useCallback((setNumber: 1 | 2, id: string) => {
     const setter = setNumber === 1 ? setSelectedSet1 : setSelectedSet2;
@@ -160,6 +189,9 @@ export function MatchingViewClient({
       else next.add(id);
       return next;
     });
+    if (focusPrimarySetRef.current === null || focusPrimarySetRef.current === setNumber) {
+      focusPrimarySetRef.current = setNumber;
+    }
   }, []);
 
   // Context filter state — shows only matching rows
@@ -187,6 +219,7 @@ export function MatchingViewClient({
   const clearSelection = useCallback(() => {
     setSelectedSet1(new Set());
     setSelectedSet2(new Set());
+    focusPrimarySetRef.current = null;
     closeSmartPanel();
   }, [closeSmartPanel]);
 
@@ -241,23 +274,249 @@ export function MatchingViewClient({
 
   const selectedSum = useMemo(() => {
     let sum = 0;
-    for (const tx of rows1) if (selectedSet1.has(tx.id)) sum += tx.amount;
-    for (const tx of rows2) if (selectedSet2.has(tx.id)) sum += tx.amount;
+    for (const tx of visibleRows1) if (selectedSet1.has(tx.id)) sum += tx.amount;
+    for (const tx of visibleRows2) if (selectedSet2.has(tx.id)) sum += tx.amount;
     return Math.round(sum * 100) / 100;
-  }, [selectedSet1, selectedSet2, rows1, rows2]);
+  }, [selectedSet1, selectedSet2, visibleRows1, visibleRows2]);
 
   const selectedCount = selectedSet1.size + selectedSet2.size;
   const canMatch = selectedCount >= 2 && selectedSum === 0;
 
+  // --- Counterpart hints ---
+  // Green (1:1): for each selected tx, highlight its exact negated amount in the opposite set.
+  // Orange (many-to-1): highlight a single tx whose amount equals the negated total of all selected.
+  const counterpartHints1 = useMemo(() => {
+    if (selectedSet2.size === 0) return undefined;
+    const needed = new Set<number>();
+    for (const tx of visibleRows2) {
+      if (selectedSet2.has(tx.id)) needed.add(Math.round(-tx.amount * 100));
+    }
+    const hints = new Set<string>();
+    for (const tx of visibleRows1) {
+      if (selectedSet1.has(tx.id)) continue;
+      if (needed.has(Math.round(tx.amount * 100))) hints.add(tx.id);
+    }
+    return hints.size > 0 ? hints : undefined;
+  }, [visibleRows1, visibleRows2, selectedSet1, selectedSet2]);
+
+  const counterpartHints2 = useMemo(() => {
+    if (selectedSet1.size === 0) return undefined;
+    const needed = new Set<number>();
+    for (const tx of visibleRows1) {
+      if (selectedSet1.has(tx.id)) needed.add(Math.round(-tx.amount * 100));
+    }
+    const hints = new Set<string>();
+    for (const tx of visibleRows2) {
+      if (selectedSet2.has(tx.id)) continue;
+      if (needed.has(Math.round(tx.amount * 100))) hints.add(tx.id);
+    }
+    return hints.size > 0 ? hints : undefined;
+  }, [visibleRows1, visibleRows2, selectedSet1, selectedSet2]);
+
+  // Orange hints: sum-based matching in both directions
+  // many-to-1: 2+ selected → find 1 tx matching combined sum (uses selectedSum)
+  // 1-to-many: for EACH selected tx → find N txs of same amount that equal negated amount
+
+  const counterpartSumHints1 = useMemo(() => {
+    if (selectedSet2.size === 0) return undefined;
+    const hints = new Set<string>();
+
+    const groups = new Map<number, string[]>();
+    for (const tx of visibleRows1) {
+      if (selectedSet1.has(tx.id) || counterpartHints1?.has(tx.id)) continue;
+      const key = Math.round(tx.amount * 100);
+      const arr = groups.get(key) ?? [];
+      arr.push(tx.id);
+      groups.set(key, arr);
+    }
+
+    if (selectedSet2.size >= 2 && selectedSum !== 0) {
+      const target = Math.round(selectedSum * 100);
+      for (const [amountKey, ids] of groups) {
+        if (ids.length >= 1 && amountKey === target) {
+          hints.add(ids[0]);
+        }
+      }
+    }
+
+    const targets = new Set<number>();
+    for (const tx of visibleRows2) {
+      if (selectedSet2.has(tx.id)) targets.add(Math.round(-tx.amount * 100));
+    }
+    for (const [amountKey, ids] of groups) {
+      if (ids.length < 2) continue;
+      for (const t of targets) {
+        for (let n = 2; n <= ids.length; n++) {
+          if (amountKey * n === t) {
+            for (let i = 0; i < n; i++) hints.add(ids[i]);
+            break;
+          }
+        }
+      }
+    }
+
+    return hints.size > 0 ? hints : undefined;
+  }, [visibleRows1, visibleRows2, selectedSet1, selectedSet2, selectedSum, counterpartHints1]);
+
+  const counterpartSumHints2 = useMemo(() => {
+    if (selectedSet1.size === 0) return undefined;
+    const hints = new Set<string>();
+
+    const groups = new Map<number, string[]>();
+    for (const tx of visibleRows2) {
+      if (selectedSet2.has(tx.id) || counterpartHints2?.has(tx.id)) continue;
+      const key = Math.round(tx.amount * 100);
+      const arr = groups.get(key) ?? [];
+      arr.push(tx.id);
+      groups.set(key, arr);
+    }
+
+    if (selectedSet1.size >= 2 && selectedSum !== 0) {
+      const target = Math.round(-selectedSum * 100);
+      for (const [amountKey, ids] of groups) {
+        if (ids.length >= 1 && amountKey === target) {
+          hints.add(ids[0]);
+        }
+      }
+    }
+
+    const targets = new Set<number>();
+    for (const tx of visibleRows1) {
+      if (selectedSet1.has(tx.id)) targets.add(Math.round(-tx.amount * 100));
+    }
+    for (const [amountKey, ids] of groups) {
+      if (ids.length < 2) continue;
+      for (const t of targets) {
+        for (let n = 2; n <= ids.length; n++) {
+          if (amountKey * n === t) {
+            for (let i = 0; i < n; i++) hints.add(ids[i]);
+            break;
+          }
+        }
+      }
+    }
+
+    return hints.size > 0 ? hints : undefined;
+  }, [visibleRows1, visibleRows2, selectedSet1, selectedSet2, selectedSum, counterpartHints2]);
+
+  const selectCounterparts1 = useCallback(() => {
+    if (!counterpartHints1 && !counterpartSumHints1) return;
+    setSelectedSet1((prev) => {
+      const next = new Set(prev);
+      counterpartHints1?.forEach((id) => next.add(id));
+      counterpartSumHints1?.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [counterpartHints1, counterpartSumHints1]);
+
+  const deselectCounterparts1 = useCallback(() => {
+    clearSelection();
+  }, [clearSelection]);
+
+  const selectCounterparts2 = useCallback(() => {
+    if (!counterpartHints2 && !counterpartSumHints2) return;
+    setSelectedSet2((prev) => {
+      const next = new Set(prev);
+      counterpartHints2?.forEach((id) => next.add(id));
+      counterpartSumHints2?.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [counterpartHints2, counterpartSumHints2]);
+
+  const deselectCounterparts2 = useCallback(() => {
+    clearSelection();
+  }, [clearSelection]);
+
+  const lastHintIds1 = useRef<Set<string>>(new Set());
+  const lastHintIds2 = useRef<Set<string>>(new Set());
+
+  if ((counterpartHints1 && counterpartHints1.size > 0) || (counterpartSumHints1 && counterpartSumHints1.size > 0)) {
+    const ids = new Set<string>();
+    counterpartHints1?.forEach((id) => ids.add(id));
+    counterpartSumHints1?.forEach((id) => ids.add(id));
+    lastHintIds1.current = ids;
+  }
+  if ((counterpartHints2 && counterpartHints2.size > 0) || (counterpartSumHints2 && counterpartSumHints2.size > 0)) {
+    const ids = new Set<string>();
+    counterpartHints2?.forEach((id) => ids.add(id));
+    counterpartSumHints2?.forEach((id) => ids.add(id));
+    lastHintIds2.current = ids;
+  }
+
+  const counterpartsSelected1 = useMemo(() => {
+    if (lastHintIds1.current.size === 0) return false;
+    for (const id of lastHintIds1.current) {
+      if (!selectedSet1.has(id)) return false;
+    }
+    return true;
+  }, [selectedSet1, counterpartHints1, counterpartSumHints1]);
+
+  const counterpartsSelected2 = useMemo(() => {
+    if (lastHintIds2.current.size === 0) return false;
+    for (const id of lastHintIds2.current) {
+      if (!selectedSet2.has(id)) return false;
+    }
+    return true;
+  }, [selectedSet2, counterpartHints2, counterpartSumHints2]);
+
+  // Focus mode: filter only the OPPOSITE panel from where the user started selecting.
+  // primarySet=1 → user selects in Set 1 → filter Set 2 only.
+  // primarySet=2 → user selects in Set 2 → filter Set 1 only.
+  const focusFilter1 = useMemo(() => {
+    if (!focusMode) return contextFilter1;
+    if (focusPrimarySetRef.current !== 2) return contextFilter1;
+    const hints = lastHintIds1.current;
+    const hasHints = hints.size > 0 || (counterpartHints1 && counterpartHints1.size > 0) || (counterpartSumHints1 && counterpartSumHints1.size > 0);
+    if (!hasHints) return contextFilter1;
+    const ids = new Set<string>();
+    hints.forEach((id) => ids.add(id));
+    counterpartHints1?.forEach((id) => ids.add(id));
+    counterpartSumHints1?.forEach((id) => ids.add(id));
+    selectedSet1.forEach((id) => ids.add(id));
+    return ids;
+  }, [focusMode, counterpartHints1, counterpartSumHints1, selectedSet1, contextFilter1]);
+
+  const focusFilter2 = useMemo(() => {
+    if (!focusMode) return contextFilter2;
+    if (focusPrimarySetRef.current !== 1) return contextFilter2;
+    const hints = lastHintIds2.current;
+    const hasHints = hints.size > 0 || (counterpartHints2 && counterpartHints2.size > 0) || (counterpartSumHints2 && counterpartSumHints2.size > 0);
+    if (!hasHints) return contextFilter2;
+    const ids = new Set<string>();
+    hints.forEach((id) => ids.add(id));
+    counterpartHints2?.forEach((id) => ids.add(id));
+    counterpartSumHints2?.forEach((id) => ids.add(id));
+    selectedSet2.forEach((id) => ids.add(id));
+    return ids;
+  }, [focusMode, counterpartHints2, counterpartSumHints2, selectedSet2, contextFilter2]);
+
+  const totalHintCount = (counterpartHints1?.size ?? 0) + (counterpartSumHints1?.size ?? 0)
+    + (counterpartHints2?.size ?? 0) + (counterpartSumHints2?.size ?? 0);
+
+  useEffect(() => {
+    if (focusMode && totalHintCount === 0) setFocusMode(false);
+  }, [focusMode, totalHintCount]);
+
+  // --- Row quick actions (hover toolbar) ---
+  const handleRowAction = useCallback((txId: string, action: string) => {
+    console.log(`Row action: ${action} on ${txId}`);
+  }, []);
+
   // --- Matching action ---
   const [matching, setMatching] = useState(false);
   const [matchError, setMatchError] = useState<string | null>(null);
+  const [matchAnimatingIds, setMatchAnimatingIds] = useState<Set<string> | undefined>(undefined);
+  const [matchAnimationPhase, setMatchAnimationPhase] = useState<"glow" | "exit" | "collapse">("glow");
+  const [matchSuccessVisible, setMatchSuccessVisible] = useState(false);
+  const [matchSuccessExiting, setMatchSuccessExiting] = useState(false);
+  const matchCountRef = useRef(0);
+  const closedBtnRef = useRef<HTMLButtonElement>(null);
+  const [closedBtnPulse, setClosedBtnPulse] = useState(false);
 
   const handleMatch = useCallback(async () => {
-    const allIds = [
-      ...Array.from(selectedSet1),
-      ...Array.from(selectedSet2),
-    ];
+    const ids1 = new Set(selectedSet1);
+    const ids2 = new Set(selectedSet2);
+    const allIds = [...Array.from(ids1), ...Array.from(ids2)];
     if (allIds.length < 2) return;
 
     setMatching(true);
@@ -271,16 +530,52 @@ export function MatchingViewClient({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMatchError(data.details ?? data.error ?? "Matching feilet");
+        setMatching(false);
         return;
       }
-      clearSelection();
+
+      matchCountRef.current = allIds.length;
+      const allAnimIds = new Set(allIds);
+      setMatchAnimatingIds(allAnimIds);
+      setMatchAnimationPhase("glow");
+      setSmartPanelOpen(false);
       router.refresh();
+
+      // Phase 1: glow (450ms CSS)
+      await new Promise((r) => setTimeout(r, 480));
+
+      // Phase 2: rows fly upward (550ms CSS)
+      setMatchAnimationPhase("exit");
+      await new Promise((r) => setTimeout(r, 550));
+
+      // Phase 3: immediately settle — remove rows and reset state so user can keep working
+      setLocallyMatchedIds(new Set());
+      setMatchAnimatingIds(undefined);
+      setMatchAnimationPhase("glow");
+      setSelectedSet1(new Set());
+      setSelectedSet2(new Set());
+      focusPrimarySetRef.current = null;
+      setContextFilter1(null);
+      setContextFilter2(null);
+      setSmartPanelActiveOption(null);
+      setPendingCellAction(null);
+      setSmartPanelResult(null);
+
+      // Phase 4: non-blocking toast — runs on top of the live table
+      setClosedBtnPulse(true);
+      setMatchSuccessVisible(true);
+      await new Promise((r) => setTimeout(r, 1200));
+      setClosedBtnPulse(false);
+      setMatchSuccessExiting(true);
+      await new Promise((r) => setTimeout(r, 320));
+      setMatchSuccessVisible(false);
+      setMatchSuccessExiting(false);
     } catch {
       setMatchError("Nettverksfeil — prøv igjen.");
     } finally {
       setMatching(false);
     }
-  }, [selectedSet1, selectedSet2, clientId, clearSelection, router]);
+  }, [selectedSet1, selectedSet2, clientId, router]);
 
   const handleSmartPanelOptionSelect = useCallback(
     (optionId: string) => {
@@ -294,22 +589,11 @@ export function MatchingViewClient({
         return;
       }
 
-      if (optionId === "match") {
-        closeSmartPanel();
-        handleMatch();
-        return;
-      }
-
-      if (optionId === "smartMatch") {
-        setSmartPanelActiveOption(optionId);
-        return;
-      }
-
       if (!pendingCellAction) return;
       const { action, sourceSet } = pendingCellAction;
       const isAmount = action.field === "amount";
-      const otherRows = sourceSet === 1 ? rows2 : rows1;
-      const sameRows = sourceSet === 1 ? rows1 : rows2;
+      const otherRows = sourceSet === 1 ? visibleRows2 : visibleRows1;
+      const sameRows = sourceSet === 1 ? visibleRows1 : visibleRows2;
 
       if (optionId === "counterpartOther") {
         const amount = action.numericValue ?? 0;
@@ -371,7 +655,7 @@ export function MatchingViewClient({
       }
       setSmartPanelActiveOption(optionId);
     },
-    [pendingCellAction, rows1, rows2, findMatchingIds, findCounterpartIds, closeSmartPanel, handleMatch]
+    [pendingCellAction, visibleRows1, visibleRows2, findMatchingIds, findCounterpartIds, handleMatch]
   );
 
   // --- Unmatch action ---
@@ -434,6 +718,63 @@ export function MatchingViewClient({
     return parseFloat(openingBalanceSet2 || "0") + balance2;
   }, [openingBalanceSet2, balance2]);
 
+  // --- Manual transaction dialog state ---
+  const [manualTxOpen, setManualTxOpen] = useState(false);
+  const [manualTxSet, setManualTxSet] = useState<1 | 2>(1);
+  const [manualTxDate, setManualTxDate] = useState("");
+  const [manualTxAmount, setManualTxAmount] = useState("");
+  const [manualTxText, setManualTxText] = useState("");
+  const [manualTxVoucher, setManualTxVoucher] = useState("");
+  const [manualTxAffectBalance, setManualTxAffectBalance] = useState(false);
+  const [manualTxSaving, setManualTxSaving] = useState(false);
+  const [manualTxError, setManualTxError] = useState<string | null>(null);
+
+  const openManualTxDialog = useCallback(() => {
+    setManualTxDate(new Date().toISOString().slice(0, 10));
+    setManualTxAmount("");
+    setManualTxText("");
+    setManualTxVoucher("");
+    setManualTxAffectBalance(false);
+    setManualTxError(null);
+    setManualTxSet(1);
+    setManualTxOpen(true);
+  }, []);
+
+  const handleCreateManualTx = useCallback(async () => {
+    const amount = parseFloat(manualTxAmount.replace(",", "."));
+    if (!manualTxDate || isNaN(amount) || amount === 0 || !manualTxText.trim()) {
+      setManualTxError("Fyll ut dato, beløp (≠ 0) og tekst.");
+      return;
+    }
+    setManualTxSaving(true);
+    setManualTxError(null);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          setNumber: manualTxSet,
+          date: manualTxDate,
+          amount,
+          text: manualTxText.trim(),
+          voucher: manualTxVoucher.trim() || undefined,
+          affectBalance: manualTxAffectBalance,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setManualTxError(data.error ?? "En feil oppstod.");
+        return;
+      }
+      setManualTxOpen(false);
+      router.refresh();
+    } catch {
+      setManualTxError("Nettverksfeil — prøv igjen.");
+    } finally {
+      setManualTxSaving(false);
+    }
+  }, [clientId, manualTxSet, manualTxDate, manualTxAmount, manualTxText, manualTxVoucher, manualTxAffectBalance, router]);
+
   // --- Import dialog state ---
   const [importOpen, setImportOpen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -490,12 +831,7 @@ export function MatchingViewClient({
         return;
       }
 
-      const content = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error("Kunne ikke lese filen"));
-        reader.readAsText(file, "utf-8");
-      });
+      const content = await readFileAsText(file);
 
       if (detected === "csv") {
         setFileContent(content);
@@ -839,55 +1175,109 @@ export function MatchingViewClient({
     setSelectedTxIndices(new Set());
   };
 
-  const [ejectingSet, setEjectingSet] = useState<1 | 2 | null>(null);
-  const ejectSet = useCallback(
-    async (setNumber: 1 | 2) => {
-      setEjectingSet(setNumber);
-      try {
-        const res = await fetch(
-          `/api/clients/${clientId}/matching?setNumber=${setNumber}`,
-          { method: "DELETE" }
-        );
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          setImportError(data.error ?? "Kunne ikke fjerne fil");
-          return;
-        }
-        setImportError(null);
-        router.refresh();
-      } finally {
-        setEjectingSet(null);
-      }
-    },
-    [clientId, router]
-  );
 
-  // --- Keyboard shortcut for matching (M key) ---
+  // --- Keyboard shortcuts and arrow navigation ---
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
       if (e.key === "m" && !e.metaKey && !e.ctrlKey && canMatch && !matching) {
         e.preventDefault();
         handleMatch();
+        return;
       }
-      if (e.key === "Escape" && selectedCount > 0) {
+      if (e.key === "Escape") {
+        if (kbPanel !== null) { setKbPanel(null); return; }
+        if (selectedCount > 0) { clearSelection(); return; }
+        return;
+      }
+
+      // Arrow navigation
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const panel = kbPanel ?? 1;
+        const maxRows = panel === 1 ? rowCount1Ref.current : rowCount2Ref.current;
+        if (maxRows === 0) return;
+
+        if (kbPanel === null) {
+          setKbPanel(panel);
+          setKbRowIndex(0);
+          return;
+        }
+
+        setKbRowIndex((prev) => {
+          if (e.key === "ArrowDown") return Math.min(prev + 1, maxRows - 1);
+          return Math.max(prev - 1, 0);
+        });
+        return;
+      }
+
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const target = e.key === "ArrowLeft" ? 1 : 2;
+        const maxRows = target === 1 ? rowCount1Ref.current : rowCount2Ref.current;
+        if (maxRows === 0) return;
+        setKbPanel(target);
+        setKbRowIndex((prev) => Math.min(prev, maxRows - 1));
+        return;
+      }
+
+      // Space = toggle selection on focused row
+      if (e.key === " " && kbPanel !== null) {
+        e.preventDefault();
+        const ids = kbPanel === 1 ? visibleIds1Ref.current : visibleIds2Ref.current;
+        const txId = ids[kbRowIndex];
+        if (txId) toggleSelect(kbPanel, txId);
+        return;
+      }
+
+      if (e.key === "Enter" && kbPanel !== null && canMatch && !matching) {
+        e.preventDefault();
+        handleMatch();
+        return;
+      }
+
+      // F = toggle focus mode
+      if (e.key === "f" && !e.metaKey && !e.ctrlKey && kbPanel !== null && totalHintCount > 0) {
+        e.preventDefault();
+        setFocusMode((f) => !f);
+        return;
+      }
+
+      // C = select counterparts
+      if (e.key === "c" && !e.metaKey && !e.ctrlKey && kbPanel !== null && totalHintCount > 0) {
+        e.preventDefault();
+        selectCounterparts1();
+        selectCounterparts2();
+        return;
+      }
+
+      // X = clear all selection
+      if (e.key === "x" && !e.metaKey && !e.ctrlKey && kbPanel !== null && selectedCount > 0) {
+        e.preventDefault();
         clearSelection();
+        return;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canMatch, matching, handleMatch, selectedCount, clearSelection]);
+  }, [canMatch, matching, handleMatch, selectedCount, clearSelection, kbPanel, kbRowIndex, toggleSelect, totalHintCount, selectCounterparts1, selectCounterparts2, focusMode]);
 
   return (
     <>
-      <div className="flex h-[calc(100vh-10rem)] flex-col -m-4 p-4">
+      <div className="flex h-[calc(100dvh-4rem)] flex-col -m-2 md:-m-4 p-0">
        <div className="flex flex-1 flex-col min-h-0 rounded-md border overflow-hidden">
         <MatchingToolbar
+          ref={closedBtnRef}
           viewMode={viewMode}
           onViewModeChange={setViewMode}
-          onMatch={handleMatch}
-          matchDisabled={!canMatch || matching}
           onFileManager={() => setFileManagerOpen(true)}
+          onCreateTransaction={openManualTxDialog}
+          closedBtnPulse={closedBtnPulse}
+          dateFrom={globalDateFrom}
+          dateTo={globalDateTo}
+          onDateFromChange={setGlobalDateFrom}
+          onDateToChange={setGlobalDateTo}
         />
 
         {matchError && (
@@ -900,13 +1290,13 @@ export function MatchingViewClient({
 
         {viewMode === "open" ? (
           <>
-          <div className="flex flex-1 min-h-0 gap-[3px] bg-border">
+          <div className="relative flex flex-1 min-h-0 gap-px bg-border">
             <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
-              <div className="flex items-center gap-3 border-b px-3 py-1.5 text-xs shrink-0" data-smart-info={`Overskrift for mengde 1 (${set1Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
-                <span className="font-medium text-muted-foreground">{set1Label}</span>
+              <div className="flex items-center gap-2 border-b px-2 py-1 text-xs shrink-0" data-smart-info={`Overskrift for mengde 1 (${set1Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
+                <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/40 px-2.5 py-0.5 text-xs font-semibold text-violet-700 dark:text-violet-300 ring-1 ring-inset ring-violet-200 dark:ring-violet-800">{set1Label}</span>
                 <span>
                   <span className="text-muted-foreground">Poster:</span>{" "}
-                  <span className="font-medium">{rows1.length}</span>
+                  <span className="font-medium">{visibleRows1.length}</span>
                 </span>
                 <span>
                   <span className="text-muted-foreground">Saldo:</span>{" "}
@@ -927,17 +1317,37 @@ export function MatchingViewClient({
                   <Pencil className="h-3 w-3" />
                 </button>
               </div>
-              {rows1.length > 0 ? (
+              {visibleRows1.length > 0 ? (
                 <TransactionPanel
-                  transactions={rows1}
+                  transactions={visibleRows1}
                   setLabel={set1Label}
-                  onEject={() => ejectSet(1)}
-                  ejecting={ejectingSet === 1}
                   onImportFile={(file) => openImportDialog(file, 1)}
                   onSelect={(id) => toggleSelect(1, id)}
                   selectedIds={selectedSet1}
+                  counterpartHintIds={counterpartHints1}
+                  counterpartSumHintIds={counterpartSumHints1}
+                  matchAnimatingIds={matchAnimatingIds}
+                  matchAnimationPhase={matchAnimationPhase}
                   onCellContextMenu={(a, pos) => handleCellContextMenu(1, a, pos)}
-                  contextFilterIds={contextFilter1}
+                  contextFilterIds={focusFilter1}
+                  onRowAction={handleRowAction}
+                  focusMode={focusMode}
+                  onToggleFocus={() => setFocusMode((f) => !f)}
+                  hintCount={totalHintCount}
+                  onMatch={handleMatch}
+                  canMatch={canMatch}
+                  onSelectCounterparts={selectCounterparts2}
+                  onDeselectCounterparts={deselectCounterparts2}
+                  counterpartsSelected={counterpartsSelected2}
+                  onClearSelection={clearSelection}
+                  hasSelection={selectedCount > 0}
+                  globalDateFrom={globalDateFrom}
+                  globalDateTo={globalDateTo}
+                  focusedRowIndex={kbPanel === 1 ? kbRowIndex : null}
+                  panelActive={kbPanel === 1}
+                  onRequestRowCount={handleRowCount1}
+                  visibleIdsRef={visibleIds1Ref}
+                  onDeactivateKeyboard={() => setKbPanel(null)}
                 />
               ) : (
                 <SetDropzone
@@ -947,12 +1357,12 @@ export function MatchingViewClient({
               )}
             </div>
             <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
-              <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0" data-smart-info={`Overskrift for mengde 2 (${set2Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
-                <span className="text-xs font-medium text-muted-foreground">{set2Label}</span>
-                <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center justify-between border-b px-2 py-1 shrink-0" data-smart-info={`Overskrift for mengde 2 (${set2Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
+                <span className="inline-flex items-center rounded-full bg-brand-subtle px-2.5 py-0.5 text-xs font-semibold text-brand-emphasis ring-1 ring-inset ring-brand-muted">{set2Label}</span>
+                <div className="flex items-center gap-2 text-xs">
                   <span>
                     <span className="text-muted-foreground">Poster:</span>{" "}
-                    <span className="font-medium">{rows2.length}</span>
+                    <span className="font-medium">{visibleRows2.length}</span>
                   </span>
                   <span>
                     <span className="text-muted-foreground">Saldo:</span>{" "}
@@ -974,17 +1384,37 @@ export function MatchingViewClient({
                   </button>
                 </div>
               </div>
-              {rows2.length > 0 ? (
+              {visibleRows2.length > 0 ? (
                 <TransactionPanel
-                  transactions={rows2}
+                  transactions={visibleRows2}
                   setLabel={set2Label}
-                  onEject={() => ejectSet(2)}
-                  ejecting={ejectingSet === 2}
                   onImportFile={(file) => openImportDialog(file, 2)}
                   onSelect={(id) => toggleSelect(2, id)}
                   selectedIds={selectedSet2}
+                  counterpartHintIds={counterpartHints2}
+                  counterpartSumHintIds={counterpartSumHints2}
+                  matchAnimatingIds={matchAnimatingIds}
+                  matchAnimationPhase={matchAnimationPhase}
                   onCellContextMenu={(a, pos) => handleCellContextMenu(2, a, pos)}
-                  contextFilterIds={contextFilter2}
+                  contextFilterIds={focusFilter2}
+                  onRowAction={handleRowAction}
+                  focusMode={focusMode}
+                  onToggleFocus={() => setFocusMode((f) => !f)}
+                  hintCount={totalHintCount}
+                  onMatch={handleMatch}
+                  canMatch={canMatch}
+                  onSelectCounterparts={selectCounterparts1}
+                  onDeselectCounterparts={deselectCounterparts1}
+                  counterpartsSelected={counterpartsSelected1}
+                  onClearSelection={clearSelection}
+                  hasSelection={selectedCount > 0}
+                  globalDateFrom={globalDateFrom}
+                  globalDateTo={globalDateTo}
+                  focusedRowIndex={kbPanel === 2 ? kbRowIndex : null}
+                  panelActive={kbPanel === 2}
+                  onRequestRowCount={handleRowCount2}
+                  visibleIdsRef={visibleIds2Ref}
+                  onDeactivateKeyboard={() => setKbPanel(null)}
                 />
               ) : (
                 <SetDropzone
@@ -993,12 +1423,28 @@ export function MatchingViewClient({
                 />
               )}
             </div>
+
+            {matchSuccessVisible && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <div className={cn(
+                  "match-success-overlay flex flex-col items-center gap-2 rounded-xl bg-background/95 border shadow-lg px-6 py-4 backdrop-blur-sm",
+                  matchSuccessExiting && "exiting"
+                )}>
+                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30">
+                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  </div>
+                  <span className="text-sm font-medium">
+                    {matchCountRef.current} poster matchet
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Status bar — always visible, changes based on selection state */}
           <div
             className={cn(
-              "flex items-center gap-3 border-t px-4 text-sm shrink-0 h-10 transition-colors",
+              "flex items-center gap-2 border-t px-2 text-sm shrink-0 h-9 transition-colors",
               selectedCount > 0
                 ? "bg-blue-50 dark:bg-blue-950/30"
                 : "bg-muted/30"
@@ -1007,13 +1453,13 @@ export function MatchingViewClient({
           >
             {selectedCount > 0 ? (
               <>
-                <span className="font-medium">
+                <span className="flex items-center gap-1.5 font-medium">
                   {selectedSet1.size > 0 && (
-                    <span>{selectedSet1.size} fra {set1Label}</span>
+                    <span className="flex items-center gap-1">{selectedSet1.size} fra <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/40 px-2 py-px text-[11px] font-semibold text-violet-700 dark:text-violet-300">{set1Label}</span></span>
                   )}
-                  {selectedSet1.size > 0 && selectedSet2.size > 0 && <span> + </span>}
+                  {selectedSet1.size > 0 && selectedSet2.size > 0 && <span>+</span>}
                   {selectedSet2.size > 0 && (
-                    <span>{selectedSet2.size} fra {set2Label}</span>
+                    <span className="flex items-center gap-1">{selectedSet2.size} fra <span className="inline-flex items-center rounded-full bg-brand-subtle px-2 py-px text-[11px] font-semibold text-brand-emphasis">{set2Label}</span></span>
                   )}
                 </span>
                 <span className="text-muted-foreground">|</span>
@@ -1028,7 +1474,7 @@ export function MatchingViewClient({
                     (må være 0 for å matche)
                   </span>
                 )}
-                <div className="flex gap-2 ml-auto">
+                <div className="flex gap-1.5 ml-auto">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1052,13 +1498,13 @@ export function MatchingViewClient({
             ) : (
               <>
                 <span className="text-muted-foreground">
-                  {rows1.length === 0 && rows2.length === 0
+                  {visibleRows1.length === 0 && visibleRows2.length === 0
                     ? "Importer filer i begge mengder for å starte matching"
-                    : rows1.length === 0 || rows2.length === 0
+                    : visibleRows1.length === 0 || visibleRows2.length === 0
                       ? "Importer fil i begge mengder for å starte matching"
-                      : "Marker poster i begge mengder og trykk Match (M)"}
+                      : "Marker poster ved å klikke på en rad · Match med M eller Enter"}
                 </span>
-                {(rows1.length > 0 || rows2.length > 0) && (
+                {(visibleRows1.length > 0 || visibleRows2.length > 0) && (
                   <div className="flex items-center gap-4 ml-auto text-xs text-muted-foreground">
                     {matchedGroups.length > 0 && (
                       <span>
@@ -1066,7 +1512,7 @@ export function MatchingViewClient({
                       </span>
                     )}
                     <span>
-                      <span className="font-medium text-foreground">{rows1.length + rows2.length}</span> åpne poster
+                      <span className="font-medium text-foreground">{visibleRows1.length + visibleRows2.length}</span> åpne poster
                     </span>
                   </div>
                 )}
@@ -1124,6 +1570,108 @@ export function MatchingViewClient({
               </Button>
               <Button onClick={handleSaveBalance} disabled={savingBalance}>
                 {savingBalance ? "Lagrer…" : "Lagre"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manual transaction dialog */}
+      <Dialog open={manualTxOpen} onOpenChange={setManualTxOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Opprett korreksjonspost</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Mengde</Label>
+              <div className="flex rounded-md border bg-background p-0.5 text-sm">
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 rounded px-2 py-1.5 font-medium transition-colors",
+                    manualTxSet === 1
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted"
+                  )}
+                  onClick={() => setManualTxSet(1)}
+                >
+                  {set1Label}
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex-1 rounded px-2 py-1.5 font-medium transition-colors",
+                    manualTxSet === 2
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-muted"
+                  )}
+                  onClick={() => setManualTxSet(2)}
+                >
+                  {set2Label}
+                </button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mtx-date">Dato *</Label>
+              <Input
+                id="mtx-date"
+                type="date"
+                value={manualTxDate}
+                onChange={(e) => setManualTxDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mtx-amount">Beløp *</Label>
+              <FormattedAmountInput
+                id="mtx-amount"
+                value={manualTxAmount}
+                onChange={setManualTxAmount}
+              />
+              <p className="text-xs text-muted-foreground">Bruk negativt fortegn for utgifter</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mtx-text">Tekst *</Label>
+              <Textarea
+                id="mtx-text"
+                value={manualTxText}
+                onChange={(e) => setManualTxText(e.target.value)}
+                placeholder="Korreksjonspost..."
+                rows={2}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mtx-voucher">Bilag</Label>
+              <Input
+                id="mtx-voucher"
+                value={manualTxVoucher}
+                onChange={(e) => setManualTxVoucher(e.target.value)}
+                placeholder="Valgfritt"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="mtx-balance"
+                type="checkbox"
+                className="rounded"
+                checked={manualTxAffectBalance}
+                onChange={(e) => setManualTxAffectBalance(e.target.checked)}
+              />
+              <Label htmlFor="mtx-balance" className="cursor-pointer text-sm font-normal">
+                Juster inngående saldo med beløpet
+              </Label>
+            </div>
+            {manualTxError && (
+              <div className="rounded-md border border-destructive/50 bg-destructive/10 text-destructive px-3 py-2 text-sm">
+                {manualTxError}
+              </div>
+            )}
+            <div className="flex gap-2 justify-end pt-2">
+              <Button variant="outline" onClick={() => setManualTxOpen(false)}>
+                Avbryt
+              </Button>
+              <Button onClick={handleCreateManualTx} disabled={manualTxSaving}>
+                {manualTxSaving ? "Oppretter…" : "Opprett"}
               </Button>
             </div>
           </div>
@@ -1445,8 +1993,6 @@ export function MatchingViewClient({
 
         const allOptions = [
           ...options,
-          { id: "match", label: "Match markerte poster", icon: <Link2 className="h-3.5 w-3.5" />, separator: true, disabled: !canMatch, hint: "M" },
-          { id: "smartMatch", label: "Smart match", icon: <Sparkles className="h-3.5 w-3.5" />, disabled: true, hint: "Kommer" },
         ];
 
         const resultLabel = smartPanelActiveOption === "counterpartOther" || smartPanelActiveOption === "filterOther"
@@ -1487,9 +2033,27 @@ export function MatchingViewClient({
                     )}
                   </div>
                   {smartPanelResult.matchCount1 + smartPanelResult.matchCount2 > 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      {smartPanelResult.matchCount1 + smartPanelResult.matchCount2} poster markert og filtrert.
-                    </p>
+                    <>
+                      <p className="text-xs text-muted-foreground">
+                        {smartPanelResult.matchCount1 + smartPanelResult.matchCount2} poster markert og filtrert.
+                      </p>
+                      {canMatch && (
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                          disabled={matching}
+                          onClick={() => handleMatch()}
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
+                          {matching ? "Matcher…" : "Match"}
+                        </button>
+                      )}
+                      {!canMatch && selectedCount >= 2 && (
+                        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                          Differanse: {selectedSum.toLocaleString("nb-NO", { minimumFractionDigits: 2 })} — må gå i 0 for å matche.
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <p className="text-xs text-muted-foreground">
                       Ingen treff i {resultLabel}.

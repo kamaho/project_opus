@@ -122,9 +122,9 @@ export function parseCsv(
       const debitRaw = normalizeAmount(getCell(row, "debit"), config.decimalSeparator);
       const creditVal = parseFloat(creditRaw) || 0;
       const debitVal = parseFloat(debitRaw) || 0;
-      const net = creditVal - debitVal;
-      amountNorm = Math.abs(net).toFixed(2).replace(/\.?0+$/, "") || "0";
-      if (amountNorm === "0") continue;
+      const net = debitVal - creditVal;
+      if (Math.abs(net) < 0.005) continue;
+      amountNorm = net.toFixed(2).replace(/\.?0+$/, "");
     } else {
       const amountRaw = getCell(row, "amount").trim();
       amountNorm = normalizeAmount(amountRaw, config.decimalSeparator);
@@ -194,9 +194,7 @@ export function parseCsv(
     };
 
     if (useCreditDebit) {
-      const creditVal = parseFloat(normalizeAmount(getCell(row, "credit"), config.decimalSeparator)) || 0;
-      const debitVal = parseFloat(normalizeAmount(getCell(row, "debit"), config.decimalSeparator)) || 0;
-      tx.sign = creditVal >= debitVal ? "+" : "-";
+      tx.sign = parseFloat(amountNorm) >= 0 ? "+" : "-";
     } else {
       const signCol = getCell(row, "sign").trim();
       if (signCol === "+" || signCol === "-") {

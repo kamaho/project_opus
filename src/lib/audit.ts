@@ -7,6 +7,7 @@ type AuditAction =
   | "import.restored"
   | "match.created"
   | "match.deleted"
+  | "transaction.created"
   | "rule.created"
   | "rule.updated"
   | "rule.deleted";

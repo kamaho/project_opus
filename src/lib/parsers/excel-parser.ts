@@ -167,9 +167,9 @@ export function parseExcel(buffer: ArrayBuffer, config: ExcelParserConfig): Pars
       const debitRaw = normalizeAmount(get("debit"));
       const creditVal = parseFloat(creditRaw) || 0;
       const debitVal = parseFloat(debitRaw) || 0;
-      const net = creditVal - debitVal;
-      amountNorm = Math.abs(net).toFixed(2).replace(/\.?0+$/, "") || "0";
-      if (amountNorm === "0") continue;
+      const net = debitVal - creditVal;
+      if (Math.abs(net) < 0.005) continue;
+      amountNorm = net.toFixed(2).replace(/\.?0+$/, "");
     } else {
       const amountRaw = get("amount");
       amountNorm = normalizeAmount(amountRaw);
@@ -250,9 +250,7 @@ export function parseExcel(buffer: ArrayBuffer, config: ExcelParserConfig): Pars
     if (!tx.foreignAmount) delete tx.foreignAmount;
 
     if (useCreditDebit) {
-      const creditVal = parseFloat(normalizeAmount(get("credit"))) || 0;
-      const debitVal = parseFloat(normalizeAmount(get("debit"))) || 0;
-      tx.sign = creditVal >= debitVal ? "+" : "-";
+      tx.sign = parseFloat(amountNorm) >= 0 ? "+" : "-";
     } else {
       const signCol = get("sign");
       if (signCol === "+" || signCol === "-") tx.sign = signCol;

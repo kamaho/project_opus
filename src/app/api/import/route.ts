@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { imports, transactions } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { validateClientTenant } from "@/lib/db/tenant";
-import { parseFile, parseExcel } from "@/lib/parsers";
+import { parseFile, parseExcel, decodeTextBuffer } from "@/lib/parsers";
 import type { CsvParserConfig, KlinkParserConfig, ExcelParserConfig } from "@/lib/parsers";
 import { supabase, UPLOAD_BUCKET } from "@/lib/supabase";
 import { z } from "zod";
@@ -217,6 +217,18 @@ export async function POST(request: Request) {
     .limit(1);
 
   if (existingImport && !forceAll && !(selectedIndices && selectedIndices.length > 0)) {
+    await db.insert(imports).values({
+      clientId: cId,
+      setNumber: setNum,
+      filename: file.name,
+      filePath: "",
+      fileHash,
+      fileSize: file.size,
+      recordCount: 0,
+      status: "duplicate",
+      importedBy: userId,
+    });
+
     return NextResponse.json(
       {
         error: "Duplikat",
@@ -255,7 +267,7 @@ export async function POST(request: Request) {
     if (pType === "excel" && excelConfig) {
       parseResult = parseExcel(fileBuffer, excelConfig);
     } else {
-      const content = new TextDecoder().decode(fileBuffer);
+      const content = decodeTextBuffer(fileBuffer);
       parseResult =
         pType === "csv" && csvConfig
           ? parseFile(content, "csv", csvConfig)

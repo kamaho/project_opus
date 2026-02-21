@@ -1,7 +1,9 @@
 "use client";
 
+import { forwardRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Link2, ChevronDown, Upload, FolderOpen, Maximize2 } from "lucide-react";
+import { CalendarDays, FolderOpen, PenLine, X } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type ViewMode = "open" | "closed";
@@ -9,42 +11,30 @@ export type ViewMode = "open" | "closed";
 interface MatchingToolbarProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  onMatch?: () => void;
-  matchDisabled?: boolean;
   onFileManager?: () => void;
+  onCreateTransaction?: () => void;
+  closedBtnPulse?: boolean;
+  dateFrom: string;
+  dateTo: string;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
 }
 
-export function MatchingToolbar({
+export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProps>(function MatchingToolbar({
   viewMode,
   onViewModeChange,
-  onMatch,
-  matchDisabled = true,
   onFileManager,
-}: MatchingToolbarProps) {
+  onCreateTransaction,
+  closedBtnPulse,
+  dateFrom,
+  dateTo,
+  onDateFromChange,
+  onDateToChange,
+}, closedBtnRef) {
+  const hasDateFilter = dateFrom || dateTo;
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b bg-muted/30 px-4 py-2" data-smart-info="Verktøylinjen for matching. Inneholder handlinger for å matche, søke og administrere poster.">
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant="outline" className="gap-1" disabled data-smart-info="Smart match analyserer automatisk transaksjonene og foreslår matchinger basert på beløp, dato og tekst.">
-          <Sparkles className="h-3.5 w-3.5" />
-          Smart match <span className="text-muted-foreground text-xs">A</span>
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="gap-1"
-          disabled={matchDisabled}
-          onClick={onMatch}
-          data-smart-info="Match kobler markerte poster fra begge mengder. Summen må være 0 for å matche. Hurtigtast: M"
-        >
-          <Link2 className="h-3.5 w-3.5" />
-          Match <span className="text-muted-foreground text-xs">M</span>
-        </Button>
-        <Button size="sm" variant="outline" disabled data-smart-info="Transaksjonshandlinger lar deg utføre masseoperasjoner på markerte transaksjoner.">
-          Transaksjonshandlinger
-          <ChevronDown className="h-3.5 w-3.5 ml-1" />
-        </Button>
-      </div>
-      <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-auto" data-smart-info="Veksle mellom å vise åpne (umatchede) poster eller lukkede (matchede) poster.">
+    <div className="flex items-center gap-2 border-b bg-muted/30 px-2 py-1.5" data-smart-info="Verktøylinjen for matching. Inneholder handlinger for å matche, søke og administrere poster.">
+      <div className="flex items-center gap-2" data-smart-info="Veksle mellom å vise åpne (umatchede) poster eller lukkede (matchede) poster.">
         <span className="text-muted-foreground text-sm whitespace-nowrap">Vis poster:</span>
         <div className="flex rounded-md border bg-background p-0.5 text-sm">
           <button
@@ -61,12 +51,14 @@ export function MatchingToolbar({
             Åpne
           </button>
           <button
+            ref={closedBtnRef}
             type="button"
             className={cn(
               "rounded px-2 py-1 font-medium transition-colors",
               viewMode === "closed"
                 ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted"
+                : "text-muted-foreground hover:bg-muted",
+              closedBtnPulse && "closed-btn-pulse"
             )}
             onClick={() => onViewModeChange("closed")}
             data-smart-info="Vis lukkede poster — transaksjoner som allerede er matchet og avstemt."
@@ -75,23 +67,62 @@ export function MatchingToolbar({
           </button>
         </div>
       </div>
-      <div className="flex gap-1">
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8"
-          onClick={onFileManager}
-          data-smart-info="Filbehandler — administrer importerte filer, se importhistorikk og slett filer."
-        >
-          <FolderOpen className="h-4 w-4" />
-        </Button>
-        <Button size="icon" variant="ghost" className="h-8 w-8" disabled data-smart-info="Last opp fil — importer ny fil til en av mengdene.">
-          <Upload className="h-4 w-4" />
-        </Button>
-        <Button size="icon" variant="ghost" className="h-8 w-8" disabled data-smart-info="Fullskjerm — utvid matchingvisningen til hele skjermen.">
-          <Maximize2 className="h-4 w-4" />
-        </Button>
-      </div>
+      <TooltipProvider>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1">
+            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => onDateFromChange(e.target.value)}
+              className="h-7 w-[118px] rounded-md border bg-transparent px-1.5 text-xs tabular-nums"
+            />
+            <span className="text-xs text-muted-foreground">–</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => onDateToChange(e.target.value)}
+              className="h-7 w-[118px] rounded-md border bg-transparent px-1.5 text-xs tabular-nums"
+            />
+            {hasDateFilter && (
+              <button
+                type="button"
+                className="p-0.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => { onDateFromChange(""); onDateToChange(""); }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="w-px h-5 bg-border mx-0.5" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={onCreateTransaction}
+              >
+                <PenLine className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Opprett korreksjonspost</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={onFileManager}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Filbehandler</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
     </div>
   );
-}
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { parseFile, detectFileType } from "@/lib/parsers";
+import { parseFile, detectFileType, readFileAsText } from "@/lib/parsers";
 import type { ParsedTransaction, CsvParserConfig } from "@/lib/parsers";
 import { FileDropzone } from "@/components/import/file-dropzone";
 import { ImportPreview } from "@/components/import/import-preview";
@@ -49,17 +49,14 @@ export function ImportPageClient({ clientId }: { clientId: string }) {
     const pType = detected === "camt" ? "camt" : "csv";
     setParserType(pType);
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const content = String(reader.result);
+    readFileAsText(f).then((content) => {
       const config: CsvParserConfig | undefined =
         pType === "csv"
           ? { ...DEFAULT_CSV_CONFIG, delimiter: csvDelimiter }
           : undefined;
       const out = parseFile(content, pType, config);
       setPreview({ transactions: out.transactions, errors: out.errors });
-    };
-    reader.readAsText(f, "utf-8");
+    });
   }, [csvDelimiter]);
 
   const handleImport = async () => {
@@ -153,15 +150,13 @@ export function ImportPageClient({ clientId }: { clientId: string }) {
               const delim = v as ";" | "," | "\t";
               setCsvDelimiter(delim);
               if (file) {
-                const reader = new FileReader();
-                reader.onload = () => {
-                  const out = parseFile(String(reader.result), "csv", {
+                readFileAsText(file).then((content) => {
+                  const out = parseFile(content, "csv", {
                     ...DEFAULT_CSV_CONFIG,
                     delimiter: delim,
                   });
                   setPreview({ transactions: out.transactions, errors: out.errors });
-                };
-                reader.readAsText(file, "utf-8");
+                });
               }
             }}
           >
