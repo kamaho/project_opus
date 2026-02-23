@@ -12,6 +12,8 @@ import { SmartPanel, type SmartPanelOption } from "@/components/smart-panel/smar
 const ATTACH_COL_WIDTH = 28;
 const DEFAULT_COLUMN_WIDTHS = { date: 86, amount: 105, voucher: 80, notat: 100, text: 180 };
 const MIN_COLUMN_WIDTH = 50;
+const MAX_COLUMN_WIDTH = 600;
+const CELL_PADDING_X = 16;
 const ROW_HEIGHT = 32;
 const OVERSCAN = 20;
 const DEFAULT_COLUMN_ORDER: ColumnKey[] = ["date", "amount", "voucher", "notat", "text"];
@@ -253,6 +255,7 @@ export function TransactionPanel({
   const [columnFilters, setColumnFilters] = useState<Partial<Record<SortKey, string>>>({});
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [onlyWithAttachment, setOnlyWithAttachment] = useState(false);
 
   const toggleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -280,6 +283,10 @@ export function TransactionPanel({
     }
     if (globalDateTo) {
       rows = rows.filter((tx) => tx.date <= globalDateTo);
+    }
+
+    if (onlyWithAttachment) {
+      rows = rows.filter((tx) => tx.hasAttachment);
     }
 
     const q = globalSearch.toLowerCase().trim();
@@ -316,7 +323,7 @@ export function TransactionPanel({
     }
 
     return rows;
-  }, [transactions, globalSearch, columnFilters, sortKey, sortDir, contextFilterIds, globalDateFrom, globalDateTo]);
+  }, [transactions, globalSearch, columnFilters, sortKey, sortDir, contextFilterIds, globalDateFrom, globalDateTo, onlyWithAttachment]);
 
   useEffect(() => {
     onRequestRowCount?.(filteredAndSorted.length);
@@ -484,6 +491,40 @@ export function TransactionPanel({
     return labels;
   }, [defaultLabels, colAliases]);
 
+  const measureText = useCallback((text: string, mono: boolean): number => {
+    const el = document.createElement("span");
+    el.style.cssText = "position:fixed;left:-9999px;visibility:hidden;white-space:nowrap;font-size:14px;";
+    if (mono) el.style.fontFamily = "ui-monospace, monospace";
+    el.textContent = text || "—";
+    document.body.appendChild(el);
+    const w = el.getBoundingClientRect().width;
+    document.body.removeChild(el);
+    return w;
+  }, []);
+
+  const handleResizeDoubleClick = useCallback(
+    (col: ColumnKey) => {
+      const headerLabel = columnLabels[col];
+      let maxW = measureText(headerLabel, col === "amount");
+      for (const tx of filteredAndSorted) {
+        const s =
+          col === "date"
+            ? tx.date
+            : col === "amount"
+              ? (tx.amount >= 0 ? "" : "−") + formatNO(tx.amount)
+              : col === "voucher"
+                ? tx.voucher ?? "—"
+                : col === "notat"
+                  ? tx.notat ?? "—"
+                  : tx.text;
+        maxW = Math.max(maxW, measureText(s, col === "amount"));
+      }
+      const width = Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.ceil(maxW) + CELL_PADDING_X));
+      setColWidths((prev) => ({ ...prev, [col]: width }));
+    },
+    [columnLabels, filteredAndSorted, measureText]
+  );
+
   const handleHeaderContextMenu = useCallback((col: ColumnKey, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -567,12 +608,13 @@ export function TransactionPanel({
     }
   }, [inlineSearchCol]);
 
-  const hasActiveFilters = globalSearch || Object.values(columnFilters).some((v) => v?.trim());
+  const hasActiveFilters = globalSearch || Object.values(columnFilters).some((v) => v?.trim()) || onlyWithAttachment;
 
   const clearAllFilters = useCallback(() => {
     setGlobalSearch("");
     setColumnFilters({});
     setInlineSearchCol(null);
+    setOnlyWithAttachment(false);
   }, []);
 
   const tableMinWidth = 32 + ATTACH_COL_WIDTH + colOrder.reduce((sum, col) => sum + colWidths[col], 0);
@@ -657,8 +699,16 @@ export function TransactionPanel({
               <th className="w-8 p-2 text-left shrink-0">
                 <input type="checkbox" className="rounded" aria-label="Velg alle" />
               </th>
-              <th className="p-0" style={{ width: ATTACH_COL_WIDTH }}>
-                <Paperclip className="h-3 w-3 mx-auto text-muted-foreground/50" />
+              <th
+                className={cn(
+                  "p-0 cursor-pointer hover:bg-muted/50 transition-colors",
+                  onlyWithAttachment && "bg-primary/10"
+                )}
+                style={{ width: ATTACH_COL_WIDTH }}
+                title={onlyWithAttachment ? "Kun med vedlegg – klikk for å fjerne filter" : "Klikk for kun å vise poster med vedlegg"}
+                onClick={() => setOnlyWithAttachment((prev) => !prev)}
+              >
+                <Paperclip className={cn("h-3 w-3 mx-auto", onlyWithAttachment ? "text-green-600" : "text-muted-foreground/50")} />
               </th>
               {colOrder.map((col) => {
                 const isSearching = inlineSearchCol === col;
@@ -722,10 +772,15 @@ export function TransactionPanel({
                     {!isSearching && (
                       <span
                         role="separator"
-                        aria-label="Juster kolonnebredde"
+                        aria-label="Juster kolonnebredde. Dobbelklikk for å tilpasse bredde til innhold."
                         className="absolute top-0 bottom-0 right-0 w-3 cursor-col-resize flex items-center justify-center"
                         onMouseDown={(e) => handleResizeStart(col, e)}
                         onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleResizeDoubleClick(col);
+                        }}
                       >
                         <span className={cn(
                           "w-[3px] h-3/5 rounded-full bg-border/70 transition-colors group-hover/th:bg-border hover:!bg-primary/50 active:!bg-primary/60",
@@ -793,10 +848,13 @@ export function TransactionPanel({
                       onMouseLeave={() => {
                         const rowId = tx.id;
                         requestAnimationFrame(() => {
-                          const { x, y } = lastMousePos.current;
-                          const el = document.elementFromPoint(x, y);
-                          if (el?.closest(`tr[data-tx-id="${rowId}"]`) || el?.closest(`[data-row-toolbar="${rowId}"]`)) return;
-                          setHoveredRowId(null);
+                          setHoveredRowId((current) => {
+                            if (current !== rowId) return current;
+                            const { x, y } = lastMousePos.current;
+                            const el = document.elementFromPoint(x, y);
+                            if (el?.closest(`tr[data-tx-id="${rowId}"]`) || el?.closest(`[data-row-toolbar="${rowId}"]`)) return current;
+                            return null;
+                          });
                         });
                       }}
                       onClick={() => handleRowClick(tx.id)}
@@ -829,7 +887,7 @@ export function TransactionPanel({
                         const hoverToolbar = rowToolbarVisible ? (
                           <TooltipProvider>
                             <div
-                              className="row-action-bar absolute right-1 top-0 -translate-y-3/4 flex items-center gap-px rounded-md border bg-background shadow-md z-20"
+                              className="row-action-bar absolute right-1.5 top-0 -translate-y-3/4 flex items-center gap-px rounded-md border bg-background shadow-md z-20"
                               data-row-toolbar={tx.id}
                               title=""
                               onClick={(e) => e.stopPropagation()}
@@ -950,65 +1008,69 @@ export function TransactionPanel({
                             </div>
                           </TooltipProvider>
                         ) : null;
-                        return colOrder.map((col) => {
-                          const isLastCol = col === colOrder[colOrder.length - 1];
-                          if (col === "text") {
-                            return (
-                              <td
-                                key={col}
-                                className="relative"
-                                style={{ width: colWidths.text }}
-                                onContextMenu={(e) => {
-                                  if (!onCellContextMenu) return;
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  onCellContextMenu(makeAction("text"), { x: e.clientX, y: e.clientY });
-                                }}
-                              >
-                                <span className={cn("block p-2 truncate", isLastCol && "pr-8")}>
-                                  {tx.text}
-                                </span>
-                                {isLastCol && hoverToolbar}
-                              </td>
-                            );
-                          }
-                          const cellDef = col === "date"
-                            ? { content: tx.date as React.ReactNode, className: "p-2 truncate overflow-hidden" }
-                            : col === "amount"
-                              ? { content: <>{tx.amount >= 0 ? "" : "−"}{formatNO(tx.amount)}</> as React.ReactNode, className: cn("p-2 text-right font-mono truncate overflow-hidden", tx.amount < 0 && "text-destructive") }
-                              : col === "voucher"
-                                ? { content: (tx.voucher ?? "—") as React.ReactNode, className: "p-2 text-muted-foreground truncate" }
-                                : { content: tx.notat ? (
-                                    <button
-                                      type="button"
-                                      className="text-left truncate w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
-                                      onClick={(e) => { e.stopPropagation(); onRowAction?.(tx.id, "note"); }}
-                                      title={tx.notat}
-                                    >
-                                      {tx.notat.split(/\s+/).slice(0, 5).join(" ")}{tx.notat.split(/\s+/).length > 5 ? "…" : ""}
-                                    </button>
-                                  ) : (
-                                    <span className="text-muted-foreground/30 text-xs">—</span>
-                                  ) as React.ReactNode, className: "p-2 truncate overflow-hidden" };
-                          return (
-                            <td
-                              key={col}
-                              className={cn(cellDef.className, isLastCol && "relative")}
-                              style={{ width: colWidths[col] }}
-                              onContextMenu={(e) => {
-                                if (!onCellContextMenu) return;
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onCellContextMenu(makeAction(col as CellField), { x: e.clientX, y: e.clientY });
-                              }}
-                            >
-                              {isLastCol ? <span className="block p-2 truncate pr-8">{cellDef.content}</span> : cellDef.content}
-                              {isLastCol && hoverToolbar}
+                        return (
+                          <>
+                            {colOrder.map((col) => {
+                              const isLastCol = col === colOrder[colOrder.length - 1];
+                              if (col === "text") {
+                                return (
+                                  <td
+                                    key={col}
+                                    className="relative"
+                                    style={{ width: colWidths.text }}
+                                    onContextMenu={(e) => {
+                                      if (!onCellContextMenu) return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      onCellContextMenu(makeAction("text"), { x: e.clientX, y: e.clientY });
+                                    }}
+                                  >
+                                    <span className={cn("block p-2 truncate", isLastCol && "pr-8")}>
+                                      {tx.text}
+                                    </span>
+                                  </td>
+                                );
+                              }
+                              const cellDef = col === "date"
+                                ? { content: tx.date as React.ReactNode, className: "p-2 truncate overflow-hidden" }
+                                : col === "amount"
+                                  ? { content: <>{tx.amount >= 0 ? "" : "−"}{formatNO(tx.amount)}</> as React.ReactNode, className: cn("p-2 text-right font-mono truncate overflow-hidden", tx.amount < 0 && "text-destructive") }
+                                  : col === "voucher"
+                                    ? { content: (tx.voucher ?? "—") as React.ReactNode, className: "p-2 text-muted-foreground truncate" }
+                                    : { content: tx.notat ? (
+                                        <button
+                                          type="button"
+                                          className="text-left truncate w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                          onClick={(e) => { e.stopPropagation(); onRowAction?.(tx.id, "note"); }}
+                                          title={tx.notat}
+                                        >
+                                          {tx.notat.split(/\s+/).slice(0, 5).join(" ")}{tx.notat.split(/\s+/).length > 5 ? "…" : ""}
+                                        </button>
+                                      ) : (
+                                        <span className="text-muted-foreground/30 text-xs">—</span>
+                                      ) as React.ReactNode, className: "p-2 truncate overflow-hidden" };
+                              return (
+                                <td
+                                  key={col}
+                                  className={cn(cellDef.className, isLastCol && "relative")}
+                                  style={{ width: colWidths[col] }}
+                                  onContextMenu={(e) => {
+                                    if (!onCellContextMenu) return;
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    onCellContextMenu(makeAction(col as CellField), { x: e.clientX, y: e.clientY });
+                                  }}
+                                >
+                                  {isLastCol ? <span className="block p-2 truncate pr-8">{cellDef.content}</span> : cellDef.content}
+                                </td>
+                              );
+                            })}
+                            <td className="relative p-0 align-top">
+                              {hoverToolbar}
                             </td>
-                          );
-                        });
+                          </>
+                        );
                       })()}
-                      <td />
                     </tr>
                   );
                 })}
