@@ -1,9 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { Button } from "@/components/ui/button";
-import { CalendarDays, FolderOpen, PenLine, X } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CalendarDays, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type ViewMode = "open" | "closed";
@@ -11,8 +9,6 @@ export type ViewMode = "open" | "closed";
 interface MatchingToolbarProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  onFileManager?: () => void;
-  onCreateTransaction?: () => void;
   closedBtnPulse?: boolean;
   dateFrom: string;
   dateTo: string;
@@ -23,8 +19,6 @@ interface MatchingToolbarProps {
 export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProps>(function MatchingToolbar({
   viewMode,
   onViewModeChange,
-  onFileManager,
-  onCreateTransaction,
   closedBtnPulse,
   dateFrom,
   dateTo,
@@ -67,9 +61,8 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
           </button>
         </div>
       </div>
-      <TooltipProvider>
-        <div className="flex items-center gap-1.5 ml-auto">
-          <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1.5 ml-auto">
+        <div className="flex items-center gap-1">
             <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
             <input
               type="date"
@@ -93,36 +86,8 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
-          </div>
-          <div className="w-px h-5 bg-border mx-0.5" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-                onClick={onCreateTransaction}
-              >
-                <PenLine className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Opprett korreksjonspost</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-7 w-7"
-                onClick={onFileManager}
-              >
-                <FolderOpen className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Filbehandler</TooltipContent>
-          </Tooltip>
         </div>
-      </TooltipProvider>
+      </div>
     </div>
   );
 });

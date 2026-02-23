@@ -41,6 +41,8 @@ interface FileManagerPanelProps {
   clientId: string;
   set1Label: string;
   set2Label: string;
+  /** When set, only show imports for this mengde (1 or 2). */
+  setNumber?: 1 | 2;
   onRefresh: () => void;
 }
 
@@ -52,6 +54,7 @@ export function FileManagerPanel({
   clientId,
   set1Label,
   set2Label,
+  setNumber,
   onRefresh,
 }: FileManagerPanelProps) {
   const [imports, setImports] = useState<ImportRecord[]>([]);
@@ -128,9 +131,10 @@ export function FileManagerPanel({
     }
   };
 
-  const activeImports = imports.filter((i) => !i.isDeleted && i.status === "completed");
-  const deletedImports = imports.filter((i) => i.isDeleted && i.status !== "duplicate");
-  const duplicateImports = imports.filter((i) => i.status === "duplicate" && !i.isDeleted);
+  const bySet = (i: ImportRecord) => setNumber == null || i.setNumber === setNumber;
+  const activeImports = imports.filter((i) => bySet(i) && !i.isDeleted && i.status === "completed");
+  const deletedImports = imports.filter((i) => bySet(i) && i.isDeleted && i.status !== "duplicate");
+  const duplicateImports = imports.filter((i) => bySet(i) && i.status === "duplicate" && !i.isDeleted);
 
   const setLabel = (setNum: number) => (setNum === 1 ? set1Label : set2Label);
 
@@ -162,9 +166,13 @@ export function FileManagerPanel({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col">
         <SheetHeader>
-          <SheetTitle>Filbehandler</SheetTitle>
+          <SheetTitle>
+            Filbehandler{setNumber != null ? ` — ${setNumber === 1 ? set1Label : set2Label}` : ""}
+          </SheetTitle>
           <SheetDescription>
-            Administrer importerte filer. Slett enkeltfiler eller gjenopprett slettede.
+            {setNumber != null
+              ? `Kun importerte filer for ${setNumber === 1 ? set1Label : set2Label}. Slett eller gjenopprett.`
+              : "Administrer importerte filer. Slett enkeltfiler eller gjenopprett slettede."}
           </SheetDescription>
         </SheetHeader>
 

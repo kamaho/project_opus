@@ -20,13 +20,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, CheckCircle2, Copy, Link2, Search, X, Pencil } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, FileDown, Link2, Search, X, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SmartPanel } from "@/components/smart-panel/smart-panel";
 import { NotePopover } from "@/components/matching/note-popover";
 import { NoteDialog } from "@/components/matching/note-dialog";
 import { AttachmentPopover } from "@/components/matching/attachment-popover";
 import { AttachmentDialog } from "@/components/matching/attachment-dialog";
+import { ExportModal } from "@/components/export/export-modal";
+import { ExportIntroOverlay } from "@/components/export/export-intro-overlay";
 
 const ImportPreview = dynamic(
   () => import("@/components/import/import-preview").then((m) => ({ default: m.ImportPreview })),
@@ -174,6 +176,10 @@ export function MatchingViewClient({
 
   // --- View mode ---
   const [viewMode, setViewMode] = useState<ViewMode>("open");
+
+  // --- Export ---
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportGenerating, setExportGenerating] = useState(false);
 
   // --- Global date filter (shared across both panels) ---
   const [globalDateFrom, setGlobalDateFrom] = useState("");
@@ -798,14 +804,14 @@ export function MatchingViewClient({
   const [manualTxSaving, setManualTxSaving] = useState(false);
   const [manualTxError, setManualTxError] = useState<string | null>(null);
 
-  const openManualTxDialog = useCallback(() => {
+  const openManualTxDialog = useCallback((setNumber: 1 | 2) => {
     setManualTxDate(new Date().toISOString().slice(0, 10));
     setManualTxAmount("");
     setManualTxText("");
     setManualTxVoucher("");
     setManualTxAffectBalance(false);
     setManualTxError(null);
-    setManualTxSet(1);
+    setManualTxSet(setNumber);
     setManualTxOpen(true);
   }, []);
 
@@ -861,7 +867,7 @@ export function MatchingViewClient({
   const [wizardRawRows, setWizardRawRows] = useState<string[][] | null>(null);
   const [excelBuffer, setExcelBuffer] = useState<ArrayBuffer | null>(null);
 
-  const [fileManagerOpen, setFileManagerOpen] = useState(false);
+  const [fileManagerSet, setFileManagerSet] = useState<1 | 2 | null>(null);
 
   const [dupReport, setDupReport] = useState<DuplicateReport | null>(null);
   const [dupDialogOpen, setDupDialogOpen] = useState(false);
@@ -1336,17 +1342,36 @@ export function MatchingViewClient({
     <>
       <div className="flex h-[calc(100dvh-4rem)] flex-col -m-2 md:-m-4 p-0">
        <div className="flex flex-1 flex-col min-h-0 rounded-md border overflow-hidden">
-        <MatchingToolbar
-          ref={closedBtnRef}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
-          onFileManager={() => setFileManagerOpen(true)}
-          onCreateTransaction={openManualTxDialog}
-          closedBtnPulse={closedBtnPulse}
-          dateFrom={globalDateFrom}
-          dateTo={globalDateTo}
-          onDateFromChange={setGlobalDateFrom}
-          onDateToChange={setGlobalDateTo}
+        <div className="flex items-center shrink-0">
+          <div className="flex-1 min-w-0">
+            <MatchingToolbar
+              ref={closedBtnRef}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              closedBtnPulse={closedBtnPulse}
+              dateFrom={globalDateFrom}
+              dateTo={globalDateTo}
+              onDateFromChange={setGlobalDateFrom}
+              onDateToChange={setGlobalDateTo}
+            />
+          </div>
+        </div>
+
+        <ExportModal
+          open={exportOpen && !exportGenerating}
+          onOpenChange={setExportOpen}
+          module="matching"
+          title={viewMode === "open" ? "Eksporter åpne poster" : "Eksporter lukkede poster"}
+          getPayload={() => ({
+            matchingParams: {
+              clientId,
+              reportType: viewMode,
+              dateFrom: globalDateFrom || undefined,
+              dateTo: globalDateTo || undefined,
+            },
+          })}
+          onGeneratingStart={() => setExportGenerating(true)}
+          onGeneratingEnd={() => setExportGenerating(false)}
         />
 
         {matchError && (
@@ -1392,6 +1417,7 @@ export function MatchingViewClient({
                   setLabel={set1Label}
                   onImportFile={(file) => openImportDialog(file, 1)}
                   onSelect={(id) => toggleSelect(1, id)}
+                  onSelectAll={(ids) => setSelectedSet1(new Set(ids))}
                   selectedIds={selectedSet1}
                   counterpartHintIds={counterpartHints1}
                   counterpartSumHintIds={counterpartSumHints1}
@@ -1418,6 +1444,8 @@ export function MatchingViewClient({
                   visibleIdsRef={visibleIds1Ref}
                   onDeactivateKeyboard={() => setKbPanel(null)}
                   highlightTxId={highlightTxId}
+                  onFileManager={() => setFileManagerSet(1)}
+                  onCreateTransaction={() => openManualTxDialog(1)}
                 />
               ) : (
                 <SetDropzone
@@ -1460,6 +1488,7 @@ export function MatchingViewClient({
                   setLabel={set2Label}
                   onImportFile={(file) => openImportDialog(file, 2)}
                   onSelect={(id) => toggleSelect(2, id)}
+                  onSelectAll={(ids) => setSelectedSet2(new Set(ids))}
                   selectedIds={selectedSet2}
                   counterpartHintIds={counterpartHints2}
                   counterpartSumHintIds={counterpartSumHints2}
@@ -1486,6 +1515,8 @@ export function MatchingViewClient({
                   visibleIdsRef={visibleIds2Ref}
                   onDeactivateKeyboard={() => setKbPanel(null)}
                   highlightTxId={highlightTxId}
+                  onFileManager={() => setFileManagerSet(2)}
+                  onCreateTransaction={() => openManualTxDialog(2)}
                 />
               ) : (
                 <SetDropzone
@@ -1545,7 +1576,7 @@ export function MatchingViewClient({
                     (må være 0 for å matche)
                   </span>
                 )}
-                <div className="flex gap-1.5 ml-auto">
+                <div className="flex items-center gap-2 ml-auto shrink-0">
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1564,44 +1595,92 @@ export function MatchingViewClient({
                     <Link2 className="h-3.5 w-3.5" />
                     {matching ? "Matcher…" : "Match"}
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
+                    onClick={() => {
+                      setExportOpen(true);
+                    }}
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Eksporter
+                  </Button>
                 </div>
               </>
             ) : (
               <>
-                <span className="text-muted-foreground">
+                <span className="text-muted-foreground min-w-0 truncate">
                   {visibleRows1.length === 0 && visibleRows2.length === 0
                     ? "Importer filer i begge mengder for å starte matching"
                     : visibleRows1.length === 0 || visibleRows2.length === 0
                       ? "Importer fil i begge mengder for å starte matching"
                       : "Marker poster ved å klikke på en rad · Match med M eller Enter"}
                 </span>
-                {(visibleRows1.length > 0 || visibleRows2.length > 0) && (
-                  <div className="flex items-center gap-4 ml-auto text-xs text-muted-foreground">
-                    {matchedGroups.length > 0 && (
+                <div className="flex items-center gap-2 ml-auto shrink-0">
+                  {(visibleRows1.length > 0 || visibleRows2.length > 0) && (
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      {matchedGroups.length > 0 && (
+                        <span>
+                          <span className="font-medium text-foreground">{matchedGroups.length}</span> matchgrupper
+                        </span>
+                      )}
                       <span>
-                        <span className="font-medium text-foreground">{matchedGroups.length}</span> matchgrupper
+                        <span className="font-medium text-foreground">{visibleRows1.length + visibleRows2.length}</span> åpne poster
                       </span>
-                    )}
-                    <span>
-                      <span className="font-medium text-foreground">{visibleRows1.length + visibleRows2.length}</span> åpne poster
-                    </span>
-                  </div>
-                )}
+                    </div>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
+                    onClick={() => setExportOpen(true)}
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Eksporter
+                  </Button>
+                </div>
               </>
             )}
           </div>
           </>
         ) : (
-          <MatchedGroupsView
-            groups={matchedGroups}
-            onUnmatch={handleUnmatch}
-            unmatchingId={unmatchingId}
-            set1Label={set1Label}
-            set2Label={set2Label}
-          />
+          <>
+            <MatchedGroupsView
+              groups={matchedGroups}
+              onUnmatch={handleUnmatch}
+              unmatchingId={unmatchingId}
+              set1Label={set1Label}
+              set2Label={set2Label}
+            />
+            <div className="flex items-center gap-2 border-t px-2 text-sm shrink-0 h-9 bg-muted/30">
+              <div className="flex-1 min-w-0" aria-hidden />
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
+                onClick={() => setExportOpen(true)}
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Eksporter
+              </Button>
+            </div>
+          </>
         )}
        </div>
       </div>
+
+      {/* Export generating: animation while file is being created (after "Last ned" in modal) */}
+      {exportGenerating && (
+        <ExportIntroOverlay
+          viewMode={viewMode}
+          openCount={visibleRows1.length + visibleRows2.length}
+          matchedCount={matchedGroups.length}
+          mode="generating"
+          onComplete={() => setExportGenerating(false)}
+          onSkip={() => setExportGenerating(false)}
+        />
+      )}
 
       {/* Opening balance dialog */}
       <Dialog open={balanceDialogOpen} onOpenChange={setBalanceDialogOpen}>
@@ -1651,38 +1730,9 @@ export function MatchingViewClient({
       <Dialog open={manualTxOpen} onOpenChange={setManualTxOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Opprett korreksjonspost</DialogTitle>
+            <DialogTitle>Opprett korreksjonspost — {manualTxSet === 1 ? set1Label : set2Label}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Mengde</Label>
-              <div className="flex rounded-md border bg-background p-0.5 text-sm">
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 rounded px-2 py-1.5 font-medium transition-colors",
-                    manualTxSet === 1
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted"
-                  )}
-                  onClick={() => setManualTxSet(1)}
-                >
-                  {set1Label}
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex-1 rounded px-2 py-1.5 font-medium transition-colors",
-                    manualTxSet === 2
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted"
-                  )}
-                  onClick={() => setManualTxSet(2)}
-                >
-                  {set2Label}
-                </button>
-              </div>
-            </div>
             <div className="space-y-1.5">
               <Label htmlFor="mtx-date">Dato *</Label>
               <Input
@@ -2029,11 +2079,12 @@ export function MatchingViewClient({
 
       {/* File manager panel */}
       <FileManagerPanel
-        open={fileManagerOpen}
-        onOpenChange={setFileManagerOpen}
+        open={fileManagerSet !== null}
+        onOpenChange={(open) => { if (!open) setFileManagerSet(null); }}
         clientId={clientId}
         set1Label={set1Label}
         set2Label={set2Label}
+        setNumber={fileManagerSet ?? undefined}
         onRefresh={() => router.refresh()}
       />
 

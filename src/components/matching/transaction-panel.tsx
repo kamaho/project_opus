@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Columns3, Focus, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Search, SortAsc, SortDesc, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Columns3, Focus, FolderOpen, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, PenLine, Pencil, Search, SortAsc, SortDesc, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SmartPanel, type SmartPanelOption } from "@/components/smart-panel/smart-panel";
@@ -45,6 +45,7 @@ interface TransactionPanelProps {
   title?: string;
   transactions: TransactionRow[];
   onSelect?: (id: string) => void;
+  onSelectAll?: (ids: string[]) => void;
   selectedIds?: Set<string>;
   counterpartHintIds?: Set<string>;
   counterpartSumHintIds?: Set<string>;
@@ -73,6 +74,8 @@ interface TransactionPanelProps {
   visibleIdsRef?: React.MutableRefObject<string[]>;
   onDeactivateKeyboard?: () => void;
   highlightTxId?: string | null;
+  onFileManager?: () => void;
+  onCreateTransaction?: () => void;
 }
 
 type ColumnKey = keyof typeof DEFAULT_COLUMN_WIDTHS;
@@ -102,6 +105,7 @@ export function TransactionPanel({
   title,
   transactions,
   onSelect,
+  onSelectAll,
   selectedIds = new Set(),
   counterpartHintIds,
   counterpartSumHintIds,
@@ -130,6 +134,8 @@ export function TransactionPanel({
   visibleIdsRef,
   onDeactivateKeyboard,
   highlightTxId,
+  onFileManager,
+  onCreateTransaction,
 }: TransactionPanelProps) {
   const [colWidths, setColWidths] = useState(DEFAULT_COLUMN_WIDTHS);
   const [colOrder, setColOrder] = useState<ColumnKey[]>(DEFAULT_COLUMN_ORDER);
@@ -143,6 +149,7 @@ export function TransactionPanel({
   const [showAllInSettings, setShowAllInSettings] = useState(true);
   const [inlineSearchCol, setInlineSearchCol] = useState<ColumnKey | null>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [searchExpanded, setSearchExpanded] = useState(false);
   const inlineSearchRef = useRef<HTMLInputElement>(null);
   const startX = useRef(0);
   const startWidth = useRef(0);
@@ -654,34 +661,78 @@ export function TransactionPanel({
       />
 
       <div className="flex items-center gap-2 border-b px-2 py-1 shrink-0">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <div
+          className={cn(
+            "relative transition-[width] duration-200 ease-out overflow-hidden",
+            searchExpanded ? "w-80" : "w-28"
+          )}
+        >
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
           <Input
-            placeholder="Søk i alle kolonner…"
+            placeholder={searchExpanded ? "Søk i alle kolonner…" : "Søk…"}
             value={globalSearch}
             onChange={(e) => setGlobalSearch(e.target.value)}
-            className="h-7 pl-8 text-xs"
+            onFocus={() => setSearchExpanded(true)}
+            onBlur={() => { if (!globalSearch.trim()) setSearchExpanded(false); }}
+            className="h-7 pl-8 pr-2 text-xs w-full min-w-0"
             data-smart-info="Søk på tvers av alle kolonner. Høyreklikk på en kolonne-header for å søke i en spesifikk kolonne."
           />
         </div>
-        {hasActiveFilters && (
-          <Button size="sm" variant="ghost" className="gap-1 text-muted-foreground h-7 px-2" onClick={clearAllFilters} data-smart-info="Nullstill alle aktive søk og filtre.">
-            <X className="h-3 w-3" />
-            Nullstill
-          </Button>
-        )}
-        {onImportFile && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5 h-7 px-2"
-            onClick={handleFileSelect}
-            data-smart-info="Last opp en ny fil til denne mengden. Støtter CSV, Excel, CAMT.053 og Klink-format."
-          >
-            <Upload className="h-3 w-3" />
-            Last opp
-          </Button>
-        )}
+        <div className="flex-1 min-w-0" aria-hidden />
+        <div className="flex items-center gap-1.5 ml-auto">
+          {hasActiveFilters && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 text-muted-foreground"
+                  onClick={clearAllFilters}
+                  data-smart-info="Nullstill alle aktive søk og filtre."
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Nullstill alle filtre</TooltipContent>
+            </Tooltip>
+          )}
+          {onCreateTransaction && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onCreateTransaction}>
+                  <PenLine className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Opprett korreksjonspost</TooltipContent>
+            </Tooltip>
+          )}
+          {onFileManager && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={onFileManager}>
+                  <FolderOpen className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Filbehandler</TooltipContent>
+            </Tooltip>
+          )}
+          {onImportFile && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0"
+                  onClick={handleFileSelect}
+                  data-smart-info="Last opp en ny fil til denne mengden. Støtter CSV, Excel, CAMT.053 og Klink-format."
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Last opp</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       <div ref={scrollRef} className={cn("flex-1 overflow-auto isolate", matchAnimatingIds && "overflow-x-hidden")}>
@@ -697,7 +748,24 @@ export function TransactionPanel({
           <thead className="sticky top-0 bg-muted/95 z-10">
             <tr>
               <th className="w-8 p-2 text-left shrink-0">
-                <input type="checkbox" className="rounded" aria-label="Velg alle" />
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  aria-label="Velg alle"
+                  checked={filteredAndSorted.length > 0 && filteredAndSorted.every((t) => selectedIds.has(t.id))}
+                  ref={(el) => {
+                    if (!el) return;
+                    const some = filteredAndSorted.some((t) => selectedIds.has(t.id));
+                    const all = filteredAndSorted.length > 0 && filteredAndSorted.every((t) => selectedIds.has(t.id));
+                    el.indeterminate = some && !all;
+                  }}
+                  onChange={() => {
+                    if (!onSelectAll) return;
+                    const ids = filteredAndSorted.map((t) => t.id);
+                    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+                    onSelectAll(allSelected ? [] : ids);
+                  }}
+                />
               </th>
               <th
                 className={cn(

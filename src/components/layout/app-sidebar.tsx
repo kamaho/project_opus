@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Wallet, Settings, ChevronDown } from "lucide-react";
+import { LayoutDashboard, Wallet, Receipt, Settings, ChevronDown } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -19,6 +19,7 @@ import { NotificationBell } from "@/components/layout/notification-bell";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, smartInfo: "Dashboard — oversikt over kontoer, status og snarveier." },
   { label: "Kontoer", href: "/dashboard/clients", icon: Wallet, smartInfo: "Kontoer — administrer klienter og deres matching-oppsett." },
+  { label: "MVA-avstemming", href: "/dashboard/mva-avstemming", icon: Receipt, smartInfo: "MVA-avstemming — avstem MVA i regnskapet mot MVA-melding fra Altinn." },
   { label: "Innstillinger", href: "/dashboard/settings", icon: Settings, smartInfo: "Innstillinger — konfigurer profil, organisasjon og systemvalg." },
 ];
 
