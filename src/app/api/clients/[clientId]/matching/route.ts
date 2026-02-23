@@ -1,15 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { imports } from "@/lib/db/schema";
+import { imports, transactions } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
 import { validateClientTenant } from "@/lib/db/tenant";
 
 /**
  * DELETE: Soft-delete a specific import by importId, or all imports for a set.
- * Sets deleted_at on matching import rows; transactions remain but are
- * filtered out in queries. Files are permanently removed after 14 days.
+ * With permanent=true (and importId): permanently delete a soft-deleted import
+ * and all its transactions (frees storage, cannot be undone).
  */
 export async function DELETE(
   _request: Request,
@@ -23,6 +23,7 @@ export async function DELETE(
   const { clientId } = await params;
   const url = new URL(_request.url);
   const importId = url.searchParams.get("importId");
+  const permanent = url.searchParams.get("permanent") === "true";
   const setNumberParam = url.searchParams.get("setNumber");
 
   const clientRow = await validateClientTenant(clientId, orgId);
@@ -31,6 +32,44 @@ export async function DELETE(
   }
 
   if (importId) {
+    if (permanent) {
+      const row = await db
+        .select({ id: imports.id, setNumber: imports.setNumber })
+        .from(imports)
+        .where(
+          and(
+            eq(imports.id, importId),
+            eq(imports.clientId, clientId),
+            sql`${imports.deletedAt} IS NOT NULL`
+          )
+        )
+        .limit(1)
+        .then((r) => r[0]);
+
+      if (!row) {
+        return NextResponse.json(
+          { error: "Import ikke funnet eller ikke slettet (må være i papirkurv først)" },
+          { status: 400 }
+        );
+      }
+
+      await db.delete(transactions).where(eq(transactions.importId, importId));
+      await db
+        .delete(imports)
+        .where(and(eq(imports.id, importId), eq(imports.clientId, clientId)));
+
+      await logAudit({
+        tenantId: orgId,
+        userId,
+        action: "import.permanently_deleted",
+        entityType: "import",
+        entityId: importId,
+        metadata: { setNumber: row.setNumber },
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
     const deleted = await db
       .update(imports)
       .set({ deletedAt: sql`NOW()` })

@@ -26,6 +26,7 @@ export interface TransactionRow {
   text: string;
   notat?: string | null;
   notatAuthor?: string | null;
+  mentionedUserId?: string | null;
   hasAttachment?: boolean;
 }
 
@@ -851,8 +852,8 @@ export function TransactionPanel({
                         }}
                       >
                         <span className={cn(
-                          "w-[3px] h-3/5 rounded-full bg-border/70 transition-colors group-hover/th:bg-border hover:!bg-primary/50 active:!bg-primary/60",
-                          resizing === col && "!bg-primary/60"
+                          "w-[3px] h-3/5 rounded-full bg-border/70 transition-colors opacity-0 group-hover/th:opacity-100 group-hover/th:bg-border hover:!bg-primary/50 active:!bg-primary/60",
+                          resizing === col && "!opacity-100 !bg-primary/60"
                         )} />
                       </span>
                     )}
@@ -885,7 +886,12 @@ export function TransactionPanel({
                   const makeAction = (field: CellField): CellContextAction => ({
                     txId: tx.id,
                     field,
-                    value: field === "amount" ? formatNO(tx.amount) : field === "voucher" ? (tx.voucher ?? "") : tx[field],
+                    value:
+                      field === "amount"
+                        ? formatNO(tx.amount)
+                        : field === "voucher"
+                          ? (tx.voucher ?? "")
+                          : String(tx[field] ?? ""),
                     numericValue: field === "amount" ? tx.amount : undefined,
                   });
                   return (

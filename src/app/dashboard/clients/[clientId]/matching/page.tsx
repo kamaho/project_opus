@@ -57,6 +57,7 @@ export default async function MatchingPage({
         description: transactions.description,
         notat: transactions.notat,
         notatAuthor: transactions.notatAuthor,
+        mentionedUserId: transactions.mentionedUserId,
         hasAttachment: hasAttachmentSubquery,
       })
       .from(transactions)
@@ -110,17 +111,20 @@ export default async function MatchingPage({
     matchesQuery,
   ]);
 
-  const toRow = (t: {
-    id: string;
-    date1: Date | string;
-    amount: string | null;
-    reference: string | null;
-    bilag: string | null;
-    description: string | null;
-    notat?: string | null;
-    notatAuthor?: string | null;
-    hasAttachment?: boolean;
-  }): TransactionRow => ({
+  const toRow = (
+    t: {
+      id: string;
+      date1: Date | string;
+      amount: string | null;
+      reference: string | null;
+      bilag: string | null;
+      description: string | null;
+      notat?: string | null;
+      notatAuthor?: string | null;
+      mentionedUserId?: string | null;
+      hasAttachment?: unknown;
+    }
+  ): TransactionRow => ({
     id: t.id,
     date: typeof t.date1 === "string" ? t.date1 : t.date1?.toISOString().slice(0, 10) ?? "",
     amount: parseFloat(t.amount ?? "0"),
@@ -128,11 +132,16 @@ export default async function MatchingPage({
     text: t.description ?? "",
     notat: t.notat ?? null,
     notatAuthor: t.notatAuthor ?? null,
-    hasAttachment: t.hasAttachment ?? false,
+    mentionedUserId: t.mentionedUserId ?? null,
+    hasAttachment: t.hasAttachment === true,
   });
 
   const rows1: TransactionRow[] = txSet1.map(toRow);
-  const rows2: TransactionRow[] = txSet2.map(toRow);
+  // Flip sign for set 2 for avstemming (e.g. debet vs kredit)
+  const rows2: TransactionRow[] = txSet2.map((t) => {
+    const row = toRow(t);
+    return { ...row, amount: -row.amount };
+  });
 
   const balance1 = rows1.reduce((s, r) => s + r.amount, 0);
   const balance2 = rows2.reduce((s, r) => s + r.amount, 0);
@@ -170,6 +179,8 @@ export default async function MatchingPage({
         clientName={clientRow.name}
         set1Label={set1Label}
         set2Label={set2Label}
+        set1AccountId={clientRow.set1AccountId}
+        set2AccountId={clientRow.set2AccountId}
         rows1={rows1}
         rows2={rows2}
         balance1={balance1}

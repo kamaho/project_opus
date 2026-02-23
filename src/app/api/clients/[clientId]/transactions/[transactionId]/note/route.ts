@@ -46,7 +46,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   if (noteText === null) {
     await db
       .update(transactions)
-      .set({ notat: null, notatAuthor: null, notatCreatedAt: null })
+      .set({ notat: null, notatAuthor: null, mentionedUserId: null, notatCreatedAt: null })
       .where(eq(transactions.id, transactionId));
     return NextResponse.json({ ok: true });
   }
@@ -56,6 +56,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     .set({
       notat: noteText,
       notatAuthor: userId,
+      mentionedUserId: mentionedUserId ?? null,
       notatCreatedAt: new Date(),
     })
     .where(eq(transactions.id, transactionId));

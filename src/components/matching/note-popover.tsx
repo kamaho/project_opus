@@ -21,6 +21,8 @@ interface NotePopoverProps {
   clientId: string;
   transactionId: string;
   existingNote?: string | null;
+  /** User id that was previously notified (@mention) – shown with trash so they can be removed. */
+  existingMentionedUserId?: string | null;
   onSaved?: (text: string | null) => void;
 }
 
@@ -36,6 +38,7 @@ export function NotePopover({
   clientId,
   transactionId,
   existingNote,
+  existingMentionedUserId,
   onSaved,
 }: NotePopoverProps) {
   const [text, setText] = useState(existingNote ?? "");
@@ -46,19 +49,39 @@ export function NotePopover({
   const [deleting, setDeleting] = useState(false);
   const { memberships } = useOrganization({ memberships: { pageSize: 50 } });
 
+  const members: OrgMember[] = (memberships?.data ?? []).map((m) => {
+    const pub = m.publicUserData;
+    return {
+      id: pub?.userId ?? "",
+      name: [pub?.firstName, pub?.lastName].filter(Boolean).join(" ") || "Ukjent",
+      email: pub?.identifier ?? "",
+    };
+  });
+
   useEffect(() => {
-    if (open) {
-      setText(existingNote ?? "");
+    if (!open) return;
+    setText(existingNote ?? "");
+    if (!existingMentionedUserId) {
       setSelectedMention(null);
       setShowMention(false);
+      return;
     }
-  }, [open, existingNote]);
-
-  const members: OrgMember[] = (memberships?.data ?? []).map((m) => ({
-    id: m.publicUserData.userId ?? "",
-    name: [m.publicUserData.firstName, m.publicUserData.lastName].filter(Boolean).join(" ") || "Ukjent",
-    email: m.publicUserData.identifier ?? "",
-  }));
+    setShowMention(true);
+    const list = (memberships?.data ?? []).map((m) => {
+      const pub = m.publicUserData;
+      return {
+        id: pub?.userId ?? "",
+        name: [pub?.firstName, pub?.lastName].filter(Boolean).join(" ") || "Ukjent",
+        email: pub?.identifier ?? "",
+      };
+    });
+    const member = list.find((m) => m.id === existingMentionedUserId) ?? {
+      id: existingMentionedUserId,
+      name: "Varslet bruker",
+      email: "",
+    };
+    setSelectedMention(member);
+  }, [open, existingNote, existingMentionedUserId, memberships?.data]);
 
   const filteredMembers = mentionSearch
     ? members.filter(

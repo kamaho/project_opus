@@ -34,6 +34,7 @@ import {
   type MvaDifferansekategori,
 } from "@/lib/mva/demo-data";
 import { ExportModal } from "@/components/export/export-modal";
+import { ExportIntroOverlay } from "@/components/export/export-intro-overlay";
 
 type LineOverride = { category: MvaDifferansekategori | ""; comment: string };
 
@@ -126,7 +127,7 @@ export function MvaAvstemmingView() {
             Termin: {melding.termin} — Avstemming mot MVA-melding (demo-data).
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setExportOpen(true)}>
+        <Button variant="default" size="sm" onClick={() => setExportOpen(true)}>
           <FileDown className="h-4 w-4" />
           Eksporter
         </Button>

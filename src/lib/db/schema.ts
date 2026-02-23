@@ -219,6 +219,7 @@ export const transactions = pgTable(
       enum: ["unmatched", "matched", "correction"],
     }).default("unmatched"),
     notatAuthor: text("notat_author"),
+    mentionedUserId: text("mentioned_user_id"),
     notatCreatedAt: timestamp("notat_created_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

@@ -51,11 +51,14 @@ export function NoteDialog({
     }
   }, [open]);
 
-  const members: OrgMember[] = (memberships?.data ?? []).map((m) => ({
-    id: m.publicUserData.userId ?? "",
-    name: [m.publicUserData.firstName, m.publicUserData.lastName].filter(Boolean).join(" ") || "Ukjent",
-    email: m.publicUserData.identifier ?? "",
-  }));
+  const members: OrgMember[] = (memberships?.data ?? []).map((m) => {
+    const pub = m.publicUserData;
+    return {
+      id: pub?.userId ?? "",
+      name: [pub?.firstName, pub?.lastName].filter(Boolean).join(" ") || "Ukjent",
+      email: pub?.identifier ?? "",
+    };
+  });
 
   const filteredMembers = mentionSearch
     ? members.filter(

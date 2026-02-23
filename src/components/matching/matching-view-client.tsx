@@ -125,6 +125,8 @@ export interface MatchingViewClientProps {
   clientName: string;
   set1Label: string;
   set2Label: string;
+  set1AccountId: string;
+  set2AccountId: string;
   rows1: TransactionRow[];
   rows2: TransactionRow[];
   balance1: number;
@@ -135,11 +137,105 @@ export interface MatchingViewClientProps {
   openingBalanceDate: string | null;
 }
 
+function EditableAccountBadge({
+  label,
+  accountId,
+  clientId,
+  variant,
+  onRenamed,
+}: {
+  label: string;
+  accountId: string;
+  clientId: string;
+  variant: "violet" | "brand";
+  onRenamed: (newName: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(label);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      setValue(label);
+      requestAnimationFrame(() => inputRef.current?.select());
+    }
+  }, [editing, label]);
+
+  const save = useCallback(async () => {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === label) {
+      setEditing(false);
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, name: trimmed }),
+      });
+      if (res.ok) {
+        onRenamed(trimmed);
+      }
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }, [value, label, accountId, clientId, onRenamed]);
+
+  const badgeClasses =
+    variant === "violet"
+      ? "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 ring-violet-200 dark:ring-violet-800"
+      : "bg-brand-subtle text-brand-emphasis ring-brand-muted";
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); save(); }
+          if (e.key === "Escape") { e.preventDefault(); setEditing(false); }
+          e.stopPropagation();
+        }}
+        onBlur={save}
+        disabled={saving}
+        className={cn(
+          "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset outline-none",
+          badgeClasses,
+          "min-w-[60px] max-w-[200px] bg-background/80"
+        )}
+        style={{ width: `${Math.max(60, value.length * 7 + 24)}px` }}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset cursor-pointer transition-colors hover:opacity-80",
+        badgeClasses
+      )}
+      onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      title="Klikk for å endre navn"
+    >
+      {label}
+      <Pencil className="h-2.5 w-2.5 opacity-50" />
+    </button>
+  );
+}
+
 export function MatchingViewClient({
   clientId,
   clientName,
-  set1Label,
-  set2Label,
+  set1Label: initialSet1Label,
+  set2Label: initialSet2Label,
+  set1AccountId,
+  set2AccountId,
   rows1,
   rows2,
   balance1,
@@ -151,6 +247,12 @@ export function MatchingViewClient({
 }: MatchingViewClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [set1Label, setSet1Label] = useState(initialSet1Label);
+  const [set2Label, setSet2Label] = useState(initialSet2Label);
+
+  useEffect(() => { setSet1Label(initialSet1Label); }, [initialSet1Label]);
+  useEffect(() => { setSet2Label(initialSet2Label); }, [initialSet2Label]);
 
   // --- Notification highlight ---
   const [highlightTxId, setHighlightTxId] = useState<string | null>(null);
@@ -531,7 +633,11 @@ export function MatchingViewClient({
   }, [focusMode, totalHintCount]);
 
   // --- Row quick actions (hover toolbar) ---
-  const [noteTarget, setNoteTarget] = useState<{ txId: string; note: string | null } | null>(null);
+  const [noteTarget, setNoteTarget] = useState<{
+    txId: string;
+    note: string | null;
+    mentionedUserId: string | null;
+  } | null>(null);
   const [attachTarget, setAttachTarget] = useState<string | null>(null);
   const [bulkNoteOpen, setBulkNoteOpen] = useState(false);
   const [bulkAttachOpen, setBulkAttachOpen] = useState(false);
@@ -566,7 +672,11 @@ export function MatchingViewClient({
         const allRows = [...rows1, ...rows2];
         const tx = allRows.find((r) => r.id === txId);
         const currentNote = localNotes.has(txId) ? localNotes.get(txId) : tx?.notat;
-        setNoteTarget({ txId, note: currentNote ?? null });
+        setNoteTarget({
+          txId,
+          note: currentNote ?? null,
+          mentionedUserId: tx?.mentionedUserId ?? null,
+        });
       }
     } else if (action === "attachment") {
       if (selectedCount > 1) {
@@ -757,32 +867,40 @@ export function MatchingViewClient({
   }, [clientId, router]);
 
   // --- Opening balance ---
-  const [balanceDialogOpen, setBalanceDialogOpen] = useState(false);
-  const [editBalS1, setEditBalS1] = useState(openingBalanceSet1);
-  const [editBalS2, setEditBalS2] = useState(openingBalanceSet2);
+  const [balanceDialogSet, setBalanceDialogSet] = useState<1 | 2 | null>(null);
+  const [editBalValue, setEditBalValue] = useState("");
   const [editBalDate, setEditBalDate] = useState(openingBalanceDate ?? "");
   const [savingBalance, setSavingBalance] = useState(false);
 
+  const openBalanceDialog = useCallback((setNumber: 1 | 2) => {
+    setEditBalValue(setNumber === 1 ? openingBalanceSet1 : openingBalanceSet2);
+    setEditBalDate(openingBalanceDate ?? "");
+    setBalanceDialogSet(setNumber);
+  }, [openingBalanceSet1, openingBalanceSet2, openingBalanceDate]);
+
   const handleSaveBalance = useCallback(async () => {
+    if (!balanceDialogSet) return;
     setSavingBalance(true);
     try {
+      const body: Record<string, unknown> = {
+        openingBalanceDate: editBalDate || null,
+      };
+      if (balanceDialogSet === 1) body.openingBalanceSet1 = editBalValue;
+      else body.openingBalanceSet2 = editBalValue;
+
       const res = await fetch(`/api/clients/${clientId}/balance`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          openingBalanceSet1: editBalS1,
-          openingBalanceSet2: editBalS2,
-          openingBalanceDate: editBalDate || null,
-        }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
-        setBalanceDialogOpen(false);
+        setBalanceDialogSet(null);
         router.refresh();
       }
     } finally {
       setSavingBalance(false);
     }
-  }, [clientId, editBalS1, editBalS2, editBalDate, router]);
+  }, [clientId, balanceDialogSet, editBalValue, editBalDate, router]);
 
   // Live saldo = opening balance + sum of all unmatched transactions
   const liveBalance1 = useMemo(() => {
@@ -1387,7 +1505,13 @@ export function MatchingViewClient({
           <div className="relative flex flex-1 min-h-0 gap-px bg-border">
             <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
               <div className="flex items-center gap-2 border-b px-2 py-1 text-xs shrink-0" data-smart-info={`Overskrift for mengde 1 (${set1Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
-                <span className="inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/40 px-2.5 py-0.5 text-xs font-semibold text-violet-700 dark:text-violet-300 ring-1 ring-inset ring-violet-200 dark:ring-violet-800">{set1Label}</span>
+                <EditableAccountBadge
+                  label={set1Label}
+                  accountId={set1AccountId}
+                  clientId={clientId}
+                  variant="violet"
+                  onRenamed={(name) => { setSet1Label(name); router.refresh(); }}
+                />
                 <span>
                   <span className="text-muted-foreground">Poster:</span>{" "}
                   <span className="font-medium">{visibleRows1.length}</span>
@@ -1400,13 +1524,8 @@ export function MatchingViewClient({
                 </span>
                 <button
                   className="text-muted-foreground hover:text-foreground ml-1"
-                  onClick={() => {
-                    setEditBalS1(openingBalanceSet1);
-                    setEditBalS2(openingBalanceSet2);
-                    setEditBalDate(openingBalanceDate ?? "");
-                    setBalanceDialogOpen(true);
-                  }}
-                  data-smart-info="Rediger inngående saldo for begge mengder. Saldo brukes til å beregne løpende balanse."
+                  onClick={() => openBalanceDialog(1)}
+                  data-smart-info={`Rediger inngående saldo for ${set1Label}. Saldo brukes til å beregne løpende balanse.`}
                 >
                   <Pencil className="h-3 w-3" />
                 </button>
@@ -1456,7 +1575,13 @@ export function MatchingViewClient({
             </div>
             <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
               <div className="flex items-center justify-between border-b px-2 py-1 shrink-0" data-smart-info={`Overskrift for mengde 2 (${set2Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
-                <span className="inline-flex items-center rounded-full bg-brand-subtle px-2.5 py-0.5 text-xs font-semibold text-brand-emphasis ring-1 ring-inset ring-brand-muted">{set2Label}</span>
+                <EditableAccountBadge
+                  label={set2Label}
+                  accountId={set2AccountId}
+                  clientId={clientId}
+                  variant="brand"
+                  onRenamed={(name) => { setSet2Label(name); router.refresh(); }}
+                />
                 <div className="flex items-center gap-2 text-xs">
                   <span>
                     <span className="text-muted-foreground">Poster:</span>{" "}
@@ -1470,13 +1595,8 @@ export function MatchingViewClient({
                   </span>
                   <button
                     className="text-muted-foreground hover:text-foreground"
-                    onClick={() => {
-                      setEditBalS1(openingBalanceSet1);
-                      setEditBalS2(openingBalanceSet2);
-                      setEditBalDate(openingBalanceDate ?? "");
-                      setBalanceDialogOpen(true);
-                    }}
-                    data-smart-info="Rediger inngående saldo for begge mengder. Saldo brukes til å beregne løpende balanse."
+                    onClick={() => openBalanceDialog(2)}
+                    data-smart-info={`Rediger inngående saldo for ${set2Label}. Saldo brukes til å beregne løpende balanse.`}
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
@@ -1597,7 +1717,7 @@ export function MatchingViewClient({
                   </Button>
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="default"
                     className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
                     onClick={() => {
                       setExportOpen(true);
@@ -1632,7 +1752,7 @@ export function MatchingViewClient({
                   )}
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="default"
                     className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
                     onClick={() => setExportOpen(true)}
                   >
@@ -1657,7 +1777,7 @@ export function MatchingViewClient({
               <div className="flex-1 min-w-0" aria-hidden />
               <Button
                 size="sm"
-                variant="outline"
+                variant="default"
                 className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
                 onClick={() => setExportOpen(true)}
               >
@@ -1682,27 +1802,21 @@ export function MatchingViewClient({
         />
       )}
 
-      {/* Opening balance dialog */}
-      <Dialog open={balanceDialogOpen} onOpenChange={setBalanceDialogOpen}>
+      {/* Opening balance dialog — per set */}
+      <Dialog open={balanceDialogSet !== null} onOpenChange={(open) => { if (!open) setBalanceDialogSet(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Inngående saldo</DialogTitle>
+            <DialogTitle>
+              {balanceDialogSet === 1 ? set1Label : set2Label} — inngående saldo
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="bal-s1">{set1Label} — inngående saldo</Label>
+              <Label htmlFor="bal-value">Inngående saldo</Label>
               <FormattedAmountInput
-                id="bal-s1"
-                value={editBalS1}
-                onChange={setEditBalS1}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="bal-s2">{set2Label} — inngående saldo</Label>
-              <FormattedAmountInput
-                id="bal-s2"
-                value={editBalS2}
-                onChange={setEditBalS2}
+                id="bal-value"
+                value={editBalValue}
+                onChange={setEditBalValue}
               />
             </div>
             <div className="space-y-1.5">
@@ -1715,7 +1829,7 @@ export function MatchingViewClient({
               />
             </div>
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => setBalanceDialogOpen(false)}>
+              <Button variant="outline" onClick={() => setBalanceDialogSet(null)}>
                 Avbryt
               </Button>
               <Button onClick={handleSaveBalance} disabled={savingBalance}>
@@ -2196,6 +2310,7 @@ export function MatchingViewClient({
           clientId={clientId}
           transactionId={noteTarget.txId}
           existingNote={noteTarget.note}
+          existingMentionedUserId={noteTarget.mentionedUserId}
           onSaved={(text) => {
             setLocalNotes((prev) => new Map(prev).set(noteTarget.txId, text));
           }}

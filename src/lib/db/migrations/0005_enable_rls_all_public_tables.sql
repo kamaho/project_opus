@@ -1,0 +1,21 @@
+-- Enable RLS on all public tables (Supabase linter requirement).
+-- App uses Drizzle with service_role which bypasses RLS; anon/authenticated get no rows by default.
+
+ALTER TABLE IF EXISTS public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.imports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.parser_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.matching_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.intercompany_sets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.accrual_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.client_funds_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.report_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.balance_checkpoints ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.saved_mappings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.client_report_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.transaction_attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.notifications ENABLE ROW LEVEL SECURITY;

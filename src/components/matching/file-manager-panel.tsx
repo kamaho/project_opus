@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
@@ -62,6 +70,7 @@ export function FileManagerPanel({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("active");
   const [error, setError] = useState<string | null>(null);
+  const [permanentDeleteImport, setPermanentDeleteImport] = useState<ImportRecord | null>(null);
 
   const fetchImports = useCallback(async () => {
     setLoading(true);
@@ -116,6 +125,27 @@ export function FileManagerPanel({
     }
   };
 
+  const handlePermanentDelete = async (importId: string) => {
+    setActionLoading(importId);
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/matching?importId=${importId}&permanent=true`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Kunne ikke slette");
+      }
+      setPermanentDeleteImport(null);
+      await fetchImports();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kunne ikke slette for godt");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleDismissDuplicate = async (importId: string) => {
     setActionLoading(importId);
     try {
@@ -163,6 +193,7 @@ export function FileManagerPanel({
   ];
 
   return (
+    <>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col">
         <SheetHeader>
@@ -279,20 +310,32 @@ export function FileManagerPanel({
                           <span>{formatSize(imp.fileSize)}</span>
                         </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1.5 h-8 shrink-0"
-                        onClick={() => handleRestore(imp.id)}
-                        disabled={actionLoading === imp.id}
-                      >
-                        {actionLoading === imp.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        )}
-                        Gjenopprett
-                      </Button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 h-8"
+                          onClick={() => handleRestore(imp.id)}
+                          disabled={actionLoading === imp.id}
+                        >
+                          {actionLoading === imp.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          )}
+                          Gjenopprett
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 h-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setPermanentDeleteImport(imp)}
+                          disabled={actionLoading === imp.id}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Slett for godt
+                        </Button>
+                      </div>
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -371,5 +414,40 @@ export function FileManagerPanel({
         </div>
       </SheetContent>
     </Sheet>
+
+    <Dialog open={permanentDeleteImport != null} onOpenChange={(open) => !open && setPermanentDeleteImport(null)}>
+      <DialogContent showCloseButton={true}>
+        <DialogHeader>
+          <DialogTitle>Slett for godt?</DialogTitle>
+          <DialogDescription>
+            {permanentDeleteImport ? (
+              <>
+                <span className="font-medium text-foreground">{permanentDeleteImport.filename}</span>
+                {" "}og alle tilhørende poster slettes permanent. Dette frigjør lagring og kan ikke angres.
+              </>
+            ) : null}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter showCloseButton={false}>
+          <Button variant="outline" onClick={() => setPermanentDeleteImport(null)}>
+            Avbryt
+          </Button>
+          <Button
+            variant="default"
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={permanentDeleteImport != null && actionLoading === permanentDeleteImport?.id}
+            onClick={() => permanentDeleteImport && handlePermanentDelete(permanentDeleteImport.id)}
+          >
+            {permanentDeleteImport && actionLoading === permanentDeleteImport.id ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            Slett for godt
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  </>
   );
 }

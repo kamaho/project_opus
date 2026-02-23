@@ -67,8 +67,11 @@ export function SetDropzone({
           <span className="text-sm font-medium text-center text-foreground">
             {label}
           </span>
-          <span className="text-muted-foreground text-xs mt-1">
-            CSV eller CAMT.053 (XML)
+          <span className="text-muted-foreground text-xs mt-1 text-center">
+            CSV, Excel, TXT, CAMT.053 (XML) m.m.
+          </span>
+          <span className="text-muted-foreground text-xs mt-0.5 text-center">
+            Klikk for å velge fil
           </span>
         </label>
       </div>
