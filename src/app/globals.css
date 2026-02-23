@@ -234,3 +234,30 @@ html[data-input="keyboard"] .row-action-bar {
 .match-success-overlay.exiting {
   animation: match-success-exit 300ms cubic-bezier(0.55, 0, 0.15, 1) forwards;
 }
+
+/* ── Notification highlight pulse ────────────────────────────────── */
+@keyframes notification-pulse {
+  0%   { background-color: oklch(0.85 0.15 80 / 0.5);  box-shadow: 0 0 0 0   oklch(0.75 0.15 80 / 0.6); }
+  25%  { background-color: oklch(0.92 0.08 80 / 0.3);  box-shadow: 0 0 0 4px oklch(0.75 0.15 80 / 0.15); }
+  50%  { background-color: oklch(0.85 0.15 80 / 0.5);  box-shadow: 0 0 0 0   oklch(0.75 0.15 80 / 0.6); }
+  75%  { background-color: oklch(0.92 0.08 80 / 0.3);  box-shadow: 0 0 0 4px oklch(0.75 0.15 80 / 0.15); }
+  100% { background-color: transparent;                  box-shadow: 0 0 0 0   oklch(0.75 0.15 80 / 0); }
+}
+
+@keyframes notification-pulse-dark {
+  0%   { background-color: oklch(0.40 0.12 80 / 0.5);  box-shadow: 0 0 0 0   oklch(0.55 0.15 80 / 0.4); }
+  25%  { background-color: oklch(0.30 0.06 80 / 0.3);  box-shadow: 0 0 0 4px oklch(0.55 0.15 80 / 0.1); }
+  50%  { background-color: oklch(0.40 0.12 80 / 0.5);  box-shadow: 0 0 0 0   oklch(0.55 0.15 80 / 0.4); }
+  75%  { background-color: oklch(0.30 0.06 80 / 0.3);  box-shadow: 0 0 0 4px oklch(0.55 0.15 80 / 0.1); }
+  100% { background-color: transparent;                  box-shadow: 0 0 0 0   oklch(0.55 0.15 80 / 0); }
+}
+
+.notification-highlight {
+  animation: notification-pulse 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  position: relative;
+  z-index: 1;
+}
+
+.dark .notification-highlight {
+  animation: notification-pulse-dark 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}

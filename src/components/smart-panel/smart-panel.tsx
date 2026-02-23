@@ -34,6 +34,7 @@ interface SmartPanelProps {
   onOptionSelect: (optionId: string) => void;
   activeOptionId: string | null;
   resultContent?: ReactNode;
+  footerContent?: ReactNode;
 }
 
 interface ChatMessage {
@@ -195,6 +196,7 @@ export function SmartPanel({
   onOptionSelect,
   activeOptionId,
   resultContent,
+  footerContent,
 }: SmartPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -207,9 +209,12 @@ export function SmartPanel({
     if (!open) { setChatOpen(false); return; }
     if (position.x === prevPosition.current.x && position.y === prevPosition.current.y) return;
     prevPosition.current = { x: position.x, y: position.y };
-    setPos({
-      x: Math.max(8, Math.min(position.x, window.innerWidth - DEFAULT_WIDTH - 8)),
-      y: Math.max(8, Math.min(position.y, window.innerHeight - 200)),
+    requestAnimationFrame(() => {
+      const panelH = panelRef.current?.offsetHeight ?? 300;
+      setPos({
+        x: Math.max(8, Math.min(position.x, window.innerWidth - DEFAULT_WIDTH - 8)),
+        y: Math.max(8, Math.min(position.y, window.innerHeight - panelH - 8)),
+      });
     });
   }, [open, position]);
 
@@ -224,9 +229,11 @@ export function SmartPanel({
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
+    const panelW = panelRef.current?.offsetWidth ?? DEFAULT_WIDTH;
+    const panelH = panelRef.current?.offsetHeight ?? 200;
     setPos({
-      x: Math.max(0, Math.min(e.clientX - dragOffset.current.x, window.innerWidth - 100)),
-      y: Math.max(0, Math.min(e.clientY - dragOffset.current.y, window.innerHeight - 60)),
+      x: Math.max(0, Math.min(e.clientX - dragOffset.current.x, window.innerWidth - panelW)),
+      y: Math.max(0, Math.min(e.clientY - dragOffset.current.y, window.innerHeight - panelH)),
     });
   }, [dragging]);
 
@@ -342,6 +349,13 @@ export function SmartPanel({
               resultContent
             ) : null}
           </div>
+        )}
+
+        {!chatOpen && !activeOptionId && footerContent && (
+          <>
+            <div className="border-t" />
+            <div className="overflow-auto">{footerContent}</div>
+          </>
         )}
       </div>
     </>

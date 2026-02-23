@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { parseFile, detectFileTypeFromFile, readExcelRows, readCsvRawRows, readFileAsText } from "@/lib/parsers";
 import type { ParsedTransaction, CsvParserConfig, ExcelParserConfig } from "@/lib/parsers";
@@ -23,6 +23,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, CheckCircle2, Copy, Link2, Search, X, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SmartPanel } from "@/components/smart-panel/smart-panel";
+import { NotePopover } from "@/components/matching/note-popover";
+import { NoteDialog } from "@/components/matching/note-dialog";
+import { AttachmentPopover } from "@/components/matching/attachment-popover";
+import { AttachmentDialog } from "@/components/matching/attachment-dialog";
 
 const ImportPreview = dynamic(
   () => import("@/components/import/import-preview").then((m) => ({ default: m.ImportPreview })),
@@ -144,6 +148,29 @@ export function MatchingViewClient({
   openingBalanceDate,
 }: MatchingViewClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // --- Notification highlight ---
+  const [highlightTxId, setHighlightTxId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = searchParams.get("highlight");
+    if (!id) return;
+
+    setHighlightTxId(id);
+
+    const inSet1 = rows1.some((r) => r.id === id);
+    const inSet2 = rows2.some((r) => r.id === id);
+    if (inSet1) setSelectedSet1(new Set([id]));
+    else if (inSet2) setSelectedSet2(new Set([id]));
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("highlight");
+    router.replace(url.pathname + url.search, { scroll: false });
+
+    const timer = setTimeout(() => setHighlightTxId(null), 4000);
+    return () => clearTimeout(timer);
+  }, [searchParams, rows1, rows2, router]);
 
   // --- View mode ---
   const [viewMode, setViewMode] = useState<ViewMode>("open");
@@ -498,9 +525,51 @@ export function MatchingViewClient({
   }, [focusMode, totalHintCount]);
 
   // --- Row quick actions (hover toolbar) ---
+  const [noteTarget, setNoteTarget] = useState<{ txId: string; note: string | null } | null>(null);
+  const [attachTarget, setAttachTarget] = useState<string | null>(null);
+  const [bulkNoteOpen, setBulkNoteOpen] = useState(false);
+  const [bulkAttachOpen, setBulkAttachOpen] = useState(false);
+
+  // Optimistic note/attachment updates
+  const [localNotes, setLocalNotes] = useState<Map<string, string | null>>(new Map());
+  const [localAttachments, setLocalAttachments] = useState<Set<string>>(new Set());
+
+  const patchedRows1 = useMemo(() => {
+    if (localNotes.size === 0 && localAttachments.size === 0) return visibleRows1;
+    return visibleRows1.map((r) => ({
+      ...r,
+      notat: localNotes.has(r.id) ? localNotes.get(r.id) ?? null : r.notat,
+      hasAttachment: localAttachments.has(r.id) || r.hasAttachment,
+    }));
+  }, [visibleRows1, localNotes, localAttachments]);
+
+  const patchedRows2 = useMemo(() => {
+    if (localNotes.size === 0 && localAttachments.size === 0) return visibleRows2;
+    return visibleRows2.map((r) => ({
+      ...r,
+      notat: localNotes.has(r.id) ? localNotes.get(r.id) ?? null : r.notat,
+      hasAttachment: localAttachments.has(r.id) || r.hasAttachment,
+    }));
+  }, [visibleRows2, localNotes, localAttachments]);
+
   const handleRowAction = useCallback((txId: string, action: string) => {
-    console.log(`Row action: ${action} on ${txId}`);
-  }, []);
+    if (action === "note") {
+      if (selectedCount > 1) {
+        setBulkNoteOpen(true);
+      } else {
+        const allRows = [...rows1, ...rows2];
+        const tx = allRows.find((r) => r.id === txId);
+        const currentNote = localNotes.has(txId) ? localNotes.get(txId) : tx?.notat;
+        setNoteTarget({ txId, note: currentNote ?? null });
+      }
+    } else if (action === "attachment") {
+      if (selectedCount > 1) {
+        setBulkAttachOpen(true);
+      } else {
+        setAttachTarget(txId);
+      }
+    }
+  }, [selectedCount, rows1, rows2, localNotes]);
 
   // --- Matching action ---
   const [matching, setMatching] = useState(false);
@@ -1317,9 +1386,9 @@ export function MatchingViewClient({
                   <Pencil className="h-3 w-3" />
                 </button>
               </div>
-              {visibleRows1.length > 0 ? (
+              {patchedRows1.length > 0 ? (
                 <TransactionPanel
-                  transactions={visibleRows1}
+                  transactions={patchedRows1}
                   setLabel={set1Label}
                   onImportFile={(file) => openImportDialog(file, 1)}
                   onSelect={(id) => toggleSelect(1, id)}
@@ -1348,6 +1417,7 @@ export function MatchingViewClient({
                   onRequestRowCount={handleRowCount1}
                   visibleIdsRef={visibleIds1Ref}
                   onDeactivateKeyboard={() => setKbPanel(null)}
+                  highlightTxId={highlightTxId}
                 />
               ) : (
                 <SetDropzone
@@ -1384,9 +1454,9 @@ export function MatchingViewClient({
                   </button>
                 </div>
               </div>
-              {visibleRows2.length > 0 ? (
+              {patchedRows2.length > 0 ? (
                 <TransactionPanel
-                  transactions={visibleRows2}
+                  transactions={patchedRows2}
                   setLabel={set2Label}
                   onImportFile={(file) => openImportDialog(file, 2)}
                   onSelect={(id) => toggleSelect(2, id)}
@@ -1415,6 +1485,7 @@ export function MatchingViewClient({
                   onRequestRowCount={handleRowCount2}
                   visibleIdsRef={visibleIds2Ref}
                   onDeactivateKeyboard={() => setKbPanel(null)}
+                  highlightTxId={highlightTxId}
                 />
               ) : (
                 <SetDropzone
@@ -2065,6 +2136,67 @@ export function MatchingViewClient({
           />
         );
       })()}
+
+      {/* Note dialog for single transaction */}
+      {noteTarget && (
+        <NotePopover
+          open={!!noteTarget}
+          onOpenChange={(open) => { if (!open) setNoteTarget(null); }}
+          clientId={clientId}
+          transactionId={noteTarget.txId}
+          existingNote={noteTarget.note}
+          onSaved={(text) => {
+            setLocalNotes((prev) => new Map(prev).set(noteTarget.txId, text));
+          }}
+        />
+      )}
+
+      {/* Note dialog for multi-select */}
+      <NoteDialog
+        open={bulkNoteOpen}
+        onOpenChange={setBulkNoteOpen}
+        clientId={clientId}
+        transactionIds={[...Array.from(selectedSet1), ...Array.from(selectedSet2)]}
+        onSaved={(text) => {
+          const allIds = [...Array.from(selectedSet1), ...Array.from(selectedSet2)];
+          setLocalNotes((prev) => {
+            const next = new Map(prev);
+            for (const id of allIds) next.set(id, text);
+            return next;
+          });
+        }}
+      />
+
+      {/* Attachment dialog for single transaction */}
+      {attachTarget && (
+        <AttachmentPopover
+          open={!!attachTarget}
+          onOpenChange={(open) => { if (!open) setAttachTarget(null); }}
+          clientId={clientId}
+          transactionId={attachTarget}
+          onAttachmentsChanged={(has) => {
+            if (has) {
+              setLocalAttachments((prev) => new Set(prev).add(attachTarget));
+            }
+          }}
+        />
+      )}
+
+      {/* Attachment dialog for multi-select */}
+      <AttachmentDialog
+        open={bulkAttachOpen}
+        onOpenChange={setBulkAttachOpen}
+        clientId={clientId}
+        transactionIds={[...Array.from(selectedSet1), ...Array.from(selectedSet2)]}
+        onUploaded={() => {
+          const allIds = [...Array.from(selectedSet1), ...Array.from(selectedSet2)];
+          setLocalAttachments((prev) => {
+            const next = new Set(prev);
+            for (const id of allIds) next.add(id);
+            return next;
+          });
+        }}
+      />
     </>
   );
 }

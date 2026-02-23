@@ -15,3 +15,4 @@ export const supabase =
     : null;
 
 export const UPLOAD_BUCKET = "imports";
+export const ATTACHMENTS_BUCKET = "attachments";

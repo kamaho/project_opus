@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { UserButton, useUser, useOrganization } from "@clerk/nextjs";
+import { NotificationBell } from "@/components/layout/notification-bell";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, smartInfo: "Dashboard — oversikt over kontoer, status og snarveier." },
@@ -36,7 +37,7 @@ export function AppSidebar() {
               elements: { avatarBox: "h-9 w-9" },
             }}
           />
-          <div className="flex flex-col min-w-0">
+          <div className="flex flex-col min-w-0 flex-1">
             <span className="text-sidebar-foreground font-medium truncate text-sm">
               {user?.firstName ?? user?.emailAddresses[0]?.emailAddress ?? "Bruker"}
             </span>
@@ -45,6 +46,7 @@ export function AppSidebar() {
               <ChevronDown className="h-3 w-3 shrink-0" />
             </span>
           </div>
+          <NotificationBell />
         </div>
       </SidebarHeader>
       <SidebarContent>

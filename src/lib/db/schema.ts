@@ -218,6 +218,8 @@ export const transactions = pgTable(
     matchStatus: text("match_status", {
       enum: ["unmatched", "matched", "correction"],
     }).default("unmatched"),
+    notatAuthor: text("notat_author"),
+    notatCreatedAt: timestamp("notat_created_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [
@@ -251,5 +253,68 @@ export const auditLogs = pgTable(
   (t) => [
     index("idx_audit_logs_tenant").on(t.tenantId, t.createdAt),
     index("idx_audit_logs_entity").on(t.entityType, t.entityId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Transaction attachments (vedlegg per transaksjon)
+// ---------------------------------------------------------------------------
+export const transactionAttachments = pgTable(
+  "transaction_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    transactionId: uuid("transaction_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    filePath: text("file_path").notNull(),
+    fileSize: integer("file_size"),
+    contentType: text("content_type"),
+    uploadedBy: text("uploaded_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_attachments_transaction").on(t.transactionId),
+    index("idx_attachments_client").on(t.clientId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Notifications (varsler)
+// ---------------------------------------------------------------------------
+export const NOTIFICATION_TYPES = [
+  "note_mention",
+  "match_completed",
+  "import_completed",
+  "assignment",
+  "deadline_reminder",
+  "system",
+] as const;
+
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    userId: text("user_id").notNull(),
+    fromUserId: text("from_user_id"),
+    type: text("type", { enum: [...NOTIFICATION_TYPES] }).notNull(),
+    title: text("title").notNull(),
+    body: text("body"),
+    link: text("link"),
+    read: boolean("read").default(false),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    groupKey: text("group_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_notifications_user").on(t.userId, t.read, t.createdAt),
+    index("idx_notifications_tenant").on(t.tenantId, t.createdAt),
   ]
 );

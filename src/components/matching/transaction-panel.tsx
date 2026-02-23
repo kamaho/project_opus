@@ -4,14 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Focus, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, Search, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Columns3, Focus, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, Pencil, Search, SortAsc, SortDesc, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { SmartPanel, type SmartPanelOption } from "@/components/smart-panel/smart-panel";
 
-const DEFAULT_COLUMN_WIDTHS = { date: 86, amount: 105, voucher: 80, text: 180 };
+const ATTACH_COL_WIDTH = 28;
+const DEFAULT_COLUMN_WIDTHS = { date: 86, amount: 105, voucher: 80, notat: 100, text: 180 };
 const MIN_COLUMN_WIDTH = 50;
 const ROW_HEIGHT = 32;
 const OVERSCAN = 20;
+const DEFAULT_COLUMN_ORDER: ColumnKey[] = ["date", "amount", "voucher", "notat", "text"];
 
 export interface TransactionRow {
   id: string;
@@ -19,9 +22,12 @@ export interface TransactionRow {
   amount: number;
   voucher?: string;
   text: string;
+  notat?: string | null;
+  notatAuthor?: string | null;
+  hasAttachment?: boolean;
 }
 
-export type CellField = "date" | "amount" | "voucher" | "text";
+export type CellField = "date" | "amount" | "voucher" | "notat" | "text";
 
 export interface CellContextAction {
   txId: string;
@@ -30,7 +36,7 @@ export interface CellContextAction {
   numericValue?: number;
 }
 
-type SortKey = "date" | "amount" | "voucher" | "text";
+type SortKey = "date" | "amount" | "voucher" | "notat" | "text";
 type SortDir = "asc" | "desc";
 
 interface TransactionPanelProps {
@@ -64,6 +70,7 @@ interface TransactionPanelProps {
   onRequestRowCount?: (count: number) => void;
   visibleIdsRef?: React.MutableRefObject<string[]>;
   onDeactivateKeyboard?: () => void;
+  highlightTxId?: string | null;
 }
 
 type ColumnKey = keyof typeof DEFAULT_COLUMN_WIDTHS;
@@ -120,10 +127,21 @@ export function TransactionPanel({
   onRequestRowCount,
   visibleIdsRef,
   onDeactivateKeyboard,
+  highlightTxId,
 }: TransactionPanelProps) {
   const [colWidths, setColWidths] = useState(DEFAULT_COLUMN_WIDTHS);
+  const [colOrder, setColOrder] = useState<ColumnKey[]>(DEFAULT_COLUMN_ORDER);
   const [resizing, setResizing] = useState<ColumnKey | null>(null);
+  const [dragCol, setDragCol] = useState<ColumnKey | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<ColumnKey | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [headerSmartPanel, setHeaderSmartPanel] = useState<{ col: ColumnKey; pos: { x: number; y: number } } | null>(null);
+  const [headerSmartPanelActiveOption, setHeaderSmartPanelActiveOption] = useState<string | null>(null);
+  const [colAliases, setColAliases] = useState<Partial<Record<ColumnKey, string>>>({});
+  const [showAllInSettings, setShowAllInSettings] = useState(true);
+  const [inlineSearchCol, setInlineSearchCol] = useState<ColumnKey | null>(null);
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const inlineSearchRef = useRef<HTMLInputElement>(null);
   const startX = useRef(0);
   const startWidth = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -135,12 +153,15 @@ export function TransactionPanel({
   const dragVisited = useRef<Set<string>>(new Set());
   const dragInitialSelected = useRef<Set<string>>(new Set());
   const skipNextClick = useRef(false);
+  const lastMouse = useRef({ x: 0, y: 0 });
+  const lastMousePos = useRef({ x: 0, y: 0 });
 
   const handleRowMouseDown = useCallback((txId: string, e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("input")) return;
     if (e.button !== 0) return;
 
     isDragging.current = true;
+    lastMouse.current = { x: e.clientX, y: e.clientY };
     dragVisited.current = new Set([txId]);
     skipNextClick.current = true;
     dragInitialSelected.current = new Set(selectedIds);
@@ -150,17 +171,26 @@ export function TransactionPanel({
     onSelect?.(txId);
   }, [selectedIds, onSelect]);
 
-  const handleRowMouseEnter = useCallback((txId: string) => {
-    if (!isDragging.current) return;
-    if (dragVisited.current.has(txId)) return;
-    dragVisited.current.add(txId);
+  const applyDragToRow = useCallback(
+    (txId: string) => {
+      if (dragVisited.current.has(txId)) return;
+      dragVisited.current.add(txId);
+      const wasSelected = dragInitialSelected.current.has(txId);
+      const shouldBeSelected = dragMode.current === "select";
+      if (wasSelected !== shouldBeSelected) {
+        onSelect?.(txId);
+      }
+    },
+    [onSelect]
+  );
 
-    const wasSelected = dragInitialSelected.current.has(txId);
-    const shouldBeSelected = dragMode.current === "select";
-    if (wasSelected !== shouldBeSelected) {
-      onSelect?.(txId);
-    }
-  }, [onSelect]);
+  const handleRowMouseEnter = useCallback(
+    (txId: string) => {
+      if (!isDragging.current) return;
+      applyDragToRow(txId);
+    },
+    [applyDragToRow]
+  );
 
   const handleRowClick = useCallback((txId: string) => {
     if (skipNextClick.current) {
@@ -171,18 +201,54 @@ export function TransactionPanel({
   }, [onSelect]);
 
   useEffect(() => {
+    const STEP = Math.max(8, Math.floor(ROW_HEIGHT / 2));
+
+    const onMouseMove = (e: MouseEvent) => {
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      if (!isDragging.current || !scrollRef.current) return;
+      const { x: x0, y: y0 } = lastMouse.current;
+      const x1 = e.clientX;
+      const y1 = e.clientY;
+      lastMouse.current = { x: x1, y: y1 };
+
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 1) return;
+
+      const steps = Math.max(1, Math.ceil(dist / STEP));
+      const seen = new Set<string>();
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const x = x0 + dx * t;
+        const y = y0 + dy * t;
+        const el = document.elementFromPoint(x, y);
+        const row = el?.closest?.("tr[data-tx-id]") as HTMLElement | null;
+        if (!row?.getAttribute || !scrollRef.current.contains(row)) continue;
+        const txId = row.getAttribute("data-tx-id");
+        if (txId && !seen.has(txId)) {
+          seen.add(txId);
+          applyDragToRow(txId);
+        }
+      }
+    };
+
     const onMouseUp = () => {
       if (isDragging.current) {
         isDragging.current = false;
         dragVisited.current.clear();
       }
     };
+
+    document.addEventListener("mousemove", onMouseMove, { passive: true });
     document.addEventListener("mouseup", onMouseUp);
-    return () => document.removeEventListener("mouseup", onMouseUp);
-  }, []);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [applyDragToRow]);
 
   // Search & sort state
-  const [searchOpen, setSearchOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [columnFilters, setColumnFilters] = useState<Partial<Record<SortKey, string>>>({});
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -222,6 +288,7 @@ export function TransactionPanel({
         tx.date.toLowerCase().includes(q) ||
         matchesAmount(tx.amount, q) ||
         (tx.voucher ?? "").toLowerCase().includes(q) ||
+        (tx.notat ?? "").toLowerCase().includes(q) ||
         tx.text.toLowerCase().includes(q)
       );
     }
@@ -233,7 +300,7 @@ export function TransactionPanel({
         const field = key as SortKey;
         if (field === "amount") return matchesAmount(tx.amount, v);
         if (field === "date") return;
-        const cellVal = field === "voucher" ? (tx.voucher ?? "") : (tx[field] ?? "");
+        const cellVal = field === "voucher" ? (tx.voucher ?? "") : field === "notat" ? (tx.notat ?? "") : (tx[field] ?? "");
         return cellVal.toLowerCase().includes(v);
       });
     }
@@ -242,8 +309,8 @@ export function TransactionPanel({
       const dir = sortDir === "asc" ? 1 : -1;
       rows = [...rows].sort((a, b) => {
         if (sortKey === "amount") return (a.amount - b.amount) * dir;
-        const av = sortKey === "voucher" ? (a.voucher ?? "") : a[sortKey];
-        const bv = sortKey === "voucher" ? (b.voucher ?? "") : b[sortKey];
+        const av = sortKey === "voucher" ? (a.voucher ?? "") : sortKey === "notat" ? (a.notat ?? "") : a[sortKey];
+        const bv = sortKey === "voucher" ? (b.voucher ?? "") : sortKey === "notat" ? (b.notat ?? "") : b[sortKey];
         return av.localeCompare(bv, "nb-NO") * dir;
       });
     }
@@ -294,6 +361,13 @@ export function TransactionPanel({
     });
   }, [panelActive, focusedRowIndex, filteredAndSorted.length, virtualizer]);
 
+  useEffect(() => {
+    if (!highlightTxId) return;
+    const idx = filteredAndSorted.findIndex((t) => t.id === highlightTxId);
+    if (idx === -1) return;
+    virtualizer.scrollToIndex(idx, { align: "center" });
+  }, [highlightTxId, filteredAndSorted, virtualizer]);
+
   const handleResizeStart = useCallback((col: ColumnKey, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -324,26 +398,33 @@ export function TransactionPanel({
     };
   }, [resizing]);
 
+  const isExternalFileDrag = useCallback((e: React.DragEvent) => {
+    return e.dataTransfer.types.includes("Files");
+  }, []);
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     if (onImportFile) setDragOver(true);
-  }, [onImportFile]);
+  }, [onImportFile, isExternalFileDrag]);
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-  }, []);
+  }, [isExternalFileDrag]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!isExternalFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
     if (!onImportFile) return;
     const file = e.dataTransfer.files?.[0];
     if (file) onImportFile(file);
-  }, [onImportFile]);
+  }, [onImportFile, isExternalFileDrag]);
 
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click();
@@ -355,14 +436,146 @@ export function TransactionPanel({
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [onImportFile]);
 
+  const handleColDragStart = useCallback((col: ColumnKey, e: React.DragEvent) => {
+    setDragCol(col);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", col);
+    const th = (e.target as HTMLElement).closest("th");
+    if (th) e.dataTransfer.setDragImage(th, 20, 16);
+  }, []);
+
+  const handleColDragOver = useCallback((col: ColumnKey, e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (col !== dragCol) setDragOverCol(col);
+  }, [dragCol]);
+
+  const handleColDrop = useCallback((targetCol: ColumnKey, e: React.DragEvent) => {
+    e.preventDefault();
+    if (!dragCol || dragCol === targetCol) {
+      setDragCol(null);
+      setDragOverCol(null);
+      return;
+    }
+    setColOrder((prev) => {
+      const next = [...prev];
+      const fromIdx = next.indexOf(dragCol);
+      const toIdx = next.indexOf(targetCol);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, dragCol);
+      return next;
+    });
+    setDragCol(null);
+    setDragOverCol(null);
+  }, [dragCol]);
+
+  const handleColDragEnd = useCallback(() => {
+    setDragCol(null);
+    setDragOverCol(null);
+  }, []);
+
+  const defaultLabels: Record<ColumnKey, string> = useMemo(() => ({ date: "Dato", amount: "Beløp", voucher: "Bilag", notat: "Notat", text: "Tekst" }), []);
+  const columnLabels: Record<ColumnKey, string> = useMemo(() => {
+    const labels = { ...defaultLabels };
+    for (const [key, alias] of Object.entries(colAliases)) {
+      if (alias?.trim()) labels[key as ColumnKey] = alias;
+    }
+    return labels;
+  }, [defaultLabels, colAliases]);
+
+  const handleHeaderContextMenu = useCallback((col: ColumnKey, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setHeaderSmartPanel({ col, pos: { x: e.clientX, y: e.clientY } });
+    setHeaderSmartPanelActiveOption(null);
+  }, []);
+
+  const headerSmartPanelOptions = useMemo((): SmartPanelOption[] => {
+    if (!headerSmartPanel) return [];
+    const col = headerSmartPanel.col;
+    return [
+      { id: "search", label: `Søk i ${columnLabels[col]}`, icon: <Search className="h-3.5 w-3.5" />, hint: "Filtrer" },
+      { id: "sort-asc", label: "Sorter stigende", icon: <SortAsc className="h-3.5 w-3.5" />, hint: "A→Å" },
+      { id: "sort-desc", label: "Sorter synkende", icon: <SortDesc className="h-3.5 w-3.5" />, hint: "Å→A" },
+      { id: "col-settings", label: "Kolonneinnstillinger", icon: <Columns3 className="h-3.5 w-3.5" />, separator: true },
+    ];
+  }, [headerSmartPanel, columnLabels]);
+
+  const toggleColumnVisibility = useCallback((target: ColumnKey) => {
+    setColOrder((prev) => {
+      if (prev.includes(target)) {
+        if (prev.length <= 2) return prev;
+        return prev.filter((c) => c !== target);
+      }
+      const idx = DEFAULT_COLUMN_ORDER.indexOf(target);
+      const next = [...prev];
+      let insertAt = next.length;
+      for (let i = 0; i < next.length; i++) {
+        if (DEFAULT_COLUMN_ORDER.indexOf(next[i]) > idx) {
+          insertAt = i;
+          break;
+        }
+      }
+      next.splice(insertAt, 0, target);
+      return next;
+    });
+  }, []);
+
+  const handleHeaderSmartPanelOption = useCallback((optionId: string) => {
+    if (!headerSmartPanel) return;
+    const col = headerSmartPanel.col;
+
+    if (optionId === "search") {
+      setInlineSearchCol(col);
+      setHeaderSmartPanel(null);
+      setTimeout(() => inlineSearchRef.current?.focus(), 0);
+      return;
+    }
+    if (optionId === "sort-asc") {
+      setSortKey(col);
+      setSortDir("asc");
+      setHeaderSmartPanel(null);
+      return;
+    }
+    if (optionId === "sort-desc") {
+      setSortKey(col);
+      setSortDir("desc");
+      setHeaderSmartPanel(null);
+      return;
+    }
+    if (optionId === "col-settings") {
+      setHeaderSmartPanelActiveOption("col-settings");
+      setShowAllInSettings(true);
+      return;
+    }
+    if (optionId === "") {
+      setHeaderSmartPanelActiveOption(null);
+      return;
+    }
+    setHeaderSmartPanelActiveOption(optionId);
+  }, [headerSmartPanel]);
+
+  const handleInlineSearchClose = useCallback((col: ColumnKey) => {
+    setInlineSearchCol(null);
+    setColumnFilter(col, "");
+  }, [setColumnFilter]);
+
+  useEffect(() => {
+    if (inlineSearchCol) {
+      setTimeout(() => inlineSearchRef.current?.focus(), 0);
+    }
+  }, [inlineSearchCol]);
+
   const hasActiveFilters = globalSearch || Object.values(columnFilters).some((v) => v?.trim());
 
   const clearAllFilters = useCallback(() => {
     setGlobalSearch("");
     setColumnFilters({});
+    setInlineSearchCol(null);
   }, []);
 
-  const tableMinWidth = 32 + colWidths.date + colWidths.amount + colWidths.voucher + colWidths.text;
+  const tableMinWidth = 32 + ATTACH_COL_WIDTH + colOrder.reduce((sum, col) => sum + colWidths[col], 0);
 
   const SortIcon = ({ col }: { col: SortKey }) => {
     if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />;
@@ -398,172 +611,138 @@ export function TransactionPanel({
         onChange={handleFileChange}
       />
 
-      <div className="flex items-center justify-between border-b px-2 py-1 shrink-0">
-        <div className="flex gap-2 items-center">
+      <div className="flex items-center gap-2 border-b px-2 py-1 shrink-0">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder="Søk i alle kolonner…"
+            value={globalSearch}
+            onChange={(e) => setGlobalSearch(e.target.value)}
+            className="h-7 pl-8 text-xs"
+            data-smart-info="Søk på tvers av alle kolonner. Høyreklikk på en kolonne-header for å søke i en spesifikk kolonne."
+          />
+        </div>
+        {hasActiveFilters && (
+          <Button size="sm" variant="ghost" className="gap-1 text-muted-foreground h-7 px-2" onClick={clearAllFilters} data-smart-info="Nullstill alle aktive søk og filtre.">
+            <X className="h-3 w-3" />
+            Nullstill
+          </Button>
+        )}
+        {onImportFile && (
           <Button
             size="sm"
-            variant={searchOpen ? "default" : "outline"}
-            className="gap-1"
-            onClick={() => setSearchOpen(!searchOpen)}
-            data-smart-info="Åpne søk og filter. Søk på tvers av alle kolonner, eller filtrer per kolonne (dato, beløp, bilag, tekst)."
+            variant="outline"
+            className="gap-1.5 h-7 px-2"
+            onClick={handleFileSelect}
+            data-smart-info="Last opp en ny fil til denne mengden. Støtter CSV, Excel, CAMT.053 og Klink-format."
           >
-            <Search className="h-3.5 w-3.5" />
-            Søk
+            <Upload className="h-3 w-3" />
+            Last opp
           </Button>
-          {hasActiveFilters && (
-            <Button size="sm" variant="ghost" className="gap-1 text-muted-foreground" onClick={clearAllFilters} data-smart-info="Nullstill alle aktive søk og filtre.">
-              <X className="h-3.5 w-3.5" />
-              Nullstill
-            </Button>
-          )}
-        </div>
-        <div className="flex gap-1.5">
-          {onImportFile && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              onClick={handleFileSelect}
-              data-smart-info="Last opp en ny fil til denne mengden. Støtter CSV, Excel, CAMT.053 og Klink-format."
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Last opp
-            </Button>
-          )}
-        </div>
+        )}
       </div>
 
-      {searchOpen && (
-        <div className="border-b px-2 py-1.5 space-y-1.5 shrink-0 bg-muted/20">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              placeholder="Søk i alle kolonner…"
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              className="h-8 pl-8 text-sm"
-              autoFocus
-            />
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            <Input
-              placeholder="Beløp"
-              value={columnFilters.amount ?? ""}
-              onChange={(e) => setColumnFilter("amount", e.target.value)}
-              className="h-7 text-xs"
-            />
-            <Input
-              placeholder="Bilag"
-              value={columnFilters.voucher ?? ""}
-              onChange={(e) => setColumnFilter("voucher", e.target.value)}
-              className="h-7 text-xs"
-            />
-            <Input
-              placeholder="Tekst"
-              value={columnFilters.text ?? ""}
-              onChange={(e) => setColumnFilter("text", e.target.value)}
-              className="h-7 text-xs"
-            />
-          </div>
-        </div>
-      )}
-
       <div ref={scrollRef} className={cn("flex-1 overflow-auto isolate", matchAnimatingIds && "overflow-x-hidden")}>
-        <table className="text-sm table-fixed" style={{ minWidth: "100%", width: tableMinWidth }}>
+        <table className="text-sm table-fixed" style={{ width: "100%", minWidth: tableMinWidth }}>
           <colgroup>
             <col style={{ width: 32 }} />
-            <col style={{ width: colWidths.date }} />
-            <col style={{ width: colWidths.amount }} />
-            <col style={{ width: colWidths.voucher }} />
-            <col style={{ width: colWidths.text }} />
+            <col style={{ width: ATTACH_COL_WIDTH }} />
+            {colOrder.map((col) => (
+              <col key={col} style={{ width: colWidths[col] }} />
+            ))}
+            <col />
           </colgroup>
           <thead className="sticky top-0 bg-muted/95 z-10">
             <tr>
               <th className="w-8 p-2 text-left shrink-0">
                 <input type="checkbox" className="rounded" aria-label="Velg alle" />
               </th>
-              <th
-                className="p-2 text-left font-medium relative select-none cursor-pointer overflow-hidden"
-                onClick={() => toggleSort("date")}
-              >
-                <span className="flex items-center gap-1">
-                  Dato
-                  <SortIcon col="date" />
-                </span>
-                <span
-                  role="separator"
-                  aria-label="Juster kolonnebredde"
-                  className={cn(
-                    "absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50",
-                    resizing === "date" && "bg-primary/50"
-                  )}
-                  onMouseDown={(e) => handleResizeStart("date", e)}
-                  onClick={(e) => e.stopPropagation()}
-                />
+              <th className="p-0" style={{ width: ATTACH_COL_WIDTH }}>
+                <Paperclip className="h-3 w-3 mx-auto text-muted-foreground/50" />
               </th>
-              <th
-                className="p-2 text-right font-medium relative select-none cursor-pointer overflow-hidden"
-                onClick={() => toggleSort("amount")}
-              >
-                <span className="flex items-center justify-end gap-1">
-                  Beløp
-                  <SortIcon col="amount" />
-                </span>
-                <span
-                  role="separator"
-                  aria-label="Juster kolonnebredde"
-                  className={cn(
-                    "absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50",
-                    resizing === "amount" && "bg-primary/50"
-                  )}
-                  onMouseDown={(e) => handleResizeStart("amount", e)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </th>
-              <th
-                className="p-2 text-left font-medium relative select-none cursor-pointer overflow-hidden"
-                onClick={() => toggleSort("voucher")}
-              >
-                <span className="flex items-center gap-1">
-                  Bilag
-                  <SortIcon col="voucher" />
-                </span>
-                <span
-                  role="separator"
-                  aria-label="Juster kolonnebredde"
-                  className={cn(
-                    "absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50",
-                    resizing === "voucher" && "bg-primary/50"
-                  )}
-                  onMouseDown={(e) => handleResizeStart("voucher", e)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </th>
-              <th
-                className="p-2 text-left font-medium relative select-none cursor-pointer overflow-hidden"
-                onClick={() => toggleSort("text")}
-              >
-                <span className="flex items-center gap-1">
-                  Tekst
-                  <SortIcon col="text" />
-                </span>
-                <span
-                  role="separator"
-                  aria-label="Juster kolonnebredde"
-                  className={cn(
-                    "absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50",
-                    resizing === "text" && "bg-primary/50"
-                  )}
-                  onMouseDown={(e) => handleResizeStart("text", e)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </th>
+              {colOrder.map((col) => {
+                const isSearching = inlineSearchCol === col;
+                return (
+                  <th
+                    key={col}
+                    className={cn(
+                      "group/th font-medium relative select-none overflow-hidden",
+                      isSearching ? "p-0" : "cursor-pointer",
+                      col === "amount" ? "text-right" : "text-left",
+                      dragOverCol === col && dragCol !== col && "bg-primary/5"
+                    )}
+                    draggable={!isSearching}
+                    onClick={isSearching ? undefined : () => toggleSort(col)}
+                    onContextMenu={(e) => handleHeaderContextMenu(col, e)}
+                    onDragStart={isSearching ? undefined : (e) => handleColDragStart(col, e)}
+                    onDragOver={isSearching ? undefined : (e) => handleColDragOver(col, e)}
+                    onDrop={isSearching ? undefined : (e) => handleColDrop(col, e)}
+                    onDragEnd={isSearching ? undefined : handleColDragEnd}
+                    onDragLeave={isSearching ? undefined : () => { if (dragOverCol === col) setDragOverCol(null); }}
+                  >
+                    {isSearching ? (
+                      <div className="flex items-center h-full">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                          <input
+                            ref={inlineSearchRef}
+                            type="text"
+                            value={columnFilters[col] ?? ""}
+                            onChange={(e) => setColumnFilter(col, e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Escape") handleInlineSearchClose(col); }}
+                            onBlur={(e) => {
+                              const th = (e.target as HTMLElement).closest("th");
+                              if (th?.contains(e.relatedTarget as Node)) return;
+                              setInlineSearchCol(null);
+                            }}
+                            placeholder={`Søk ${columnLabels[col].toLowerCase()}…`}
+                            className="w-full h-8 pl-7 pr-7 text-xs bg-background border-0 outline-none ring-1 ring-inset ring-primary/40 focus:ring-primary/70 rounded-none"
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-sm hover:bg-muted text-muted-foreground"
+                            onClick={() => handleInlineSearchClose(col)}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center h-full px-2 py-1.5 pr-3">
+                        <span className={cn("flex items-center gap-1 flex-1 min-w-0 truncate", col === "amount" && "justify-end")}>
+                          {columnLabels[col]}
+                          <SortIcon col={col} />
+                          {columnFilters[col]?.trim() && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                          )}
+                        </span>
+                      </div>
+                    )}
+                    {!isSearching && (
+                      <span
+                        role="separator"
+                        aria-label="Juster kolonnebredde"
+                        className="absolute top-0 bottom-0 right-0 w-3 cursor-col-resize flex items-center justify-center"
+                        onMouseDown={(e) => handleResizeStart(col, e)}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className={cn(
+                          "w-[3px] h-3/5 rounded-full bg-border/70 transition-colors group-hover/th:bg-border hover:!bg-primary/50 active:!bg-primary/60",
+                          resizing === col && "!bg-primary/60"
+                        )} />
+                      </span>
+                    )}
+                  </th>
+                );
+              })}
+              <th />
             </tr>
           </thead>
           <tbody onMouseMove={panelActive ? onDeactivateKeyboard : undefined}>
             {filteredAndSorted.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                <td colSpan={3 + colOrder.length} className="p-8 text-center text-muted-foreground">
                   {transactions.length === 0
                     ? "Ingen transaksjoner. Importer fil for Mengde 1 og Mengde 2."
                     : "Ingen treff. Prøv et annet søkeord."}
@@ -573,12 +752,13 @@ export function TransactionPanel({
               <>
                 {virtualizer.getVirtualItems().length > 0 && virtualizer.getVirtualItems()[0].start > 0 && (
                   <tr aria-hidden="true">
-                    <td colSpan={5} style={{ height: virtualizer.getVirtualItems()[0].start, padding: 0, border: "none" }} />
+                    <td colSpan={3 + colOrder.length} style={{ height: virtualizer.getVirtualItems()[0].start, padding: 0, border: "none" }} />
                   </tr>
                 )}
                 {virtualizer.getVirtualItems().map((vRow) => {
                   const tx = filteredAndSorted[vRow.index];
                   const isKbFocused = panelActive && focusedRowIndex === vRow.index;
+                  const isHighlighted = highlightTxId === tx.id;
                   const makeAction = (field: CellField): CellContextAction => ({
                     txId: tx.id,
                     field,
@@ -589,9 +769,11 @@ export function TransactionPanel({
                     <tr
                       key={tx.id}
                       data-index={vRow.index}
+                      data-tx-id={tx.id}
                       className={cn(
                         "group/row border-t hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer select-none",
                         isKbFocused && "outline outline-2 -outline-offset-2 outline-primary z-[1] kb-focused",
+                        isHighlighted && "notification-highlight",
                         selectedIds.has(tx.id)
                           ? "bg-blue-100 dark:bg-blue-950/40 hover:bg-blue-200/70 dark:hover:bg-blue-950/60"
                           : counterpartHintIds?.has(tx.id)
@@ -604,7 +786,19 @@ export function TransactionPanel({
                       )}
                       style={{ height: ROW_HEIGHT }}
                       onMouseDown={(e) => handleRowMouseDown(tx.id, e)}
-                      onMouseEnter={() => handleRowMouseEnter(tx.id)}
+                      onMouseEnter={() => {
+                        setHoveredRowId(tx.id);
+                        handleRowMouseEnter(tx.id);
+                      }}
+                      onMouseLeave={() => {
+                        const rowId = tx.id;
+                        requestAnimationFrame(() => {
+                          const { x, y } = lastMousePos.current;
+                          const el = document.elementFromPoint(x, y);
+                          if (el?.closest(`tr[data-tx-id="${rowId}"]`) || el?.closest(`[data-row-toolbar="${rowId}"]`)) return;
+                          setHoveredRowId(null);
+                        });
+                      }}
                       onClick={() => handleRowClick(tx.id)}
                     >
                       <td className="p-2" style={{ width: 32 }}>
@@ -619,164 +813,209 @@ export function TransactionPanel({
                           onClick={(e) => e.stopPropagation()}
                         />
                       </td>
-                      {([
-                        { field: "date" as CellField, content: tx.date, className: "p-2 truncate overflow-hidden", style: { width: colWidths.date } },
-                        { field: "amount" as CellField, content: <>{tx.amount >= 0 ? "" : "−"}{formatNO(tx.amount)}</>, className: cn("p-2 text-right font-mono truncate overflow-hidden", tx.amount < 0 && "text-destructive"), style: { width: colWidths.amount } },
-                        { field: "voucher" as CellField, content: tx.voucher ?? "—", className: "p-2 text-muted-foreground truncate", style: { width: colWidths.voucher } },
-                      ] as const).map((cell) => (
-                        <td
-                          key={cell.field}
-                          className={cell.className}
-                          style={cell.style}
-                          onContextMenu={(e) => {
-                            if (!onCellContextMenu) return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onCellContextMenu(makeAction(cell.field), { x: e.clientX, y: e.clientY });
-                          }}
-                        >
-                          {cell.content}
-                        </td>
-                      ))}
-                      <td
-                        className="relative"
-                        style={{ width: colWidths.text }}
-                        onContextMenu={(e) => {
-                          if (!onCellContextMenu) return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onCellContextMenu(makeAction("text"), { x: e.clientX, y: e.clientY });
-                        }}
-                      >
-                        <span className="block p-2 truncate pr-8">{tx.text}</span>
-                        <TooltipProvider>
-                          <div
-                            className={cn(
-                              "row-action-bar absolute right-1 top-0 -translate-y-3/4 flex items-center gap-px rounded-md border bg-background shadow-md transition-opacity duration-150 z-10",
-                              isKbFocused
-                                ? "opacity-100 pointer-events-auto"
-                                : "opacity-0 pointer-events-none group-hover/row:opacity-100 group-hover/row:pointer-events-auto group-hover/row:delay-150"
-                            )}
-                            title=""
-                            onClick={(e) => e.stopPropagation()}
-                            onMouseDown={(e) => e.stopPropagation()}
+                      <td className="p-0 text-center" style={{ width: ATTACH_COL_WIDTH }}>
+                        {tx.hasAttachment && (
+                          <button
+                            type="button"
+                            className="inline-flex items-center justify-center w-full h-full"
+                            onClick={(e) => { e.stopPropagation(); onRowAction?.(tx.id, "attachment"); }}
                           >
-                            {onMatch && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "p-1.5 rounded-sm transition-colors",
-                                      canMatch
-                                        ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"
-                                        : "text-muted-foreground/40 cursor-default"
-                                    )}
-                                    onClick={canMatch ? onMatch : undefined}
-                                  >
-                                    <Link2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">
-                                  {canMatch ? "Match (M)" : "Match"}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
-                            {hintCount > 0 && !counterpartsSelected && onSelectCounterparts && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="p-1.5 rounded-sm transition-colors text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                                    onClick={onSelectCounterparts}
-                                  >
-                                    <CheckCheck className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Motposter (C)</TooltipContent>
-                              </Tooltip>
-                            )}
-                            {hasSelection && onClearSelection && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="p-1.5 rounded-sm transition-colors text-destructive hover:bg-destructive/10"
-                                    onClick={onClearSelection}
-                                  >
-                                    <CircleOff className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Fjern (X)</TooltipContent>
-                              </Tooltip>
-                            )}
-                            {onToggleFocus && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "p-1.5 rounded-sm transition-colors",
-                                      hintCount === 0
-                                        ? "text-muted-foreground/40 cursor-default"
-                                        : focusMode
-                                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                          : "hover:bg-muted"
-                                    )}
-                                    onClick={hintCount > 0 ? onToggleFocus : undefined}
-                                  >
-                                    <Focus className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Fokus (F)</TooltipContent>
-                              </Tooltip>
-                            )}
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                                  onClick={() => onRowAction?.(tx.id, "note")}
-                                >
-                                  <MessageSquarePlus className="h-3.5 w-3.5 text-muted-foreground" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">Notat</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                                  onClick={() => onRowAction?.(tx.id, "attachment")}
-                                >
-                                  <Paperclip className="h-3.5 w-3.5 text-muted-foreground" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">Vedlegg</TooltipContent>
-                            </Tooltip>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                                  onClick={() => onRowAction?.(tx.id, "more")}
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">Mer</TooltipContent>
-                            </Tooltip>
-                          </div>
-                        </TooltipProvider>
+                            <Paperclip className="h-3 w-3 text-green-600" />
+                          </button>
+                        )}
                       </td>
+                      {(() => {
+                        const rowToolbarVisible = hoveredRowId === tx.id || isKbFocused;
+                        const hoverToolbar = rowToolbarVisible ? (
+                          <TooltipProvider>
+                            <div
+                              className="row-action-bar absolute right-1 top-0 -translate-y-3/4 flex items-center gap-px rounded-md border bg-background shadow-md z-20"
+                              data-row-toolbar={tx.id}
+                              title=""
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              {onMatch && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "p-1.5 rounded-sm transition-colors",
+                                        canMatch
+                                          ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"
+                                          : "text-muted-foreground/40 cursor-default"
+                                      )}
+                                      onClick={canMatch ? onMatch : undefined}
+                                    >
+                                      <Link2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">
+                                    {canMatch ? "Match (M)" : "Match"}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                              {hintCount > 0 && !counterpartsSelected && onSelectCounterparts && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="p-1.5 rounded-sm transition-colors text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                                      onClick={onSelectCounterparts}
+                                    >
+                                      <CheckCheck className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">Motposter (C)</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {hasSelection && onClearSelection && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className="p-1.5 rounded-sm transition-colors text-destructive hover:bg-destructive/10"
+                                      onClick={onClearSelection}
+                                    >
+                                      <CircleOff className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">Fjern (X)</TooltipContent>
+                                </Tooltip>
+                              )}
+                              {onToggleFocus && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        "p-1.5 rounded-sm transition-colors",
+                                        hintCount === 0
+                                          ? "text-muted-foreground/40 cursor-default"
+                                          : focusMode
+                                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                            : "hover:bg-muted"
+                                      )}
+                                      onClick={hintCount > 0 ? onToggleFocus : undefined}
+                                    >
+                                      <Focus className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top">Fokus (F)</TooltipContent>
+                                </Tooltip>
+                              )}
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "p-1.5 rounded-sm hover:bg-muted transition-colors",
+                                      tx.notat ? "text-green-600" : ""
+                                    )}
+                                    onClick={() => onRowAction?.(tx.id, "note")}
+                                  >
+                                    <MessageSquarePlus className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Notat</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "p-1.5 rounded-sm hover:bg-muted transition-colors",
+                                      tx.hasAttachment ? "text-green-600" : ""
+                                    )}
+                                    onClick={() => onRowAction?.(tx.id, "attachment")}
+                                  >
+                                    <Paperclip className="h-3.5 w-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Vedlegg</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="p-1.5 rounded-sm hover:bg-muted transition-colors"
+                                    onClick={() => onRowAction?.(tx.id, "more")}
+                                  >
+                                    <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">Mer</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TooltipProvider>
+                        ) : null;
+                        return colOrder.map((col) => {
+                          const isLastCol = col === colOrder[colOrder.length - 1];
+                          if (col === "text") {
+                            return (
+                              <td
+                                key={col}
+                                className="relative"
+                                style={{ width: colWidths.text }}
+                                onContextMenu={(e) => {
+                                  if (!onCellContextMenu) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  onCellContextMenu(makeAction("text"), { x: e.clientX, y: e.clientY });
+                                }}
+                              >
+                                <span className={cn("block p-2 truncate", isLastCol && "pr-8")}>
+                                  {tx.text}
+                                </span>
+                                {isLastCol && hoverToolbar}
+                              </td>
+                            );
+                          }
+                          const cellDef = col === "date"
+                            ? { content: tx.date as React.ReactNode, className: "p-2 truncate overflow-hidden" }
+                            : col === "amount"
+                              ? { content: <>{tx.amount >= 0 ? "" : "−"}{formatNO(tx.amount)}</> as React.ReactNode, className: cn("p-2 text-right font-mono truncate overflow-hidden", tx.amount < 0 && "text-destructive") }
+                              : col === "voucher"
+                                ? { content: (tx.voucher ?? "—") as React.ReactNode, className: "p-2 text-muted-foreground truncate" }
+                                : { content: tx.notat ? (
+                                    <button
+                                      type="button"
+                                      className="text-left truncate w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+                                      onClick={(e) => { e.stopPropagation(); onRowAction?.(tx.id, "note"); }}
+                                      title={tx.notat}
+                                    >
+                                      {tx.notat.split(/\s+/).slice(0, 5).join(" ")}{tx.notat.split(/\s+/).length > 5 ? "…" : ""}
+                                    </button>
+                                  ) : (
+                                    <span className="text-muted-foreground/30 text-xs">—</span>
+                                  ) as React.ReactNode, className: "p-2 truncate overflow-hidden" };
+                          return (
+                            <td
+                              key={col}
+                              className={cn(cellDef.className, isLastCol && "relative")}
+                              style={{ width: colWidths[col] }}
+                              onContextMenu={(e) => {
+                                if (!onCellContextMenu) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onCellContextMenu(makeAction(col as CellField), { x: e.clientX, y: e.clientY });
+                              }}
+                            >
+                              {isLastCol ? <span className="block p-2 truncate pr-8">{cellDef.content}</span> : cellDef.content}
+                              {isLastCol && hoverToolbar}
+                            </td>
+                          );
+                        });
+                      })()}
+                      <td />
                     </tr>
                   );
                 })}
                 {virtualizer.getVirtualItems().length > 0 && (
                   <tr aria-hidden="true">
                     <td
-                      colSpan={5}
+                      colSpan={3 + colOrder.length}
                       style={{
                         height: virtualizer.getTotalSize() - (virtualizer.getVirtualItems().at(-1)?.end ?? 0),
                         padding: 0,
@@ -801,6 +1040,82 @@ export function TransactionPanel({
         </div>
       )}
 
+      <SmartPanel
+        open={!!headerSmartPanel}
+        onClose={() => setHeaderSmartPanel(null)}
+        position={headerSmartPanel?.pos ?? { x: 0, y: 0 }}
+        title={headerSmartPanel ? (headerSmartPanelActiveOption === "col-settings" ? "Kolonneinnstillinger" : `Kolonne: ${columnLabels[headerSmartPanel.col]}`) : "Kolonne"}
+        options={headerSmartPanelOptions}
+        onOptionSelect={handleHeaderSmartPanelOption}
+        activeOptionId={headerSmartPanelActiveOption}
+        resultContent={
+          headerSmartPanelActiveOption === "col-settings" ? (
+            <div className="p-3 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-muted-foreground">Synlige kolonner</p>
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => setShowAllInSettings((p) => !p)}
+                  >
+                    {showAllInSettings ? "Vis kun synlige" : "Vis alle"}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(showAllInSettings ? DEFAULT_COLUMN_ORDER : colOrder).map((col) => {
+                    const isActive = colOrder.includes(col);
+                    return (
+                      <button
+                        key={col}
+                        type="button"
+                        className={cn(
+                          "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                          isActive
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        )}
+                        onClick={() => toggleColumnVisibility(col)}
+                      >
+                        {columnLabels[col]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="border-t pt-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <Pencil className="h-3 w-3 text-muted-foreground" />
+                  <p className="text-xs font-medium text-muted-foreground">Endre navn</p>
+                </div>
+                <div className="space-y-1.5">
+                  {DEFAULT_COLUMN_ORDER.map((col) => (
+                    <div key={col} className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground w-12 shrink-0 truncate">{defaultLabels[col]}</span>
+                      <input
+                        type="text"
+                        value={colAliases[col] ?? ""}
+                        onChange={(e) => setColAliases((prev) => ({ ...prev, [col]: e.target.value }))}
+                        placeholder={defaultLabels[col]}
+                        className="flex-1 h-7 rounded-md border bg-background px-2 text-xs outline-none focus:ring-1 focus:ring-primary/40"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : undefined
+        }
+        footerContent={
+          headerSmartPanelActiveOption !== "col-settings" ? (
+            <div className="p-3 text-xs text-muted-foreground space-y-1">
+              <p><span className="font-medium text-foreground">Klikk</span> for å sortere</p>
+              <p><span className="font-medium text-foreground">Dra header</span> for å endre rekkefølge</p>
+              <p><span className="font-medium text-foreground">Dra kanten</span> for å endre bredde</p>
+            </div>
+          ) : undefined
+        }
+      />
     </div>
   );
 }
