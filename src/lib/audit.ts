@@ -4,10 +4,13 @@ import { auditLogs } from "@/lib/db/schema";
 type AuditAction =
   | "import.created"
   | "import.deleted"
+  | "import.permanently_deleted"
   | "import.restored"
   | "match.created"
   | "match.deleted"
   | "transaction.created"
+  | "transaction.updated"
+  | "transaction.deleted"
   | "rule.created"
   | "rule.updated"
   | "rule.deleted";

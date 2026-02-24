@@ -92,7 +92,7 @@ export function ExportModal({
     }
   }
 
-  const displayTitle = title ?? "Eksporter rapport";
+  const displayTitle = title ?? "Rapport";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

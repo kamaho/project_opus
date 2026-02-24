@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, GripHorizontal, SendHorizonal, Sparkles, X } from "lucide-react";
+import { ArrowLeft, GripHorizontal, Pin, PinOff, SendHorizonal, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { SmartPanelSectionLabel } from "./smart-panel-standard";
 
 const DEFAULT_WIDTH = 320;
 
@@ -34,7 +35,17 @@ interface SmartPanelProps {
   onOptionSelect: (optionId: string) => void;
   activeOptionId: string | null;
   resultContent?: ReactNode;
+  /** Rendered above footer (e.g. Innstillinger + Design). */
+  sectionAboveFooter?: ReactNode;
   footerContent?: ReactNode;
+  /** Use same layout as reference: agent input, section labels, Innstillinger, Tips. */
+  useStandardLayout?: boolean;
+  /** Section heading above main content (e.g. "Om elementet", "Kolonne: Beløp"). */
+  contentSectionLabel?: string;
+  /** When set, panel can be pinned to stay open across navigation. */
+  pinned?: boolean;
+  /** Called when user toggles pin. If not provided, pin button is hidden. */
+  onPinChange?: (pinned: boolean) => void;
 }
 
 interface ChatMessage {
@@ -196,7 +207,12 @@ export function SmartPanel({
   onOptionSelect,
   activeOptionId,
   resultContent,
+  sectionAboveFooter,
   footerContent,
+  useStandardLayout = false,
+  contentSectionLabel,
+  pinned = false,
+  onPinChange,
 }: SmartPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -253,22 +269,23 @@ export function SmartPanel({
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose, chatOpen]);
 
-  if (!open) return null;
-
   const activeLabel = options.find((o) => o.id === activeOptionId)?.label;
   const showingSubPage = activeOptionId || chatOpen;
-  const headerTitle = chatOpen ? "Assistent" : activeOptionId ? activeLabel : title;
+  const headerTitle = useStandardLayout
+    ? (chatOpen ? "Assistent" : activeOptionId === "design" ? "Design" : activeOptionId ? activeLabel : "Smart panel")
+    : (chatOpen ? "Assistent" : activeOptionId ? activeLabel : title);
 
-  return (
+  return open ? (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* Overlay with pointer-events: none so the user can click and right-click the page while panel is open. Close via X or Escape. */}
+      <div className="fixed inset-0 z-40 pointer-events-none" />
       <div
         ref={panelRef}
         className={cn(
           "fixed z-50 flex flex-col rounded-lg border bg-background shadow-xl",
           dragging && "select-none",
         )}
-        style={{ left: pos.x, top: pos.y, width: DEFAULT_WIDTH }}
+        style={{ left: pos.x, top: pos.y, width: DEFAULT_WIDTH, maxHeight: "min(85vh, 640px)" }}
       >
         {/* Draggable header */}
         <div
@@ -296,11 +313,25 @@ export function SmartPanel({
             {headerTitle}
           </span>
           <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+          {onPinChange != null && (
+            <Button
+              size="icon"
+              variant="ghost"
+              className={cn("h-6 w-6 shrink-0", pinned && "text-primary")}
+              onClick={() => onPinChange(!pinned)}
+              title={pinned ? "Løsne panel" : "Fest panel (står igjen ved navigering)"}
+              aria-label={pinned ? "Løsne panel" : "Fest panel"}
+            >
+              {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+            </Button>
+          )}
           <Button
             size="icon"
             variant="ghost"
             className="h-6 w-6 shrink-0"
             onClick={onClose}
+            title="Lukk"
+            aria-label="Lukk"
           >
             <X className="h-3.5 w-3.5" />
           </Button>
@@ -309,8 +340,16 @@ export function SmartPanel({
         {/* Chat page */}
         {chatOpen && !activeOptionId && <AgentChatView />}
 
-        {/* Main page: agent input + options */}
-        {!chatOpen && !activeOptionId && (
+        {/* Standard layout: agent input only in main view (not when drilled into Design etc.) */}
+        {useStandardLayout && !chatOpen && !activeOptionId && (
+          <>
+            <AgentPlaceholderInput onClick={() => setChatOpen(true)} />
+            <div className="border-t" />
+          </>
+        )}
+
+        {/* Main page: agent input + options (non-standard) */}
+        {!useStandardLayout && !chatOpen && !activeOptionId && (
           <>
             <AgentPlaceholderInput onClick={() => setChatOpen(true)} />
             {options.length > 0 && <div className="border-t" />}
@@ -319,45 +358,63 @@ export function SmartPanel({
 
         {/* Content: options list or result */}
         {!chatOpen && (
-          <div className="overflow-auto">
+          <div className="overflow-y-auto min-h-0 flex-1">
             {activeOptionId && resultContent ? (
+              /* Sub-view: only the chosen content, no section label */
               resultContent
             ) : !activeOptionId && options.length > 0 ? (
               <div className="py-1">
-                {options.map((opt) => (
-                  <div key={opt.id}>
-                    {opt.separator && <div className="my-1 border-t" />}
-                    <button
-                      type="button"
-                      disabled={opt.disabled}
-                      className={cn(
-                        "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors text-left",
-                        opt.disabled
-                          ? "text-muted-foreground/50 cursor-not-allowed"
-                          : "hover:bg-muted/60"
-                      )}
-                      onClick={() => !opt.disabled && onOptionSelect(opt.id)}
-                    >
-                      {opt.icon && <span className="shrink-0 text-muted-foreground">{opt.icon}</span>}
-                      <span className="flex-1">{opt.label}</span>
-                      {opt.hint && <span className="text-xs text-muted-foreground/60 shrink-0">{opt.hint}</span>}
-                    </button>
-                  </div>
-                ))}
+                {contentSectionLabel && <SmartPanelSectionLabel>{contentSectionLabel}</SmartPanelSectionLabel>}
+                <div className={contentSectionLabel ? "py-1" : ""}>
+                  {options.map((opt) => (
+                    <div key={opt.id}>
+                      {opt.separator && <div className="my-1 border-t" />}
+                      <button
+                        type="button"
+                        disabled={opt.disabled}
+                        className={cn(
+                          "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors text-left",
+                          opt.disabled
+                            ? "text-muted-foreground/50 cursor-not-allowed"
+                            : "hover:bg-muted/60"
+                        )}
+                        onClick={() => !opt.disabled && onOptionSelect(opt.id)}
+                      >
+                        {opt.icon && <span className="shrink-0 text-muted-foreground">{opt.icon}</span>}
+                        <span className="flex-1">{opt.label}</span>
+                        {opt.hint && <span className="text-xs text-muted-foreground/60 shrink-0">{opt.hint}</span>}
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : resultContent ? (
-              resultContent
+              contentSectionLabel ? (
+                <div>
+                  <SmartPanelSectionLabel>{contentSectionLabel}</SmartPanelSectionLabel>
+                  <div className="pb-2">{resultContent}</div>
+                </div>
+              ) : (
+                resultContent
+              )
             ) : null}
           </div>
         )}
 
-        {!chatOpen && !activeOptionId && footerContent && (
+        {/* Innstillinger + Tips only in main view when using standard layout */}
+        {!chatOpen && sectionAboveFooter && (!useStandardLayout || !activeOptionId) && (
           <>
             <div className="border-t" />
-            <div className="overflow-auto">{footerContent}</div>
+            <div className="shrink-0">{sectionAboveFooter}</div>
+          </>
+        )}
+        {!chatOpen && footerContent && (!useStandardLayout || !activeOptionId) && (
+          <>
+            <div className="border-t" />
+            <div className="overflow-auto shrink-0">{footerContent}</div>
           </>
         )}
       </div>
     </>
-  );
+  ) : null;
 }

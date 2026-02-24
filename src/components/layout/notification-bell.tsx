@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useFormatting } from "@/contexts/ui-preferences-context";
 import {
   Bell,
   Check,
@@ -67,6 +68,7 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
+  const { fmtDate: fmtD } = useFormatting();
   const prevIdsRef = useRef<Set<string>>(new Set());
   const initialLoadRef = useRef(true);
 
@@ -154,10 +156,7 @@ export function NotificationBell() {
     if (diffHours < 24) return `${diffHours}t siden`;
     const diffDays = Math.floor(diffHours / 24);
     if (diffDays < 7) return `${diffDays}d siden`;
-    return d.toLocaleDateString("nb-NO", {
-      day: "numeric",
-      month: "short",
-    });
+    return fmtD(d);
   };
 
   return (

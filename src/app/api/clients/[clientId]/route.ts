@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { accounts, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { revalidateTag } from "next/cache";
+import { revalidateAccounts } from "@/lib/revalidate";
 import { validateClientTenant } from "@/lib/db/tenant";
 
 /** GET: Grunnleggende info om en konto (for breadcrumb m.m.). */
@@ -73,7 +73,7 @@ export async function PATCH(
     .set({ name: newName })
     .where(eq(accounts.id, body.accountId));
 
-  revalidateTag("accounts");
+  revalidateAccounts();
 
   return NextResponse.json({ ok: true, name: newName });
 }

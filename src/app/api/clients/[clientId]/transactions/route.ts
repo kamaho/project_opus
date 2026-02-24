@@ -13,7 +13,6 @@ const createSchema = z.object({
   amount: z.number().refine((v) => v !== 0, "Beløp kan ikke være 0"),
   text: z.string().min(1, "Tekst er påkrevd"),
   voucher: z.string().optional(),
-  affectBalance: z.boolean(),
 });
 
 export async function POST(
@@ -38,7 +37,7 @@ export async function POST(
     return NextResponse.json({ error: firstError }, { status: 400 });
   }
 
-  const { setNumber, date, amount, text, voucher, affectBalance } = parsed.data;
+  const { setNumber, date, amount, text, voucher } = parsed.data;
 
   const [inserted] = await db
     .insert(transactions)
@@ -53,36 +52,13 @@ export async function POST(
     })
     .returning({ id: transactions.id });
 
-  if (affectBalance) {
-    const [clientData] = await db
-      .select({
-        openingBalanceSet1: clients.openingBalanceSet1,
-        openingBalanceSet2: clients.openingBalanceSet2,
-      })
-      .from(clients)
-      .where(eq(clients.id, clientId));
-
-    const currentBalance = parseFloat(
-      (setNumber === 1
-        ? clientData.openingBalanceSet1
-        : clientData.openingBalanceSet2) ?? "0"
-    );
-    const newBalance = currentBalance + amount;
-    const balanceField =
-      setNumber === 1 ? "openingBalanceSet1" : "openingBalanceSet2";
-    await db
-      .update(clients)
-      .set({ [balanceField]: String(newBalance) })
-      .where(eq(clients.id, clientId));
-  }
-
   await logAudit({
     tenantId: orgId,
     userId,
     action: "transaction.created",
     entityType: "transaction",
     entityId: inserted.id,
-    metadata: { setNumber, amount, date, text, affectBalance, manual: true },
+    metadata: { setNumber, amount, date, text, manual: true },
   });
 
   return NextResponse.json({ ok: true, id: inserted.id });

@@ -194,8 +194,8 @@ Each rule can be configured with:
 Transactions remaining after all rules have run must be handled manually:
 - User selects transactions from both sets that should match
 - Selected transactions must **sum to zero** to be reconciled
-- **Tolerance setting**: If enabled, matching with a deviation creates an open correction post (korreksjonspost)
-- Correction posts carry forward and must be resolved
+- **Tolerance setting**: If enabled, matching with a deviation creates an opening post (åpningspost)
+- Opening posts carry forward and must be resolved
 
 ### 3.5 Currency reconciliation
 - Optional feature per account
@@ -368,7 +368,7 @@ Known systems (non-exhaustive): Tripletex, Visma, PowerOffice, Xledger, and othe
 | VAT | MVA (Merverdiavgift) | Value Added Tax |
 | Aged trial balance | Aldersfordelt saldoliste | Report showing outstanding items grouped by age |
 | Opening balance | Inngående balanse (IB) | Balance at the start of a period |
-| Correction post | Korreksjonspost | An open item created when matching with tolerance/deviation |
+| Opening post | Åpningspost | An open item created when matching with tolerance/deviation |
 | Parser script | Innlesningsskript | Declarative configuration for file import |
 | Term | Termin | Bi-monthly reporting period (jan-feb, mar-apr, etc.) |
 | YTD | Year-to-date | Cumulative figures from January 1 to current period |

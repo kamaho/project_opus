@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { InternalFieldKey } from "@/lib/import-scripts";
 import { INTERNAL_FIELDS } from "@/lib/import-scripts";
 import type { RowIssue } from "@/lib/parsers/types";
@@ -8,11 +8,15 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useTableAppearance } from "@/contexts/ui-preferences-context";
 import { AlertTriangle, Check, ChevronRight, CircleCheck, X } from "lucide-react";
 
 const DISPLAY_LABELS: Record<string, string> = {
@@ -63,6 +67,26 @@ const DISPLAY_LABELS: Record<string, string> = {
   sign: "Fortegn",
 };
 
+const FIELD_GROUPS: { label: string; fields: InternalFieldKey[]; dimmed?: boolean }[] = [
+  {
+    label: "Vanlige felt",
+    fields: ["bilag", "description", "reference", "buntref", "faktura", "date2", "forfall", "periode"],
+  },
+  {
+    label: "Kontoinfo",
+    fields: ["accountNumber", "currency", "foreignAmount", "kontonummerBokføring", "kundenavn"],
+  },
+  {
+    label: "Referanser",
+    fields: ["ref2", "ref3", "ref4", "ref5", "ref6", "importNumber", "notat", "tilleggstekst", "bilagsart", "avsnr", "tid", "avvikendeDato", "rate", "sign", "avgift", "textCode", "anleggsnr", "anleggsbeskrivelse"],
+  },
+  {
+    label: "Dimensjoner",
+    fields: ["dim1", "dim2", "dim3", "dim4", "dim5", "dim6", "dim7", "dim8", "dim9", "dim10"],
+    dimmed: true,
+  },
+];
+
 function isValidDateString(s: string): boolean {
   const t = s.trim();
   if (!t) return false;
@@ -80,6 +104,26 @@ function isValidDateString(s: string): boolean {
     else return false;
   }
   return y >= 1900 && y <= 2100 && m >= 1 && m <= 12 && d >= 1 && d <= 31;
+}
+
+function normalizeDateToISO(s: string): string | null {
+  const t = s.trim();
+  if (!t) return null;
+  let y: number, m: number, d: number;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+    [y, m, d] = [+t.slice(0, 4), +t.slice(5, 7), +t.slice(8, 10)];
+  } else if (/^\d{8}$/.test(t)) {
+    [y, m, d] = [+t.slice(0, 4), +t.slice(4, 6), +t.slice(6, 8)];
+  } else {
+    const parts = t.split(/[./-]/);
+    if (parts.length !== 3) return null;
+    const [a, b, c] = parts;
+    if (c.length === 4) { y = +c; m = +b; d = +a; }
+    else if (a.length === 4) { y = +a; m = +b; d = +c; }
+    else return null;
+  }
+  if (y < 1900 || y > 2100 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 function isValidAmount(s: string): boolean {
@@ -155,6 +199,7 @@ type WizardStep =
   | "select-date"
   | "select-amount"
   | "select-extras"
+  | "date-filter"
   | "confirm";
 
 const STEPS: WizardStep[] = [
@@ -162,6 +207,7 @@ const STEPS: WizardStep[] = [
   "select-date",
   "select-amount",
   "select-extras",
+  "date-filter",
   "confirm",
 ];
 
@@ -170,6 +216,7 @@ const STEP_LABELS: Record<WizardStep, string> = {
   "select-date": "Dato",
   "select-amount": "Beløp",
   "select-extras": "Ekstra",
+  "date-filter": "Periode",
   confirm: "Bekreft",
 };
 
@@ -183,18 +230,21 @@ export interface WizardResult {
     field: InternalFieldKey;
     header: string;
   }>;
+  dateFilter?: { from: string; to: string };
 }
 
 interface ColumnImportWizardProps {
   rawRows: string[][];
   onComplete: (result: WizardResult) => void;
   onCancel: () => void;
+  onFileSumChange?: (sum: number | null) => void;
 }
 
 export function ColumnImportWizard({
   rawRows,
   onComplete,
   onCancel,
+  onFileSumChange,
 }: ColumnImportWizardProps) {
   const [step, setStep] = useState<WizardStep>("pick-header");
   const [headerRowIndex, setHeaderRowIndex] = useState<number | null>(null);
@@ -204,6 +254,11 @@ export function ColumnImportWizard({
   const [creditDebitMode, setCreditDebitMode] = useState(false);
   const [activeExtraCol, setActiveExtraCol] = useState<number | null>(null);
   const [showAllIssues, setShowAllIssues] = useState(false);
+  const [dateFilterEnabled, setDateFilterEnabled] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const tableAppearance = useTableAppearance();
 
   const stepIndex = STEPS.indexOf(step);
   const colCount = useMemo(
@@ -219,6 +274,33 @@ export function ColumnImportWizard({
       headerRowIndex !== null ? rawRows.slice(headerRowIndex + 1) : [],
     [rawRows, headerRowIndex]
   );
+
+  const dateRange = useMemo(() => {
+    const dateCol = [...mappings.entries()].find(([, f]) => f === "date1")?.[0];
+    if (dateCol === undefined || dataRows.length === 0) return null;
+    let min = "", max = "";
+    for (const row of dataRows) {
+      const raw = (row[dateCol] ?? "").trim();
+      if (!isValidDateString(raw)) continue;
+      const normalized = normalizeDateToISO(raw);
+      if (!normalized) continue;
+      if (!min || normalized < min) min = normalized;
+      if (!max || normalized > max) max = normalized;
+    }
+    return min && max ? { min, max } : null;
+  }, [mappings, dataRows]);
+
+  const filteredDataRows = useMemo(() => {
+    if (!dateFilterEnabled || !dateFrom || !dateTo) return dataRows;
+    const dateCol = [...mappings.entries()].find(([, f]) => f === "date1")?.[0];
+    if (dateCol === undefined) return dataRows;
+    return dataRows.filter((row) => {
+      const raw = (row[dateCol] ?? "").trim();
+      const normalized = normalizeDateToISO(raw);
+      if (!normalized) return true;
+      return normalized >= dateFrom && normalized <= dateTo;
+    });
+  }, [dataRows, dateFilterEnabled, dateFrom, dateTo, mappings]);
 
   const selectedColSet = useMemo(() => new Set(mappings.keys()), [mappings]);
 
@@ -249,24 +331,26 @@ export function ColumnImportWizard({
     [colCount, selectedColSet]
   );
 
+  const confirmRows = step === "confirm" ? filteredDataRows : dataRows;
+
   const validationIssues = useMemo(
     () =>
       step === "confirm" && headerRowIndex !== null
-        ? validateDataRows(dataRows, mappings, headerRowIndex)
+        ? validateDataRows(confirmRows, mappings, headerRowIndex)
         : [],
-    [step, dataRows, mappings, headerRowIndex],
+    [step, confirmRows, mappings, headerRowIndex],
   );
 
   const validRowCount = useMemo(() => {
-    if (step !== "confirm") return dataRows.length;
+    if (step !== "confirm") return confirmRows.length;
     const issueRowSet = new Set(validationIssues.map((i) => i.rowIndex));
     const amountCol = [...mappings.entries()].find(([, f]) => f === "amount")?.[0];
     const creditCol = [...mappings.entries()].find(([, f]) => f === "credit")?.[0];
     const debitCol = [...mappings.entries()].find(([, f]) => f === "debit")?.[0];
     let count = 0;
-    for (let i = 0; i < dataRows.length; i++) {
+    for (let i = 0; i < confirmRows.length; i++) {
       if (issueRowSet.has(i)) continue;
-      const row = dataRows[i];
+      const row = confirmRows[i];
       if (amountCol !== undefined && isValidAmount(row[amountCol] ?? "")) count++;
       else if (creditCol !== undefined && debitCol !== undefined) {
         const c = parseFloat((row[creditCol] ?? "").trim().replace(/\s/g, "").replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
@@ -275,7 +359,7 @@ export function ColumnImportWizard({
       }
     }
     return count;
-  }, [step, dataRows, validationIssues, mappings]);
+  }, [step, confirmRows, validationIssues, mappings]);
 
   const usedFields = useMemo(() => new Set(mappings.values()), [mappings]);
   const availableFields = useMemo(
@@ -303,6 +387,31 @@ export function ColumnImportWizard({
     () => [...mappings.values()].includes("amount"),
     [mappings]
   );
+
+  useEffect(() => {
+    if (!onFileSumChange) return;
+    const amtCol = [...mappings.entries()].find(([, f]) => f === "amount")?.[0];
+    const creditCol = [...mappings.entries()].find(([, f]) => f === "credit")?.[0];
+    const debitCol = [...mappings.entries()].find(([, f]) => f === "debit")?.[0];
+    if (amtCol === undefined && creditCol === undefined) {
+      onFileSumChange(null);
+      return;
+    }
+    const parseNum = (s: string) =>
+      parseFloat(s.trim().replace(/\s/g, "").replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
+    let sum = 0;
+    for (const row of dataRows) {
+      if (amtCol !== undefined) {
+        const v = parseNum(row[amtCol] ?? "");
+        if (v !== 0) sum += v;
+      } else if (creditCol !== undefined && debitCol !== undefined) {
+        const c = parseNum(row[creditCol] ?? "");
+        const d = parseNum(row[debitCol] ?? "");
+        if (Math.abs(c - d) > 0) sum += c - d;
+      }
+    }
+    onFileSumChange(sum);
+  }, [mappings, dataRows, onFileSumChange]);
 
   /* ─── handlers ──────────────────────────── */
 
@@ -410,11 +519,28 @@ export function ColumnImportWizard({
       setCreditDebitMode(false);
       setStep("pick-header");
     } else if (step === "select-amount") {
+      setMappings((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of next) {
+          if (v === "date1") next.delete(k);
+        }
+        return next;
+      });
       setStep("select-date");
     } else if (step === "select-extras") {
+      setMappings((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of next) {
+          if (v === "amount" || v === "credit" || v === "debit") next.delete(k);
+        }
+        return next;
+      });
+      setCreditDebitMode(false);
       setStep("select-amount");
-    } else if (step === "confirm") {
+    } else if (step === "date-filter") {
       setStep("select-extras");
+    } else if (step === "confirm") {
+      setStep("date-filter");
     }
   }, [step]);
 
@@ -427,8 +553,9 @@ export function ColumnImportWizard({
         field,
         header: headerValues[ci] ?? `Kolonne ${ci + 1}`,
       })),
+      ...(dateFilterEnabled && dateFrom && dateTo ? { dateFilter: { from: dateFrom, to: dateTo } } : {}),
     });
-  }, [headerRowIndex, mappings, headerValues, onComplete]);
+  }, [headerRowIndex, mappings, headerValues, onComplete, dateFilterEnabled, dateFrom, dateTo]);
 
   /* ─── edge cases ────────────────────────── */
 
@@ -506,37 +633,63 @@ export function ColumnImportWizard({
           </p>
         );
       case "select-amount":
-        if (creditDebitMode) {
-          return (
-            <div className="shrink-0 space-y-1">
-              <p className="text-sm text-muted-foreground">
-                {!hasCreditMapped
-                  ? <>Klikk på kolonnen som inneholder <strong>kredit</strong>-verdier.</>
-                  : <>Klikk på kolonnen som inneholder <strong>debit</strong>-verdier.</>}
-              </p>
+        return (
+          <div className="shrink-0 space-y-2.5">
+            <div className="inline-flex rounded-md border bg-muted/50 p-0.5">
               <button
                 type="button"
-                className="text-xs text-primary underline"
-                onClick={handleSwitchToSingleAmount}
+                className={cn(
+                  "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                  !creditDebitMode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={creditDebitMode ? handleSwitchToSingleAmount : undefined}
               >
-                Bruk én beløpskolonne istedenfor
+                Beløp (én kolonne)
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
+                  creditDebitMode
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={!creditDebitMode ? handleSwitchToCreditDebit : undefined}
+              >
+                Kredit / Debit (to kolonner)
               </button>
             </div>
-          );
-        }
-        return (
-          <div className="shrink-0 space-y-1">
-            <p className="text-sm text-muted-foreground">
-              Klikk på kolonnen som inneholder{" "}
-              <strong>beløp</strong>-verdier.
-            </p>
-            <button
-              type="button"
-              className="text-xs text-primary underline"
-              onClick={handleSwitchToCreditDebit}
-            >
-              Har du separate Kredit og Debit-kolonner?
-            </button>
+            {creditDebitMode ? (
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <span className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
+                  hasCreditMapped
+                    ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300"
+                    : "border-primary/30 bg-primary/5 text-primary"
+                )}>
+                  {hasCreditMapped ? <Check className="h-3 w-3" /> : "1."}
+                  Kredit
+                </span>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
+                  hasDebitMapped
+                    ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300"
+                    : hasCreditMapped
+                      ? "border-primary/30 bg-primary/5 text-primary"
+                      : "border-muted text-muted-foreground"
+                )}>
+                  {hasDebitMapped ? <Check className="h-3 w-3" /> : "2."}
+                  Debit
+                </span>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Klikk på kolonnen som inneholder <strong>beløp</strong>-verdier.
+              </p>
+            )}
           </div>
         );
       case "select-extras":
@@ -572,6 +725,67 @@ export function ColumnImportWizard({
             </div>
           </div>
         );
+      case "date-filter": {
+        const fmtDate = (d: string) => {
+          if (!d) return "";
+          const [y, m, day] = d.split("-");
+          return `${day}.${m}.${y}`;
+        };
+        return (
+          <div className="shrink-0 space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Vil du begrense importen til et bestemt datointervall?
+              {dateRange && (
+                <> Filen inneholder datoer fra <strong>{fmtDate(dateRange.min)}</strong> til <strong>{fmtDate(dateRange.max)}</strong>.</>
+              )}
+            </p>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="rounded"
+                  checked={dateFilterEnabled}
+                  onChange={(e) => {
+                    setDateFilterEnabled(e.target.checked);
+                    if (e.target.checked && dateRange) {
+                      if (!dateFrom) setDateFrom(dateRange.min);
+                      if (!dateTo) setDateTo(dateRange.max);
+                    }
+                  }}
+                />
+                Filtrer på datoperiode
+              </label>
+            </div>
+            {dateFilterEnabled && (
+              <div className="flex items-center gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Fra</label>
+                  <input
+                    type="date"
+                    className="block h-8 rounded-md border bg-background px-2 text-sm"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Til</label>
+                  <input
+                    type="date"
+                    className="block h-8 rounded-md border bg-background px-2 text-sm"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                  />
+                </div>
+                {dateFilterEnabled && dateFrom && dateTo && (
+                  <div className="self-end text-xs text-muted-foreground pb-1.5">
+                    {filteredDataRows.length} av {dataRows.length} rader i valgt periode
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
       case "confirm": {
         const hasIssues = validationIssues.length > 0;
         const shownIssues = showAllIssues
@@ -632,14 +846,14 @@ export function ColumnImportWizard({
   function renderPickHeaderTable() {
     return (
       <div className="min-h-0 flex-1 border rounded-md overflow-auto">
-        <table className="text-sm table-fixed border-collapse w-full">
+        <table className={cn("text-sm table-fixed border-collapse w-full", tableAppearance.tableClass)}>
           <colgroup>
             <col style={{ width: 48 }} />
             {Array.from({ length: colCount }, (_, c) => (
               <col key={c} style={{ width: COL_W }} />
             ))}
           </colgroup>
-          <thead className="bg-muted sticky top-0 z-10">
+          <thead className={cn("bg-muted sticky top-0 z-10", tableAppearance.theadClass)}>
             <tr>
               <th className="text-left p-2 font-medium text-muted-foreground border-b">
                 Rad
@@ -663,7 +877,11 @@ export function ColumnImportWizard({
             {rawRows.map((row, i) => (
               <tr
                 key={i}
-                className="border-t cursor-pointer transition-colors hover:bg-primary/10"
+                className={cn(
+                  tableAppearance.rowBorderClass,
+                  "cursor-pointer transition-colors hover:bg-primary/10",
+                  i % 2 === 1 && tableAppearance.rowAlternateClass
+                )}
                 onClick={() => handleHeaderRowClick(i)}
               >
                 <td className="px-2 py-1.5 font-medium text-muted-foreground align-top text-xs">
@@ -700,14 +918,14 @@ export function ColumnImportWizard({
 
     return (
       <div className="min-h-0 flex-1 border rounded-md overflow-auto">
-        <table className="text-sm table-fixed border-collapse w-full">
+        <table className={cn("text-sm table-fixed border-collapse w-full", tableAppearance.tableClass)}>
           <colgroup>
             <col style={{ width: 48 }} />
             {displayOrder.map((c) => (
               <col key={c} style={{ width: COL_W }} />
             ))}
           </colgroup>
-          <thead className="sticky top-0 z-10">
+          <thead className={cn("sticky top-0 z-10", tableAppearance.theadClass)}>
             <tr>
               <th className="text-left p-2 font-medium text-muted-foreground border-b bg-muted">
                 #
@@ -796,11 +1014,21 @@ export function ColumnImportWizard({
                               <SelectValue placeholder="Velg felt…" />
                             </SelectTrigger>
                             <SelectContent>
-                              {availableFields.map((f) => (
-                                <SelectItem key={f} value={f}>
-                                  {DISPLAY_LABELS[f] ?? f}
-                                </SelectItem>
-                              ))}
+                              {FIELD_GROUPS.map((group, gi) => {
+                                const items = group.fields.filter((f) => availableFields.includes(f));
+                                if (items.length === 0) return null;
+                                return (
+                                  <SelectGroup key={group.label}>
+                                    {gi > 0 && <SelectSeparator />}
+                                    <SelectLabel className="text-[10px] uppercase tracking-wider">{group.label}</SelectLabel>
+                                    {items.map((f) => (
+                                      <SelectItem key={f} value={f} className={group.dimmed ? "text-muted-foreground" : ""}>
+                                        {DISPLAY_LABELS[f] ?? f}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectGroup>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                           <div className="text-xs text-muted-foreground truncate">
@@ -848,7 +1076,13 @@ export function ColumnImportWizard({
           </thead>
           <tbody>
             {dataRows.slice(0, 50).map((row, idx) => (
-              <tr key={idx} className="border-t">
+              <tr
+                key={idx}
+                className={cn(
+                  tableAppearance.rowBorderClass,
+                  idx % 2 === 1 && tableAppearance.rowAlternateClass
+                )}
+              >
                 <td className="px-2 py-1.5 font-medium text-muted-foreground align-top text-xs">
                   {headerRowIndex! + 2 + idx}
                 </td>
@@ -915,14 +1149,14 @@ export function ColumnImportWizard({
 
     return (
       <div className="min-h-0 flex-1 border rounded-md overflow-auto">
-        <table className="text-sm table-fixed border-collapse w-full">
+        <table className={cn("text-sm table-fixed border-collapse w-full", tableAppearance.tableClass)}>
           <colgroup>
             <col style={{ width: 48 }} />
             {selected.map((m) => (
               <col key={m.colIndex} style={{ width: 180 }} />
             ))}
           </colgroup>
-          <thead className="bg-green-50 dark:bg-green-950/30 sticky top-0 z-10">
+          <thead className={cn("bg-green-50 dark:bg-green-950/30 sticky top-0 z-10", tableAppearance.theadClass)}>
             <tr>
               <th
                 className="p-2 font-medium text-left border-b text-muted-foreground"
@@ -945,14 +1179,15 @@ export function ColumnImportWizard({
             </tr>
           </thead>
           <tbody>
-            {dataRows.slice(0, 30).map((row, idx) => {
+            {confirmRows.slice(0, 30).map((row, idx) => {
               const hasIssue = issueRowSet.has(idx);
               const rowFields = issueFieldMap.get(idx);
               return (
                 <tr
                   key={idx}
                   className={cn(
-                    "border-t",
+                    tableAppearance.rowBorderClass,
+                    idx % 2 === 1 && !hasIssue && tableAppearance.rowAlternateClass,
                     hasIssue && "bg-amber-50/60 dark:bg-amber-950/20 line-through opacity-60",
                   )}
                 >
@@ -984,9 +1219,9 @@ export function ColumnImportWizard({
             })}
           </tbody>
         </table>
-        {dataRows.length > 30 && (
+        {confirmRows.length > 30 && (
           <p className="text-muted-foreground text-xs p-2 border-t">
-            Viser 30 av {dataRows.length} datarader
+            Viser 30 av {confirmRows.length} datarader
           </p>
         )}
       </div>
@@ -1018,8 +1253,13 @@ export function ColumnImportWizard({
             </Button>
           )}
           {step === "select-extras" && (
-            <Button size="sm" onClick={() => setStep("confirm")}>
+            <Button size="sm" onClick={() => setStep("date-filter")}>
               {extraCount === 0 ? "Hopp over" : "Neste"}
+            </Button>
+          )}
+          {step === "date-filter" && (
+            <Button size="sm" onClick={() => setStep("confirm")}>
+              {dateFilterEnabled ? "Neste" : "Hopp over"}
             </Button>
           )}
           {step === "confirm" && (

@@ -2,12 +2,6 @@
 	"folders": [
 		{
 			"path": "."
-		},
-		{
-			"path": "../Downloads/account-control-client"
-		},
-		{
-			"path": "../script_builder"
 		}
 	],
 	"settings": {}

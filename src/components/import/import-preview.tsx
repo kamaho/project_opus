@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ChevronDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTableAppearance } from "@/contexts/ui-preferences-context";
 
 const TX_ROW_HEIGHT = 36;
 
@@ -112,6 +113,7 @@ export function ImportPreview({
   const [colWidths, setColWidths] = useState<Record<number, number>>({});
   const [resizingCol, setResizingCol] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const tableAppearance = useTableAppearance();
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -234,14 +236,14 @@ export function ImportPreview({
             );
             const headerRow = raw[hIdx] ?? [];
             return (
-              <table className="text-sm table-fixed border-collapse w-full">
+              <table className={cn("text-sm table-fixed border-collapse w-full", tableAppearance.tableClass)}>
                 <colgroup>
                   <col style={{ width: 48 }} />
                   {Array.from({ length: colCount }, (_, c) => (
                     <col key={c} style={{ width: getColWidth(c) }} />
                   ))}
                 </colgroup>
-                <thead className="bg-primary/10 sticky top-0 z-10">
+                <thead className={cn("bg-primary/10 sticky top-0 z-10", tableAppearance.theadClass)}>
                   <tr>
                     <th key="rad" className="text-left p-2 font-medium text-muted-foreground border-b">
                       Rad {hIdx + 1}
@@ -373,7 +375,13 @@ export function ImportPreview({
                     .map((row, idx) => {
                       const i = hIdx + 1 + idx;
                       return (
-                        <tr key={i} className="border-t">
+                        <tr
+                          key={i}
+                          className={cn(
+                            tableAppearance.rowBorderClass,
+                            idx % 2 === 1 && tableAppearance.rowAlternateClass
+                          )}
+                        >
                           <td key={`${i}-rad`} className="px-2 py-1.5 font-medium text-muted-foreground align-top w-12">
                             {i + 1}
                           </td>
@@ -391,7 +399,7 @@ export function ImportPreview({
           })()
         ) : isCsvMappingMode ? (
           <table
-            className="text-sm table-fixed border-collapse"
+            className={cn("text-sm table-fixed border-collapse", tableAppearance.tableClass)}
             style={{
               minWidth: csvColumns!.reduce((sum, col) => sum + getColWidth(col.colIndex), 0),
             }}
@@ -401,7 +409,7 @@ export function ImportPreview({
                 <col key={col.colIndex} style={{ width: getColWidth(col.colIndex) }} />
               ))}
             </colgroup>
-            <thead className="bg-muted sticky top-0 z-10">
+            <thead className={cn("bg-muted sticky top-0 z-10", tableAppearance.theadClass)}>
               <tr>
                 {csvColumns!.map((col) => {
                   const label =
@@ -523,7 +531,13 @@ export function ImportPreview({
             </thead>
             <tbody>
               {csvPreviewRows!.slice(0, 100).map((row, i) => (
-                <tr key={i} className="border-t">
+                <tr
+                  key={i}
+                  className={cn(
+                    tableAppearance.rowBorderClass,
+                    i % 2 === 1 && tableAppearance.rowAlternateClass
+                  )}
+                >
                   {csvColumns!.map((col) => (
                     <td key={col.colIndex} className="p-2 truncate" title={String(row[col.colIndex] ?? "")}>
                       {String(row[col.colIndex] ?? "") || "—"}
@@ -561,8 +575,8 @@ export function ImportPreview({
                 )}
               </div>
             )}
-            <table className="w-full text-sm">
-              <thead className={cn("bg-muted sticky", selectable ? "top-[37px]" : "top-0")}>
+            <table className={cn("w-full text-sm", tableAppearance.tableClass)}>
+              <thead className={cn("bg-muted sticky", selectable ? "top-[37px]" : "top-0", tableAppearance.theadClass)}>
                 <tr>
                   {selectable && (
                     <th className="w-8 p-2">
@@ -617,7 +631,8 @@ export function ImportPreview({
                         <tr
                           key={origIndex}
                           className={cn(
-                            "border-t",
+                            tableAppearance.rowBorderClass,
+                            vRow.index % 2 === 1 && tableAppearance.rowAlternateClass,
                             selectable && "cursor-pointer hover:bg-muted/50",
                             selectable && isSelected && "bg-primary/5"
                           )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useFormatting } from "@/contexts/ui-preferences-context";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -25,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Download, FileDown, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import {
   getDemoMvaMelding,
   getDifferansekategoriLabel,
@@ -35,22 +36,25 @@ import {
 } from "@/lib/mva/demo-data";
 import { ExportModal } from "@/components/export/export-modal";
 import { ExportIntroOverlay } from "@/components/export/export-intro-overlay";
+import { ReportButton } from "@/components/export/report-button";
 
 type LineOverride = { category: MvaDifferansekategori | ""; comment: string };
 
-function formatNok(value: number): string {
-  return new Intl.NumberFormat("nb-NO", {
-    style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+const NUMBER_LOCALE_MAP: Record<string, string> = { nb: "nb-NO", en: "en-US", ch: "de-CH" };
 
 function getInitialOverrides(): Record<string, LineOverride> {
   return {};
 }
 
 export function MvaAvstemmingView() {
+  const { numberPref } = useFormatting();
+  const formatNok = (value: number) =>
+    new Intl.NumberFormat(NUMBER_LOCALE_MAP[numberPref] ?? "nb-NO", {
+      style: "decimal",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(value);
+
   const [melding, setMelding] = useState<MvaMelding | null>(null);
   const [loading, setLoading] = useState(false);
   const [lineOverrides, setLineOverrides] = useState<Record<string, LineOverride>>(getInitialOverrides);
@@ -127,17 +131,14 @@ export function MvaAvstemmingView() {
             Termin: {melding.termin} — Avstemming mot MVA-melding (demo-data).
           </p>
         </div>
-        <Button variant="default" size="sm" onClick={() => setExportOpen(true)}>
-          <FileDown className="h-4 w-4" />
-          Eksporter
-        </Button>
+        <ReportButton onClick={() => setExportOpen(true)} />
       </div>
 
       <ExportModal
         open={exportOpen && !exportGenerating}
         onOpenChange={setExportOpen}
         module="mva"
-        title="Eksporter MVA-avstemming"
+        title="Rapport — MVA-avstemming"
         getPayload={() => ({ mvaData: { melding, lineOverrides } })}
         onGeneratingStart={() => setExportGenerating(true)}
         onGeneratingEnd={() => setExportGenerating(false)}

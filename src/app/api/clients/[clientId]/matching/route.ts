@@ -1,15 +1,48 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { imports, transactions } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { imports, transactions, matches } from "@/lib/db/schema";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
 import { validateClientTenant } from "@/lib/db/tenant";
+
+/**
+ * Dissolve all match groups that include transactions belonging to the given import IDs.
+ * Sets affected transactions back to unmatched and deletes the match records.
+ */
+async function dissolveMatchesForImports(importIds: string[]): Promise<number> {
+  if (importIds.length === 0) return 0;
+
+  const affectedTxs = await db
+    .select({ matchId: transactions.matchId })
+    .from(transactions)
+    .where(
+      and(
+        inArray(transactions.importId, importIds),
+        sql`${transactions.matchId} IS NOT NULL`
+      )
+    );
+
+  const matchIds = [...new Set(affectedTxs.map((t) => t.matchId).filter(Boolean))] as string[];
+  if (matchIds.length === 0) return 0;
+
+  await db
+    .update(transactions)
+    .set({ matchId: null, matchStatus: "unmatched" })
+    .where(inArray(transactions.matchId, matchIds));
+
+  await db.delete(matches).where(inArray(matches.id, matchIds));
+
+  return matchIds.length;
+}
 
 /**
  * DELETE: Soft-delete a specific import by importId, or all imports for a set.
  * With permanent=true (and importId): permanently delete a soft-deleted import
  * and all its transactions (frees storage, cannot be undone).
+ *
+ * When soft-deleting, any match groups that include transactions from the
+ * deleted import are dissolved (all transactions in those groups return to unmatched).
  */
 export async function DELETE(
   _request: Request,
@@ -53,6 +86,7 @@ export async function DELETE(
         );
       }
 
+      await dissolveMatchesForImports([importId]);
       await db.delete(transactions).where(eq(transactions.importId, importId));
       await db
         .delete(imports)
@@ -86,13 +120,15 @@ export async function DELETE(
       return NextResponse.json({ error: "Import ikke funnet" }, { status: 404 });
     }
 
+    const dissolved = await dissolveMatchesForImports([importId]);
+
     await logAudit({
       tenantId: orgId,
       userId,
       action: "import.deleted",
       entityType: "import",
       entityId: importId,
-      metadata: { setNumber: deleted[0].setNumber },
+      metadata: { setNumber: deleted[0].setNumber, dissolvedMatches: dissolved },
     });
 
     return NextResponse.json({ ok: true });
@@ -106,6 +142,19 @@ export async function DELETE(
     );
   }
 
+  const toDelete = await db
+    .select({ id: imports.id })
+    .from(imports)
+    .where(
+      and(
+        eq(imports.clientId, clientId),
+        eq(imports.setNumber, setNumber),
+        sql`${imports.deletedAt} IS NULL`
+      )
+    );
+
+  const importIds = toDelete.map((r) => r.id);
+
   const deleted = await db
     .update(imports)
     .set({ deletedAt: sql`NOW()` })
@@ -118,13 +167,15 @@ export async function DELETE(
     )
     .returning({ id: imports.id });
 
+  const dissolved = await dissolveMatchesForImports(importIds);
+
   await logAudit({
     tenantId: orgId,
     userId,
     action: "import.deleted",
     entityType: "import",
     entityId: clientId,
-    metadata: { setNumber, deletedCount: deleted.length },
+    metadata: { setNumber, deletedCount: deleted.length, dissolvedMatches: dissolved },
   });
 
   return NextResponse.json({ ok: true });

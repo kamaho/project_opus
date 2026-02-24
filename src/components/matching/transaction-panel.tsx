@@ -3,14 +3,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Columns3, Focus, FolderOpen, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, PenLine, Pencil, Search, SortAsc, SortDesc, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Columns3, Focus, FolderOpen, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, PenLine, Pencil, Search, SortAsc, SortDesc, Trash2, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTableAppearance, useFormatting } from "@/contexts/ui-preferences-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SmartPanel, type SmartPanelOption } from "@/components/smart-panel/smart-panel";
+import {
+  DesignPanelContent,
+  SmartPanelInnstillingerSection,
+  SmartPanelTipsSection,
+} from "@/components/smart-panel/smart-panel-standard";
 
 const ATTACH_COL_WIDTH = 28;
-const DEFAULT_COLUMN_WIDTHS = { date: 86, amount: 105, voucher: 80, notat: 100, text: 180 };
+const DEFAULT_COLUMN_WIDTHS = { date: 100, amount: 120, voucher: 80, notat: 100, text: 180 };
 const MIN_COLUMN_WIDTH = 50;
 const MAX_COLUMN_WIDTH = 600;
 const CELL_PADDING_X = 16;
@@ -28,6 +33,8 @@ export interface TransactionRow {
   notatAuthor?: string | null;
   mentionedUserId?: string | null;
   hasAttachment?: boolean;
+  /** True when the transaction was created manually (åpningspost), not from import */
+  isManual?: boolean;
 }
 
 export type CellField = "date" | "amount" | "voucher" | "notat" | "text";
@@ -81,25 +88,24 @@ interface TransactionPanelProps {
 
 type ColumnKey = keyof typeof DEFAULT_COLUMN_WIDTHS;
 
-function formatNO(n: number): string {
-  return Math.abs(n).toLocaleString("nb-NO", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 function normalizeAmountQuery(input: string): string {
-  return input.replace(/[\s\u00a0]/g, "").replace(",", ".");
+  return input.replace(/[\s\u00a0']/g, "").replace(",", ".");
 }
 
 function matchesAmount(amount: number, query: string): boolean {
   const norm = normalizeAmountQuery(query);
   const raw = String(amount);
   const rawAbs = String(Math.abs(amount));
-  const formatted = formatNO(amount);
-  const formattedNorm = normalizeAmountQuery(formatted);
-  return raw.includes(norm) || rawAbs.includes(norm) || formattedNorm.includes(norm)
-    || formatted.includes(query);
+  const nbFmt = Math.abs(amount).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const enFmt = Math.abs(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    raw.includes(norm) ||
+    rawAbs.includes(norm) ||
+    normalizeAmountQuery(nbFmt).includes(norm) ||
+    normalizeAmountQuery(enFmt).includes(norm) ||
+    nbFmt.includes(query) ||
+    enFmt.includes(query)
+  );
 }
 
 export function TransactionPanel({
@@ -165,6 +171,9 @@ export function TransactionPanel({
   const skipNextClick = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
   const lastMousePos = useRef({ x: 0, y: 0 });
+
+  const tableAppearance = useTableAppearance();
+  const { fmtAbs, fmtNum, fmtDate: fmtD } = useFormatting();
 
   const handleRowMouseDown = useCallback((txId: string, e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("input")) return;
@@ -258,8 +267,15 @@ export function TransactionPanel({
     };
   }, [applyDragToRow]);
 
-  // Search & sort state
+  // Search & sort state — debounce filtering for responsive typing
+  const [searchInput, setSearchInput] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const updateSearch = useCallback((value: string) => {
+    setSearchInput(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => setGlobalSearch(value), 150);
+  }, []);
   const [columnFilters, setColumnFilters] = useState<Partial<Record<SortKey, string>>>({});
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -517,9 +533,9 @@ export function TransactionPanel({
       for (const tx of filteredAndSorted) {
         const s =
           col === "date"
-            ? tx.date
+            ? fmtD(tx.date)
             : col === "amount"
-              ? (tx.amount >= 0 ? "" : "−") + formatNO(tx.amount)
+              ? (tx.amount >= 0 ? "" : "−") + fmtAbs(tx.amount)
               : col === "voucher"
                 ? tx.voucher ?? "—"
                 : col === "notat"
@@ -605,6 +621,10 @@ export function TransactionPanel({
     setHeaderSmartPanelActiveOption(optionId);
   }, [headerSmartPanel]);
 
+  const handleHeaderPanelDesignToggle = useCallback(() => {
+    setHeaderSmartPanelActiveOption((prev) => (prev === "design" ? null : "design"));
+  }, []);
+
   const handleInlineSearchClose = useCallback((col: ColumnKey) => {
     setInlineSearchCol(null);
     setColumnFilter(col, "");
@@ -616,9 +636,10 @@ export function TransactionPanel({
     }
   }, [inlineSearchCol]);
 
-  const hasActiveFilters = globalSearch || Object.values(columnFilters).some((v) => v?.trim()) || onlyWithAttachment;
+  const hasActiveFilters = searchInput || Object.values(columnFilters).some((v) => v?.trim()) || onlyWithAttachment;
 
   const clearAllFilters = useCallback(() => {
+    setSearchInput("");
     setGlobalSearch("");
     setColumnFilters({});
     setInlineSearchCol(null);
@@ -664,20 +685,29 @@ export function TransactionPanel({
       <div className="flex items-center gap-2 border-b px-2 py-1 shrink-0">
         <div
           className={cn(
-            "relative transition-[width] duration-200 ease-out overflow-hidden",
+            "search-pill h-7 border transition-[width,border-radius] duration-200 ease-out",
             searchExpanded ? "w-80" : "w-28"
           )}
         >
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-          <Input
+          <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <input
             placeholder={searchExpanded ? "Søk i alle kolonner…" : "Søk…"}
-            value={globalSearch}
-            onChange={(e) => setGlobalSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => updateSearch(e.target.value)}
             onFocus={() => setSearchExpanded(true)}
-            onBlur={() => { if (!globalSearch.trim()) setSearchExpanded(false); }}
-            className="h-7 pl-8 pr-2 text-xs w-full min-w-0"
+            onBlur={() => { if (!searchInput.trim()) setSearchExpanded(false); }}
+            className="flex-1 min-w-0 bg-transparent text-xs outline-none px-1.5 h-full"
             data-smart-info="Søk på tvers av alle kolonner. Høyreklikk på en kolonne-header for å søke i en spesifikk kolonne."
           />
+          {searchInput && (
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground shrink-0 transition-colors"
+              onClick={() => updateSearch("")}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
         </div>
         <div className="flex-1 min-w-0" aria-hidden />
         <div className="flex items-center gap-1.5 ml-auto">
@@ -704,7 +734,7 @@ export function TransactionPanel({
                   <PenLine className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom">Opprett korreksjonspost</TooltipContent>
+              <TooltipContent side="bottom">Opprett åpningspost</TooltipContent>
             </Tooltip>
           )}
           {onFileManager && (
@@ -737,36 +767,39 @@ export function TransactionPanel({
       </div>
 
       <div ref={scrollRef} className={cn("flex-1 overflow-auto isolate", matchAnimatingIds && "overflow-x-hidden")}>
-        <table className="text-sm table-fixed" style={{ width: "100%", minWidth: tableMinWidth }}>
+        <table className={cn("text-sm table-fixed", tableAppearance.tableClass)} style={{ width: "100%", minWidth: tableMinWidth }}>
           <colgroup>
             <col style={{ width: 32 }} />
             <col style={{ width: ATTACH_COL_WIDTH }} />
             {colOrder.map((col) => (
               <col key={col} style={{ width: colWidths[col] }} />
             ))}
-            <col />
+            <col style={{ width: 0 }} />
           </colgroup>
-          <thead className="sticky top-0 bg-muted/95 z-10">
+          <thead className={cn("sticky top-0 bg-muted z-10", tableAppearance.theadClass)}>
             <tr>
               <th className="w-8 p-2 text-left shrink-0">
-                <input
-                  type="checkbox"
-                  className="rounded"
-                  aria-label="Velg alle"
-                  checked={filteredAndSorted.length > 0 && filteredAndSorted.every((t) => selectedIds.has(t.id))}
-                  ref={(el) => {
-                    if (!el) return;
-                    const some = filteredAndSorted.some((t) => selectedIds.has(t.id));
-                    const all = filteredAndSorted.length > 0 && filteredAndSorted.every((t) => selectedIds.has(t.id));
-                    el.indeterminate = some && !all;
-                  }}
-                  onChange={() => {
-                    if (!onSelectAll) return;
-                    const ids = filteredAndSorted.map((t) => t.id);
-                    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
-                    onSelectAll(allSelected ? [] : ids);
-                  }}
-                />
+                <span className="cbx-wrap">
+                  <input
+                    type="checkbox"
+                    aria-label="Velg alle"
+                    checked={filteredAndSorted.length > 0 && filteredAndSorted.every((t) => selectedIds.has(t.id))}
+                    ref={(el) => {
+                      if (!el) return;
+                      const some = filteredAndSorted.some((t) => selectedIds.has(t.id));
+                      const all = filteredAndSorted.length > 0 && filteredAndSorted.every((t) => selectedIds.has(t.id));
+                      el.indeterminate = some && !all;
+                    }}
+                    onChange={() => {
+                      if (!onSelectAll) return;
+                      const ids = filteredAndSorted.map((t) => t.id);
+                      const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+                      onSelectAll(allSelected ? [] : ids);
+                    }}
+                  />
+                  <span className="cbx-splash" />
+                  <svg viewBox="0 0 15 14" width={10} height={9}><path d="M2 8.36364L6.23077 12L13 2" /></svg>
+                </span>
               </th>
               <th
                 className={cn(
@@ -860,7 +893,7 @@ export function TransactionPanel({
                   </th>
                 );
               })}
-              <th />
+              <th className="sticky right-0 w-0 p-0" />
             </tr>
           </thead>
           <tbody onMouseMove={panelActive ? onDeactivateKeyboard : undefined}>
@@ -888,10 +921,12 @@ export function TransactionPanel({
                     field,
                     value:
                       field === "amount"
-                        ? formatNO(tx.amount)
-                        : field === "voucher"
-                          ? (tx.voucher ?? "")
-                          : String(tx[field] ?? ""),
+                        ? fmtAbs(tx.amount)
+                        : field === "date"
+                          ? fmtD(tx.date)
+                          : field === "voucher"
+                            ? (tx.voucher ?? "")
+                            : String(tx[field] ?? ""),
                     numericValue: field === "amount" ? tx.amount : undefined,
                   });
                   return (
@@ -900,16 +935,17 @@ export function TransactionPanel({
                       data-index={vRow.index}
                       data-tx-id={tx.id}
                       className={cn(
-                        "group/row border-t hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer select-none",
+                        "group/row hover:bg-sky-50 dark:hover:bg-sky-950/30 cursor-pointer select-none",
+                        tableAppearance.rowBorderClass,
                         isKbFocused && "outline outline-2 -outline-offset-2 outline-primary z-[1] kb-focused",
                         isHighlighted && "notification-highlight",
                         selectedIds.has(tx.id)
-                          ? "bg-blue-100 dark:bg-blue-950/40 hover:bg-blue-200/70 dark:hover:bg-blue-950/60"
+                          ? "bg-violet-100 dark:bg-violet-950/40 hover:bg-violet-200/70 dark:hover:bg-violet-950/60"
                           : counterpartHintIds?.has(tx.id)
                             ? "bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 ring-1 ring-inset ring-emerald-300 dark:ring-emerald-700"
                             : counterpartSumHintIds?.has(tx.id)
                               ? "bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50 ring-1 ring-inset ring-amber-300 dark:ring-amber-700"
-                              : vRow.index % 2 === 1 && "bg-muted/30",
+                              : vRow.index % 2 === 1 && tableAppearance.rowAlternateClass,
                         matchAnimatingIds?.has(tx.id) && "match-animating",
                         matchAnimatingIds?.has(tx.id) && matchAnimationPhase === "exit" && "match-exit"
                       )}
@@ -934,16 +970,19 @@ export function TransactionPanel({
                       onClick={() => handleRowClick(tx.id)}
                     >
                       <td className="p-2" style={{ width: 32 }}>
-                        <input
-                          type="checkbox"
-                          className="rounded"
-                          checked={selectedIds.has(tx.id)}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            onSelect?.(tx.id);
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <span className="cbx-wrap">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(tx.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              onSelect?.(tx.id);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                          <span className="cbx-splash" />
+                          <svg viewBox="0 0 15 14" width={10} height={9}><path d="M2 8.36364L6.23077 12L13 2" /></svg>
+                        </span>
                       </td>
                       <td className="p-0 text-center" style={{ width: ATTACH_COL_WIDTH }}>
                         {tx.hasAttachment && (
@@ -961,7 +1000,7 @@ export function TransactionPanel({
                         const hoverToolbar = rowToolbarVisible ? (
                           <TooltipProvider>
                             <div
-                              className="row-action-bar absolute right-1.5 top-0 -translate-y-3/4 flex items-center gap-px rounded-md border bg-background shadow-md z-20"
+                              className="row-action-bar absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-px rounded-md border bg-background shadow-sm z-20"
                               data-row-toolbar={tx.id}
                               title=""
                               onClick={(e) => e.stopPropagation()}
@@ -1067,6 +1106,34 @@ export function TransactionPanel({
                                 </TooltipTrigger>
                                 <TooltipContent side="top">Vedlegg</TooltipContent>
                               </Tooltip>
+                              {tx.isManual && (
+                                <>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="p-1.5 rounded-sm hover:bg-muted transition-colors"
+                                        onClick={() => onRowAction?.(tx.id, "edit")}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">Rediger åpningspost</TooltipContent>
+                                  </Tooltip>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="p-1.5 rounded-sm hover:bg-muted transition-colors text-destructive hover:bg-destructive/10"
+                                        onClick={() => onRowAction?.(tx.id, "delete")}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">Slett åpningspost</TooltipContent>
+                                  </Tooltip>
+                                </>
+                              )}
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <button
@@ -1099,16 +1166,21 @@ export function TransactionPanel({
                                       onCellContextMenu(makeAction("text"), { x: e.clientX, y: e.clientY });
                                     }}
                                   >
-                                    <span className={cn("block p-2 truncate", isLastCol && "pr-8")}>
-                                      {tx.text}
+                                    <span className={cn("block p-2 truncate flex items-center gap-1.5", isLastCol && "pr-8")}>
+                                      {tx.isManual && (
+                                        <span className="shrink-0 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-800" title="Åpningspost">
+                                          Åpningspost
+                                        </span>
+                                      )}
+                                      <span className="min-w-0 truncate">{tx.text}</span>
                                     </span>
                                   </td>
                                 );
                               }
                               const cellDef = col === "date"
-                                ? { content: tx.date as React.ReactNode, className: "p-2 truncate overflow-hidden" }
+                                ? { content: fmtD(tx.date) as React.ReactNode, className: "p-2 truncate overflow-hidden" }
                                 : col === "amount"
-                                  ? { content: <>{tx.amount >= 0 ? "" : "−"}{formatNO(tx.amount)}</> as React.ReactNode, className: cn("p-2 text-right font-mono truncate overflow-hidden", tx.amount < 0 && "text-destructive") }
+                                  ? { content: <>{tx.amount >= 0 ? "" : "−"}{fmtAbs(tx.amount)}</> as React.ReactNode, className: cn("p-2 text-right font-mono truncate overflow-hidden", tx.amount < 0 && "text-destructive") }
                                   : col === "voucher"
                                     ? { content: (tx.voucher ?? "—") as React.ReactNode, className: "p-2 text-muted-foreground truncate" }
                                     : { content: tx.notat ? (
@@ -1139,7 +1211,7 @@ export function TransactionPanel({
                                 </td>
                               );
                             })}
-                            <td className="relative p-0 align-top">
+                            <td className="sticky right-0 w-0 p-0">
                               {hoverToolbar}
                             </td>
                           </>
@@ -1170,7 +1242,7 @@ export function TransactionPanel({
           <span>{filteredAndSorted.length} av {transactions.length} treff</span>
           {filteredAndSorted.length > 0 && (
             <span className="font-mono">
-              Sum: {filteredAndSorted.reduce((s, t) => s + t.amount, 0).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              Sum: {fmtNum(filteredAndSorted.reduce((s, t) => s + t.amount, 0))}
             </span>
           )}
         </div>
@@ -1180,12 +1252,25 @@ export function TransactionPanel({
         open={!!headerSmartPanel}
         onClose={() => setHeaderSmartPanel(null)}
         position={headerSmartPanel?.pos ?? { x: 0, y: 0 }}
-        title={headerSmartPanel ? (headerSmartPanelActiveOption === "col-settings" ? "Kolonneinnstillinger" : `Kolonne: ${columnLabels[headerSmartPanel.col]}`) : "Kolonne"}
+        title="Smart panel"
         options={headerSmartPanelOptions}
         onOptionSelect={handleHeaderSmartPanelOption}
         activeOptionId={headerSmartPanelActiveOption}
+        contentSectionLabel={headerSmartPanel ? `Kolonne: ${columnLabels[headerSmartPanel.col]}` : undefined}
+        sectionAboveFooter={
+          headerSmartPanel ? (
+            <SmartPanelInnstillingerSection
+              isActive={headerSmartPanelActiveOption === "design"}
+              onToggle={handleHeaderPanelDesignToggle}
+            />
+          ) : undefined
+        }
+        footerContent={<SmartPanelTipsSection />}
+        useStandardLayout
         resultContent={
-          headerSmartPanelActiveOption === "col-settings" ? (
+          headerSmartPanelActiveOption === "design" ? (
+            <DesignPanelContent />
+          ) : headerSmartPanelActiveOption === "col-settings" ? (
             <div className="p-3 space-y-4">
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -1239,15 +1324,6 @@ export function TransactionPanel({
                   ))}
                 </div>
               </div>
-            </div>
-          ) : undefined
-        }
-        footerContent={
-          headerSmartPanelActiveOption !== "col-settings" ? (
-            <div className="p-3 text-xs text-muted-foreground space-y-1">
-              <p><span className="font-medium text-foreground">Klikk</span> for å sortere</p>
-              <p><span className="font-medium text-foreground">Dra header</span> for å endre rekkefølge</p>
-              <p><span className="font-medium text-foreground">Dra kanten</span> for å endre bredde</p>
             </div>
           ) : undefined
         }

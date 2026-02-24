@@ -28,7 +28,14 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="no">
+      <html lang="no" suppressHydrationWarning>
+        <head>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `(function(){var k="project_opus_ui_preferences";var el=document.documentElement;try{var raw=localStorage.getItem(k);var s="normal",w="normal";if(raw){var p=JSON.parse(raw);var t=p&&p.typography;if(t&&(t.textSize==="large"||t.textSize==="larger"))s=t.textSize;if(t&&(t.textWeight==="medium"||t.textWeight==="bold"))w=t.textWeight;}el.setAttribute("data-text-size",s);el.setAttribute("data-text-weight",w);}catch(e){}})();`,
+            }}
+          />
+        </head>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useFormatting } from "@/contexts/ui-preferences-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -71,6 +72,7 @@ export function FileManagerPanel({
   const [tab, setTab] = useState<Tab>("active");
   const [error, setError] = useState<string | null>(null);
   const [permanentDeleteImport, setPermanentDeleteImport] = useState<ImportRecord | null>(null);
+  const { fmtDateTime: fmtDT } = useFormatting();
 
   const fetchImports = useCallback(async () => {
     setLoading(true);
@@ -177,13 +179,7 @@ export function FileManagerPanel({
 
   const formatDate = (date: string | null) => {
     if (!date) return "—";
-    return new Date(date).toLocaleDateString("nb-NO", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return fmtDT(date);
   };
 
   const tabs: { key: Tab; label: string; count: number }[] = [

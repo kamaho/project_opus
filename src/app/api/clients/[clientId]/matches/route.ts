@@ -144,7 +144,10 @@ export async function POST(
 
 /**
  * DELETE: Unmatch — reverse a match, moving transactions back to unmatched.
- * Query param: ?matchId=uuid
+ * Query params:
+ *   ?matchId=uuid          — unmatch a single match group
+ *   ?all=true              — unmatch ALL matches for this client
+ *   ?transactionId=uuid    — remove a single transaction from its match group
  */
 export async function DELETE(
   request: Request,
@@ -163,8 +166,102 @@ export async function DELETE(
 
   const url = new URL(request.url);
   const matchId = url.searchParams.get("matchId");
+  const all = url.searchParams.get("all") === "true";
+  const transactionId = url.searchParams.get("transactionId");
+
+  if (all) {
+    const result = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(transactions)
+        .set({ matchId: null, matchStatus: "unmatched" })
+        .where(
+          and(
+            eq(transactions.clientId, clientId),
+            eq(transactions.matchStatus, "matched")
+          )
+        )
+        .returning({ id: transactions.id });
+
+      const deleted = await tx
+        .delete(matches)
+        .where(eq(matches.clientId, clientId))
+        .returning({ id: matches.id });
+
+      await logAuditTx(tx, {
+        tenantId: orgId,
+        userId,
+        action: "match.bulk_deleted",
+        entityType: "match",
+        metadata: {
+          matchCount: deleted.length,
+          transactionCount: updated.length,
+        },
+      });
+
+      return { matchCount: deleted.length, transactionCount: updated.length };
+    });
+
+    return NextResponse.json({ ok: true, ...result });
+  }
+
+  if (transactionId) {
+    const [txRow] = await db
+      .select({
+        id: transactions.id,
+        matchId: transactions.matchId,
+        clientId: transactions.clientId,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.clientId, clientId)
+        )
+      );
+
+    if (!txRow || !txRow.matchId) {
+      return NextResponse.json({ error: "Transaksjon ikke funnet eller ikke matchet" }, { status: 404 });
+    }
+
+    const result = await db.transaction(async (tx) => {
+      await tx
+        .update(transactions)
+        .set({ matchId: null, matchStatus: "unmatched" })
+        .where(eq(transactions.id, transactionId));
+
+      const remaining = await tx
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(eq(transactions.matchId, txRow.matchId!));
+
+      let dissolved = false;
+      if (remaining.length < 2) {
+        await tx
+          .update(transactions)
+          .set({ matchId: null, matchStatus: "unmatched" })
+          .where(eq(transactions.matchId, txRow.matchId!));
+
+        await tx.delete(matches).where(eq(matches.id, txRow.matchId!));
+        dissolved = true;
+      }
+
+      await logAuditTx(tx, {
+        tenantId: orgId,
+        userId,
+        action: dissolved ? "match.deleted" : "match.transaction_removed",
+        entityType: "match",
+        entityId: txRow.matchId!,
+        metadata: { transactionId, dissolved },
+      });
+
+      return { dissolved };
+    });
+
+    return NextResponse.json({ ok: true, ...result });
+  }
+
   if (!matchId) {
-    return NextResponse.json({ error: "Mangler matchId" }, { status: 400 });
+    return NextResponse.json({ error: "Mangler matchId, transactionId, eller all=true" }, { status: 400 });
   }
 
   const [matchRow] = await db

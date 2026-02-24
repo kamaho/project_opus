@@ -30,8 +30,11 @@ export default async function ClientPage({
         <Button variant="outline" asChild>
           <Link href={`/dashboard/clients/${clientId}/matching`}>Avstemming</Link>
         </Button>
+        <Button variant="outline" asChild>
+          <Link href={`/dashboard/clients/${clientId}/matching-rules`}>Matching-regler</Link>
+        </Button>
       </div>
-      <p className="text-muted-foreground">Last opp filer for Mengde 1 (hovedbok) og Mengde 2 (bank), deretter kjør avstemming.</p>
+      <p className="text-muted-foreground">Last opp filer for Mengde 1 (hovedbok) og Mengde 2 (bank), deretter kjør avstemming. Konfigurer matching-regler for Smart Match.</p>
     </div>
   );
 }

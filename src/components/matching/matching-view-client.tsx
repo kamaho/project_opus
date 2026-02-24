@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { parseFile, detectFileTypeFromFile, readExcelRows, readCsvRawRows, readFileAsText } from "@/lib/parsers";
 import type { ParsedTransaction, CsvParserConfig, ExcelParserConfig } from "@/lib/parsers";
+
+const loadParsers = () => import("@/lib/parsers");
 import { MatchingToolbar, type ViewMode } from "@/components/matching/matching-toolbar";
 import { TransactionPanel, type TransactionRow, type CellContextAction } from "@/components/matching/transaction-panel";
 import { SetDropzone } from "@/components/matching/set-dropzone";
@@ -20,15 +21,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, CheckCircle2, Copy, FileDown, Link2, Search, X, Pencil } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Copy, Link2, Pencil, Search, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { formatAmountLive, countSignificantChars, findCursorPosition } from "@/lib/ui-preferences";
+import { useTableAppearance, useFormatting } from "@/contexts/ui-preferences-context";
 import { SmartPanel } from "@/components/smart-panel/smart-panel";
+import {
+  DesignPanelContent,
+  SmartPanelInnstillingerSection,
+  SmartPanelTipsSection,
+} from "@/components/smart-panel/smart-panel-standard";
 import { NotePopover } from "@/components/matching/note-popover";
 import { NoteDialog } from "@/components/matching/note-dialog";
 import { AttachmentPopover } from "@/components/matching/attachment-popover";
 import { AttachmentDialog } from "@/components/matching/attachment-dialog";
 import { ExportModal } from "@/components/export/export-modal";
 import { ExportIntroOverlay } from "@/components/export/export-intro-overlay";
+import { ReportButton } from "@/components/export/report-button";
+import { AutoMatchPreview } from "@/components/matching/auto-match-preview";
+import type { AutoMatchStats } from "@/lib/matching/engine";
+import confetti from "canvas-confetti";
 
 const ImportPreview = dynamic(
   () => import("@/components/import/import-preview").then((m) => ({ default: m.ImportPreview })),
@@ -67,6 +80,36 @@ function detectDateFormat(samples: string[]): string {
   return "DD.MM.YYYY";
 }
 
+interface ImportResult {
+  recordCount?: number;
+  totalParsed?: number;
+  duplicateCount?: number;
+  duplicatesSkipped?: boolean;
+  skippedCount?: number;
+}
+
+function showImportToast(data: ImportResult): void {
+  const inserted = data.recordCount ?? 0;
+  const dupes = data.duplicateCount ?? 0;
+  const skipped = data.skippedCount ?? 0;
+
+  if (dupes > 0 && data.duplicatesSkipped) {
+    toast.success(`${inserted} transaksjoner importert`, {
+      description: `${dupes} duplikat${dupes === 1 ? "" : "er"} ble utelatt fordi de allerede finnes i datasettet.`,
+    });
+    return;
+  }
+
+  if (skipped > 0) {
+    toast.success(`${inserted} transaksjoner importert`, {
+      description: `${skipped} rad${skipped === 1 ? "" : "er"} ble hoppet over pga. ugyldige verdier.`,
+    });
+    return;
+  }
+
+  toast.success(`${inserted} transaksjoner importert`);
+}
+
 function detectDelimiterFromContent(content: string): ";" | "," | "\t" {
   const firstLine = content.split("\n")[0] ?? "";
   const counts: Record<string, number> = { ";": 0, ",": 0, "\t": 0 };
@@ -78,12 +121,6 @@ function detectDelimiterFromContent(content: string): ";" | "," | "\t" {
   return ",";
 }
 
-function formatAmountDisplay(raw: string): string {
-  const num = parseFloat(raw);
-  if (isNaN(num)) return raw;
-  return num.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 function FormattedAmountInput({
   id,
   value,
@@ -93,22 +130,48 @@ function FormattedAmountInput({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const [focused, setFocused] = useState(false);
-  const display = focused ? value : formatAmountDisplay(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { numberPref } = useFormatting();
+  const cursorRef = useRef<number | null>(null);
+
+  const { display } = formatAmountLive(value, numberPref);
+
+  useEffect(() => {
+    const el = inputRef.current;
+    if (el && cursorRef.current !== null) {
+      el.setSelectionRange(cursorRef.current, cursorRef.current);
+      cursorRef.current = null;
+    }
+  });
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target;
+    const cursorPos = el.selectionStart ?? 0;
+
+    const sigBefore = countSignificantChars(el.value, cursorPos);
+    const { display: newDisplay, raw } = formatAmountLive(el.value, numberPref);
+
+    cursorRef.current = findCursorPosition(newDisplay, sigBefore);
+    onChange(raw);
+  };
+
+  const handleBlur = () => {
+    const num = parseFloat(value);
+    if (!isNaN(num)) {
+      onChange(num.toFixed(2));
+    }
+  };
 
   return (
     <Input
+      ref={inputRef}
       id={id}
       type="text"
       inputMode="decimal"
       className="font-mono text-right"
       value={display}
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      onChange={(e) => {
-        const v = e.target.value.replace(/[^\d.,-]/g, "").replace(",", ".");
-        onChange(v);
-      }}
+      onChange={handleChange}
+      onBlur={handleBlur}
     />
   );
 }
@@ -248,6 +311,12 @@ export function MatchingViewClient({
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  const refreshTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const refreshData = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => router.refresh(), 80);
+  }, [router]);
+
   const [set1Label, setSet1Label] = useState(initialSet1Label);
   const [set2Label, setSet2Label] = useState(initialSet2Label);
 
@@ -282,6 +351,165 @@ export function MatchingViewClient({
   // --- Export ---
   const [exportOpen, setExportOpen] = useState(false);
   const [exportGenerating, setExportGenerating] = useState(false);
+
+  // --- Auto-match ---
+  const [autoMatchLoading, setAutoMatchLoading] = useState(false);
+  const [autoMatchStats, setAutoMatchStats] = useState<AutoMatchStats | null>(null);
+  const [autoMatchPreviewOpen, setAutoMatchPreviewOpen] = useState(false);
+  const [autoMatchCommitting, setAutoMatchCommitting] = useState(false);
+  const [autoMatchAnimProgress, setAutoMatchAnimProgress] = useState(0);
+  const [autoMatchBarDuration, setAutoMatchBarDuration] = useState(0);
+  const [autoMatchAnimCount, setAutoMatchAnimCount] = useState(0);
+  const [autoMatchCompleted, setAutoMatchCompleted] = useState(false);
+  const [autoMatchTxCount, setAutoMatchTxCount] = useState(0);
+
+  const handleAutoMatch = useCallback(async () => {
+    setAutoMatchLoading(true);
+    setAutoMatchStats(null);
+    setAutoMatchPreviewOpen(true);
+    setAutoMatchAnimProgress(0);
+    setAutoMatchBarDuration(0);
+    setAutoMatchAnimCount(0);
+    setAutoMatchCompleted(false);
+    setAutoMatchTxCount(0);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/auto-match`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "preview" }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Smart Match feilet");
+        setAutoMatchPreviewOpen(false);
+        return;
+      }
+      const stats: AutoMatchStats = await res.json();
+      setAutoMatchStats(stats);
+    } catch {
+      toast.error("Nettverksfeil under Smart Match");
+      setAutoMatchPreviewOpen(false);
+    } finally {
+      setAutoMatchLoading(false);
+    }
+  }, [clientId]);
+
+  const handleAutoMatchConfirm = useCallback(async () => {
+    setAutoMatchCommitting(true);
+    setAutoMatchAnimProgress(0);
+    setAutoMatchAnimCount(0);
+    setAutoMatchCompleted(false);
+
+    try {
+      const res = await fetch(`/api/clients/${clientId}/auto-match`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "commit" }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Matching feilet");
+        setAutoMatchCommitting(false);
+        return;
+      }
+      const data = await res.json();
+      const matchGroups: [string[], string[]][] = data.matchGroups ?? [];
+
+      if (matchGroups.length === 0) {
+        setAutoMatchPreviewOpen(false);
+        setAutoMatchStats(null);
+        setAutoMatchCommitting(false);
+        return;
+      }
+
+      const allTxIds = matchGroups.flatMap(([s1, s2]) => [...s1, ...s2]);
+      setAutoMatchTxCount(allTxIds.length);
+
+      const maxIndividual = Math.min(allTxIds.length, 20);
+      const txToAnimate = allTxIds.slice(0, maxIndividual);
+
+      // Adaptive timing: total 2–7s depending on count
+      const totalAnimMs = Math.max(2000, Math.min(7000, txToAnimate.length * 350));
+      const perTxMs = totalAnimMs / txToAnimate.length;
+      const glowMs = Math.round(perTxMs * 0.55);
+      const exitMs = Math.round(perTxMs * 0.45);
+
+      // 1. Kick off smooth progress bar: 0 → 95% over totalAnimMs
+      setAutoMatchAnimProgress(0);
+      setAutoMatchBarDuration(0);
+      await new Promise((r) => setTimeout(r, 50));
+      setAutoMatchBarDuration(totalAnimMs);
+      setAutoMatchAnimProgress(95);
+
+      // 2. Animate transactions one at a time
+      const animStart = performance.now();
+      for (let i = 0; i < txToAnimate.length; i++) {
+        const txId = txToAnimate[i];
+
+        setMatchAnimatingIds(new Set([txId]));
+        setMatchAnimationPhase("glow");
+        await new Promise((r) => setTimeout(r, glowMs));
+
+        setMatchAnimationPhase("exit");
+        await new Promise((r) => setTimeout(r, exitMs));
+
+        setLocallyMatchedIds((prev) => {
+          const next = new Set(prev);
+          next.add(txId);
+          return next;
+        });
+        setMatchAnimatingIds(undefined);
+        setMatchAnimationPhase("glow");
+
+        setAutoMatchAnimCount(i + 1);
+      }
+
+      // 3. Bulk-remove everything remaining
+      setLocallyMatchedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of allTxIds) next.add(id);
+        return next;
+      });
+      setAutoMatchAnimCount(allTxIds.length);
+
+      // 4. Wait for bar to visually reach 95% if JS loop was faster than CSS
+      const jsElapsed = performance.now() - animStart;
+      const remaining95 = totalAnimMs - jsElapsed;
+      if (remaining95 > 0) {
+        await new Promise((r) => setTimeout(r, remaining95 + 50));
+      }
+
+      // 5. Smooth transition 95% → 100%
+      setAutoMatchBarDuration(300);
+      await new Promise((r) => setTimeout(r, 50));
+      setAutoMatchAnimProgress(100);
+      await new Promise((r) => setTimeout(r, 350));
+
+      // Sync server data now that animation is done
+      refreshData();
+
+      setAutoMatchCommitting(false);
+      setAutoMatchCompleted(true);
+      matchCountRef.current = allTxIds.length;
+
+      // Confetti from center of screen
+      confetti({
+        particleCount: 120,
+        spread: 80,
+        origin: { x: 0.5, y: 0.5 },
+        colors: ["#7a5af8", "#9b7afb", "#c4b5fd", "#a78bfa", "#6d28d9"],
+        gravity: 0.8,
+        ticks: 200,
+      });
+
+      // Pulse the "Lukkede" button
+      setClosedBtnPulse(true);
+      setTimeout(() => setClosedBtnPulse(false), 1200);
+    } catch {
+      toast.error("Nettverksfeil under matching");
+      setAutoMatchCommitting(false);
+    }
+  }, [clientId, refreshData]);
 
   // --- Global date filter (shared across both panels) ---
   const [globalDateFrom, setGlobalDateFrom] = useState("");
@@ -388,7 +616,7 @@ export function MatchingViewClient({
   );
 
   const formatAmount = (n: number): string => {
-    const abs = Math.abs(n).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const abs = fmtAbs(n);
     return n < 0 ? `−${abs}` : abs;
   };
 
@@ -684,8 +912,22 @@ export function MatchingViewClient({
       } else {
         setAttachTarget(txId);
       }
+    } else if (action === "edit") {
+      const row = patchedRows1.find((r) => r.id === txId) ?? patchedRows2.find((r) => r.id === txId);
+      if (!row) return;
+      const setNumber = patchedRows1.some((r) => r.id === txId) ? 1 : 2;
+      setEditTxTarget({ txId, setNumber });
+      setManualTxSet(setNumber);
+      setManualTxDate(row.date);
+      setManualTxAmount(String(row.amount));
+      setManualTxText(row.text);
+      setManualTxVoucher(row.voucher ?? "");
+      setManualTxError(null);
+      setManualTxOpen(true);
+    } else if (action === "delete") {
+      setDeleteTxTarget(txId);
     }
-  }, [selectedCount, rows1, rows2, localNotes]);
+  }, [selectedCount, rows1, rows2, localNotes, patchedRows1, patchedRows2]);
 
   // --- Matching action ---
   const [matching, setMatching] = useState(false);
@@ -724,7 +966,7 @@ export function MatchingViewClient({
       setMatchAnimatingIds(allAnimIds);
       setMatchAnimationPhase("glow");
       setSmartPanelOpen(false);
-      router.refresh();
+      refreshData();
 
       // Phase 1: glow (450ms CSS)
       await new Promise((r) => setTimeout(r, 480));
@@ -775,6 +1017,30 @@ export function MatchingViewClient({
       }
 
       if (!pendingCellAction) return;
+
+      if (optionId === "editManual") {
+        const txId = pendingCellAction.action.txId;
+        const row = patchedRows1.find((r) => r.id === txId) ?? patchedRows2.find((r) => r.id === txId);
+        if (row) {
+          const setNumber = patchedRows1.some((r) => r.id === txId) ? 1 : 2;
+          setEditTxTarget({ txId, setNumber });
+          setManualTxSet(setNumber);
+          setManualTxDate(row.date);
+          setManualTxAmount(String(row.amount));
+          setManualTxText(row.text);
+          setManualTxVoucher(row.voucher ?? "");
+          setManualTxError(null);
+          setManualTxOpen(true);
+        }
+        closeSmartPanel();
+        return;
+      }
+      if (optionId === "deleteManual") {
+        setDeleteTxTarget(pendingCellAction.action.txId);
+        closeSmartPanel();
+        return;
+      }
+
       const { action, sourceSet } = pendingCellAction;
       const isAmount = action.field === "amount";
       const otherRows = sourceSet === 1 ? visibleRows2 : visibleRows1;
@@ -840,8 +1106,12 @@ export function MatchingViewClient({
       }
       setSmartPanelActiveOption(optionId);
     },
-    [pendingCellAction, visibleRows1, visibleRows2, findMatchingIds, findCounterpartIds, handleMatch]
+    [pendingCellAction, visibleRows1, visibleRows2, patchedRows1, patchedRows2, closeSmartPanel, findMatchingIds, findCounterpartIds, handleMatch]
   );
+
+  const handleCellPanelDesignToggle = useCallback(() => {
+    setSmartPanelActiveOption((prev) => (prev === "design" ? null : "design"));
+  }, []);
 
   // --- Unmatch action ---
   const [unmatchingId, setUnmatchingId] = useState<string | null>(null);
@@ -858,13 +1128,64 @@ export function MatchingViewClient({
         setMatchError(data.error ?? "Kunne ikke oppheve match");
         return;
       }
-      router.refresh();
+      refreshData();
     } catch {
       setMatchError("Nettverksfeil — prøv igjen.");
     } finally {
       setUnmatchingId(null);
     }
   }, [clientId, router]);
+
+  // --- Bulk unmatch all ---
+  const [unmatchAllLoading, setUnmatchAllLoading] = useState(false);
+  const [unmatchAllConfirmOpen, setUnmatchAllConfirmOpen] = useState(false);
+
+  const handleUnmatchAll = useCallback(() => {
+    setUnmatchAllConfirmOpen(true);
+  }, []);
+
+  const confirmUnmatchAll = useCallback(async () => {
+    setUnmatchAllConfirmOpen(false);
+    setUnmatchAllLoading(true);
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/matches?all=true`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMatchError(data.error ?? "Kunne ikke oppheve alle matcher");
+        return;
+      }
+      const data = await res.json();
+      toast.success(`${data.matchCount} matcher opphevet (${data.transactionCount} poster)`);
+      setLocallyMatchedIds(new Set());
+      setViewMode("open");
+      router.refresh();
+    } catch {
+      setMatchError("Nettverksfeil — prøv igjen.");
+    } finally {
+      setUnmatchAllLoading(false);
+    }
+  }, [clientId, router]);
+
+  // --- Remove single transaction from match group ---
+  const handleRemoveTransaction = useCallback(async (transactionId: string) => {
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/matches?transactionId=${transactionId}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setMatchError(data.error ?? "Kunne ikke fjerne transaksjon fra match");
+        return;
+      }
+      refreshData();
+    } catch {
+      setMatchError("Nettverksfeil — prøv igjen.");
+    }
+  }, [clientId, refreshData]);
 
   // --- Opening balance ---
   const [balanceDialogSet, setBalanceDialogSet] = useState<1 | 2 | null>(null);
@@ -895,7 +1216,7 @@ export function MatchingViewClient({
       });
       if (res.ok) {
         setBalanceDialogSet(null);
-        router.refresh();
+        refreshData();
       }
     } finally {
       setSavingBalance(false);
@@ -918,22 +1239,24 @@ export function MatchingViewClient({
   const [manualTxAmount, setManualTxAmount] = useState("");
   const [manualTxText, setManualTxText] = useState("");
   const [manualTxVoucher, setManualTxVoucher] = useState("");
-  const [manualTxAffectBalance, setManualTxAffectBalance] = useState(false);
   const [manualTxSaving, setManualTxSaving] = useState(false);
   const [manualTxError, setManualTxError] = useState<string | null>(null);
+  const [editTxTarget, setEditTxTarget] = useState<{ txId: string; setNumber: 1 | 2 } | null>(null);
+  const [deleteTxTarget, setDeleteTxTarget] = useState<string | null>(null);
+  const [deleteTxLoading, setDeleteTxLoading] = useState(false);
 
   const openManualTxDialog = useCallback((setNumber: 1 | 2) => {
+    setEditTxTarget(null);
     setManualTxDate(new Date().toISOString().slice(0, 10));
     setManualTxAmount("");
     setManualTxText("");
     setManualTxVoucher("");
-    setManualTxAffectBalance(false);
     setManualTxError(null);
     setManualTxSet(setNumber);
     setManualTxOpen(true);
   }, []);
 
-  const handleCreateManualTx = useCallback(async () => {
+  const handleSaveManualTx = useCallback(async () => {
     const amount = parseFloat(manualTxAmount.replace(",", "."));
     if (!manualTxDate || isNaN(amount) || amount === 0 || !manualTxText.trim()) {
       setManualTxError("Fyll ut dato, beløp (≠ 0) og tekst.");
@@ -942,31 +1265,70 @@ export function MatchingViewClient({
     setManualTxSaving(true);
     setManualTxError(null);
     try {
-      const res = await fetch(`/api/clients/${clientId}/transactions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          setNumber: manualTxSet,
-          date: manualTxDate,
-          amount,
-          text: manualTxText.trim(),
-          voucher: manualTxVoucher.trim() || undefined,
-          affectBalance: manualTxAffectBalance,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setManualTxError(data.error ?? "En feil oppstod.");
-        return;
+      if (editTxTarget) {
+        const res = await fetch(
+          `/api/clients/${clientId}/transactions/${editTxTarget.txId}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: manualTxDate,
+              amount,
+              text: manualTxText.trim(),
+              voucher: manualTxVoucher.trim() || undefined,
+            }),
+          }
+        );
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setManualTxError(data.error ?? "En feil oppstod.");
+          return;
+        }
+        setManualTxOpen(false);
+        setEditTxTarget(null);
+      } else {
+        const res = await fetch(`/api/clients/${clientId}/transactions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            setNumber: manualTxSet,
+            date: manualTxDate,
+            amount,
+            text: manualTxText.trim(),
+            voucher: manualTxVoucher.trim() || undefined,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setManualTxError(data.error ?? "En feil oppstod.");
+          return;
+        }
+        setManualTxOpen(false);
       }
-      setManualTxOpen(false);
-      router.refresh();
+      refreshData();
     } catch {
       setManualTxError("Nettverksfeil — prøv igjen.");
     } finally {
       setManualTxSaving(false);
     }
-  }, [clientId, manualTxSet, manualTxDate, manualTxAmount, manualTxText, manualTxVoucher, manualTxAffectBalance, router]);
+  }, [clientId, manualTxSet, manualTxDate, manualTxAmount, manualTxText, manualTxVoucher, editTxTarget, router]);
+
+  const handleDeleteManualTx = useCallback(async () => {
+    if (!deleteTxTarget) return;
+    setDeleteTxLoading(true);
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/transactions/${deleteTxTarget}`,
+        { method: "DELETE" }
+      );
+      if (res.ok) {
+        setDeleteTxTarget(null);
+        refreshData();
+      }
+    } finally {
+      setDeleteTxLoading(false);
+    }
+  }, [clientId, deleteTxTarget, router]);
 
   // --- Import dialog state ---
   const [importOpen, setImportOpen] = useState(false);
@@ -989,10 +1351,16 @@ export function MatchingViewClient({
 
   const [dupReport, setDupReport] = useState<DuplicateReport | null>(null);
   const [dupDialogOpen, setDupDialogOpen] = useState(false);
+  const tableAppearance = useTableAppearance();
+  const { fmtNum, fmtAbs, fmtDate: fmtD } = useFormatting();
   const [pendingFormData, setPendingFormData] = useState<FormData | null>(null);
 
   const [exactDuplicate, setExactDuplicate] = useState(false);
   const [selectedTxIndices, setSelectedTxIndices] = useState<Set<number>>(new Set());
+  const [wizardDupSelectMode, setWizardDupSelectMode] = useState(false);
+  const [wizardDupPreview, setWizardDupPreview] = useState<ParsedTransaction[] | null>(null);
+  const [wizardFileSum, setWizardFileSum] = useState<number | null>(null);
+  const [wizardNewSum, setWizardNewSum] = useState<number | null>(null);
 
   const openImportDialog = useCallback(
     async (file: File, setNumber: 1 | 2) => {
@@ -1003,13 +1371,14 @@ export function MatchingViewClient({
       setWizardRawRows(null);
       setExcelBuffer(null);
 
-      const detected = await detectFileTypeFromFile(file);
+      const parsers = await loadParsers();
+      const detected = await parsers.detectFileTypeFromFile(file);
       setParserType(detected);
 
       if (detected === "excel") {
         const buffer = await file.arrayBuffer();
         setExcelBuffer(buffer);
-        const rawRows = readExcelRows(buffer);
+        const rawRows = parsers.readExcelRows(buffer);
         const maxCol = Math.max(...rawRows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
         setWizardRawRows(
           rawRows.map((r) => {
@@ -1024,11 +1393,11 @@ export function MatchingViewClient({
         return;
       }
 
-      const content = await readFileAsText(file);
+      const content = await parsers.readFileAsText(file);
 
       if (detected === "csv") {
         setFileContent(content);
-        const rawRows = readCsvRawRows(content);
+        const rawRows = parsers.readCsvRawRows(content);
         setWizardRawRows(rawRows);
         setCsvDelimiter(detectDelimiterFromContent(content));
         setImportOpen(true);
@@ -1036,13 +1405,13 @@ export function MatchingViewClient({
         setFileContent(content);
         setWizardRawRows(null);
         setKlinkSpec("");
-        const out = parseFile(content, "klink", { spec: "" });
+        const out = parsers.parseFile(content, "klink", { spec: "" });
         setPreview({ transactions: out.transactions, errors: out.errors });
         setImportOpen(true);
       } else {
         setFileContent(null);
         setWizardRawRows(null);
-        const out = parseFile(content, "camt");
+        const out = parsers.parseFile(content, "camt");
         setPreview({ transactions: out.transactions, errors: out.errors });
         setImportOpen(true);
       }
@@ -1052,8 +1421,10 @@ export function MatchingViewClient({
 
   useEffect(() => {
     if (parserType !== "klink" || !fileContent || !importOpen) return;
-    const out = parseFile(fileContent, "klink", { spec: klinkSpec });
-    setPreview({ transactions: out.transactions, errors: out.errors });
+    loadParsers().then((parsers) => {
+      const out = parsers.parseFile(fileContent, "klink", { spec: klinkSpec });
+      setPreview({ transactions: out.transactions, errors: out.errors });
+    });
   }, [parserType, fileContent, klinkSpec, importOpen]);
 
   const buildFormData = useCallback(
@@ -1099,6 +1470,11 @@ export function MatchingViewClient({
           dataStartRow: result.headerRowIndex,
         };
         formData.set("csvConfig", JSON.stringify(config));
+      }
+
+      if (result.dateFilter) {
+        formData.set("dateFrom", result.dateFilter.from);
+        formData.set("dateTo", result.dateFilter.to);
       }
 
       return formData;
@@ -1157,17 +1533,25 @@ export function MatchingViewClient({
 
         const dryData = await dryRes.json().catch(() => ({}));
 
-        if (dryRes.status === 409) {
-          setImportError(dryData.details ?? "Denne filen er allerede importert.");
-          return;
-        }
-
         if (!dryRes.ok && !dryData.dryRun) {
           const msg = [dryData.error ?? "Import feilet"]
             .concat(dryData.details ? [dryData.details] : [])
             .filter(Boolean)
             .join(" — ");
           setImportError(msg);
+          return;
+        }
+
+        if (typeof dryData.newSum === "number") {
+          setWizardNewSum(dryData.newSum);
+        }
+
+        if (dryData.isExactDuplicate && dryData.newCount > 0) {
+          setExactDuplicate(true);
+          setSelectedTxIndices(new Set());
+          setWizardDupSelectMode(false);
+          setWizardDupPreview(null);
+          setPendingFormData(formData);
           return;
         }
 
@@ -1198,13 +1582,14 @@ export function MatchingViewClient({
           return;
         }
 
+        showImportToast(data);
         setImportError(null);
         setImportOpen(false);
         setPendingFile(null);
         setPreview(null);
         setWizardRawRows(null);
         setExcelBuffer(null);
-        router.refresh();
+        refreshData();
       } catch {
         setImportError("En uventet feil oppstod under importen. Prøv igjen.");
       } finally {
@@ -1212,6 +1597,76 @@ export function MatchingViewClient({
       }
     },
     [pendingFile, buildFormData, doImport, router]
+  );
+
+  const handleWizardDupAction = useCallback(
+    async (action: "importAll" | "selectMode" | "importSelected") => {
+      if (action === "selectMode") {
+        if (!wizardRawRows || !pendingFormData) return;
+        const cfg = pendingFormData.get("excelConfig") || pendingFormData.get("csvConfig");
+        if (!cfg) return;
+        const parsed = JSON.parse(cfg as string);
+        const headerIdx = parsed.dataStartRow ?? parsed.dataStartRow ?? 0;
+        const colMap: Record<string, number> = parsed.columns ?? {};
+        const rows = wizardRawRows.slice(headerIdx + 1);
+        const parseNum = (s: string) => parseFloat(s.trim().replace(/\s/g, "").replace(",", ".").replace(/[^\d.-]/g, "")) || 0;
+        const txs: ParsedTransaction[] = [];
+        for (const row of rows) {
+          const amtRaw = colMap.amount !== undefined ? (row[colMap.amount] ?? "") : "";
+          const creditRaw = colMap.credit !== undefined ? (row[colMap.credit] ?? "") : "";
+          const debitRaw = colMap.debit !== undefined ? (row[colMap.debit] ?? "") : "";
+          let amount = parseNum(amtRaw);
+          if (!amount && (creditRaw || debitRaw)) amount = parseNum(creditRaw) - parseNum(debitRaw);
+          if (amount === 0) continue;
+          txs.push({
+            amount: String(amount),
+            date1: colMap.date1 !== undefined ? (row[colMap.date1] ?? "") : "",
+            description: colMap.description !== undefined ? (row[colMap.description] ?? "") : undefined,
+            reference: colMap.reference !== undefined ? (row[colMap.reference] ?? "") : undefined,
+            bilag: colMap.bilag !== undefined ? (row[colMap.bilag] ?? "") : undefined,
+          });
+        }
+        setWizardDupPreview(txs);
+        setWizardDupSelectMode(true);
+        return;
+      }
+      if (!pendingFormData) return;
+      setLoading(true);
+      setImportError(null);
+      try {
+        const fd = new FormData();
+        for (const [k, v] of pendingFormData.entries()) fd.set(k, v);
+        if (action === "importAll") {
+          fd.set("skipDuplicates", "true");
+        } else if (action === "importSelected" && selectedTxIndices.size > 0) {
+          fd.set("forceAll", "true");
+          fd.set("selectedIndices", JSON.stringify(Array.from(selectedTxIndices)));
+        }
+        const res = await doImport(fd);
+        if (!res) return;
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setImportError([data.error, data.details].filter(Boolean).join(" — "));
+          return;
+        }
+        showImportToast(data);
+        setExactDuplicate(false);
+        setWizardDupSelectMode(false);
+        setWizardDupPreview(null);
+        setSelectedTxIndices(new Set());
+        setPendingFormData(null);
+        setImportOpen(false);
+        setPendingFile(null);
+        setWizardRawRows(null);
+        setExcelBuffer(null);
+        refreshData();
+      } catch {
+        setImportError("En uventet feil oppstod. Prøv igjen.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [pendingFormData, wizardRawRows, selectedTxIndices, doImport, router]
   );
 
   const handleDuplicateChoice = useCallback(
@@ -1242,6 +1697,7 @@ export function MatchingViewClient({
           return;
         }
 
+        showImportToast(data);
         setImportError(null);
         setImportOpen(false);
         setPendingFile(null);
@@ -1250,7 +1706,7 @@ export function MatchingViewClient({
         setExcelBuffer(null);
         setDupReport(null);
         setPendingFormData(null);
-        router.refresh();
+        refreshData();
       } catch {
         setImportError("En uventet feil oppstod under importen. Prøv igjen.");
       } finally {
@@ -1291,23 +1747,23 @@ export function MatchingViewClient({
 
         const dryData = await dryRes.json().catch(() => ({}));
 
-        if (dryRes.status === 409 && dryData.isExactDuplicate) {
-          setExactDuplicate(true);
-          setSelectedTxIndices(new Set());
-          return;
-        }
-
-        if (dryRes.status === 409) {
-          setImportError(dryData.details ?? "Alle transaksjoner finnes allerede.");
-          return;
-        }
-
         if (!dryRes.ok && !dryData.dryRun) {
           const msg = [dryData.error ?? "Import feilet"]
             .concat(dryData.details ? [dryData.details] : [])
             .filter(Boolean)
             .join(" — ");
           setImportError(msg);
+          return;
+        }
+
+        if (typeof dryData.newSum === "number") {
+          setWizardNewSum(dryData.newSum);
+        }
+
+        if (dryData.isExactDuplicate && dryData.newCount > 0) {
+          setExactDuplicate(true);
+          setSelectedTxIndices(new Set());
+          setPendingFormData(formData);
           return;
         }
 
@@ -1344,13 +1800,14 @@ export function MatchingViewClient({
         setImportError(msg);
         return;
       }
+      showImportToast(data);
       setImportError(null);
       setExactDuplicate(false);
       setSelectedTxIndices(new Set());
       setImportOpen(false);
       setPendingFile(null);
       setPreview(null);
-      router.refresh();
+      refreshData();
     } finally {
       setLoading(false);
     }
@@ -1366,6 +1823,11 @@ export function MatchingViewClient({
     setExcelBuffer(null);
     setExactDuplicate(false);
     setSelectedTxIndices(new Set());
+    setWizardDupSelectMode(false);
+    setWizardDupPreview(null);
+    setPendingFormData(null);
+    setWizardFileSum(null);
+    setWizardNewSum(null);
   };
 
 
@@ -1458,7 +1920,7 @@ export function MatchingViewClient({
 
   return (
     <>
-      <div className="flex h-[calc(100dvh-4rem)] flex-col -m-2 md:-m-4 p-0">
+      <div className="flex h-[calc(100dvh-2.75rem)] flex-col -m-2 md:-m-4 p-0 min-w-0 overflow-hidden">
        <div className="flex flex-1 flex-col min-h-0 rounded-md border overflow-hidden">
         <div className="flex items-center shrink-0">
           <div className="flex-1 min-w-0">
@@ -1471,6 +1933,11 @@ export function MatchingViewClient({
               dateTo={globalDateTo}
               onDateFromChange={setGlobalDateFrom}
               onDateToChange={setGlobalDateTo}
+              onSmartMatch={handleAutoMatch}
+              smartMatchLoading={autoMatchLoading}
+              onUnmatchAll={handleUnmatchAll}
+              unmatchAllLoading={unmatchAllLoading}
+              hasMatches={matchedGroups.length > 0}
             />
           </div>
         </div>
@@ -1479,7 +1946,7 @@ export function MatchingViewClient({
           open={exportOpen && !exportGenerating}
           onOpenChange={setExportOpen}
           module="matching"
-          title={viewMode === "open" ? "Eksporter åpne poster" : "Eksporter lukkede poster"}
+          title={viewMode === "open" ? "Rapport — åpne poster" : "Rapport — lukkede poster"}
           getPayload={() => ({
             matchingParams: {
               clientId,
@@ -1510,7 +1977,7 @@ export function MatchingViewClient({
                   accountId={set1AccountId}
                   clientId={clientId}
                   variant="violet"
-                  onRenamed={(name) => { setSet1Label(name); router.refresh(); }}
+                  onRenamed={(name) => { setSet1Label(name); refreshData(); }}
                 />
                 <span>
                   <span className="text-muted-foreground">Poster:</span>{" "}
@@ -1519,7 +1986,7 @@ export function MatchingViewClient({
                 <span>
                   <span className="text-muted-foreground">Saldo:</span>{" "}
                   <span className="font-medium font-mono">
-                    {liveBalance1.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {fmtNum(liveBalance1)}
                   </span>
                 </span>
                 <button
@@ -1574,15 +2041,8 @@ export function MatchingViewClient({
               )}
             </div>
             <div className="flex flex-1 flex-col min-w-0 min-h-0 bg-background overflow-hidden">
-              <div className="flex items-center justify-between border-b px-2 py-1 shrink-0" data-smart-info={`Overskrift for mengde 2 (${set2Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
-                <EditableAccountBadge
-                  label={set2Label}
-                  accountId={set2AccountId}
-                  clientId={clientId}
-                  variant="brand"
-                  onRenamed={(name) => { setSet2Label(name); router.refresh(); }}
-                />
-                <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center border-b px-2 py-1 shrink-0" data-smart-info={`Overskrift for mengde 2 (${set2Label}). Viser antall åpne poster og løpende saldo inkludert inngående saldo.`}>
+                <div className="flex items-center gap-2 text-xs ml-auto">
                   <span>
                     <span className="text-muted-foreground">Poster:</span>{" "}
                     <span className="font-medium">{visibleRows2.length}</span>
@@ -1590,16 +2050,23 @@ export function MatchingViewClient({
                   <span>
                     <span className="text-muted-foreground">Saldo:</span>{" "}
                     <span className="font-medium font-mono">
-                      {liveBalance2.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {fmtNum(liveBalance2)}
                     </span>
                   </span>
                   <button
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground ml-1"
                     onClick={() => openBalanceDialog(2)}
                     data-smart-info={`Rediger inngående saldo for ${set2Label}. Saldo brukes til å beregne løpende balanse.`}
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
+                  <EditableAccountBadge
+                    label={set2Label}
+                    accountId={set2AccountId}
+                    clientId={clientId}
+                    variant="brand"
+                    onRenamed={(name) => { setSet2Label(name); refreshData(); }}
+                  />
                 </div>
               </div>
               {patchedRows2.length > 0 ? (
@@ -1661,14 +2128,15 @@ export function MatchingViewClient({
                 </div>
               </div>
             )}
+
           </div>
 
           {/* Status bar — always visible, changes based on selection state */}
           <div
             className={cn(
-              "flex items-center gap-2 border-t px-2 text-sm shrink-0 h-9 transition-colors",
+              "flex items-center gap-3 border-t px-3 text-sm shrink-0 py-2.5 min-w-0 transition-colors",
               selectedCount > 0
-                ? "bg-blue-50 dark:bg-blue-950/30"
+                ? "bg-violet-50 dark:bg-violet-950/30"
                 : "bg-muted/30"
             )}
             data-smart-info="Statuslinjen viser valgte poster og matchinformasjon. Når poster er markert vises sum og match-knapp. Summen av markerte poster må være 0 for at matching er mulig."
@@ -1689,7 +2157,7 @@ export function MatchingViewClient({
                   "font-mono font-medium",
                   selectedSum === 0 ? "text-green-600" : "text-amber-600"
                 )}>
-                  Sum: {selectedSum.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  Sum: {fmtNum(selectedSum)}
                 </span>
                 {selectedSum !== 0 && (
                   <span className="text-xs text-muted-foreground">
@@ -1715,17 +2183,7 @@ export function MatchingViewClient({
                     <Link2 className="h-3.5 w-3.5" />
                     {matching ? "Matcher…" : "Match"}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
-                    onClick={() => {
-                      setExportOpen(true);
-                    }}
-                  >
-                    <FileDown className="h-3.5 w-3.5" />
-                    Eksporter
-                  </Button>
+                  <ReportButton onClick={() => setExportOpen(true)} />
                 </div>
               </>
             ) : (
@@ -1750,15 +2208,7 @@ export function MatchingViewClient({
                       </span>
                     </div>
                   )}
-                  <Button
-                    size="sm"
-                    variant="default"
-                    className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
-                    onClick={() => setExportOpen(true)}
-                  >
-                    <FileDown className="h-3.5 w-3.5" />
-                    Eksporter
-                  </Button>
+                  <ReportButton onClick={() => setExportOpen(true)} />
                 </div>
               </>
             )}
@@ -1769,26 +2219,65 @@ export function MatchingViewClient({
             <MatchedGroupsView
               groups={matchedGroups}
               onUnmatch={handleUnmatch}
+              onRemoveTransaction={handleRemoveTransaction}
               unmatchingId={unmatchingId}
               set1Label={set1Label}
               set2Label={set2Label}
+              dateFrom={globalDateFrom}
+              dateTo={globalDateTo}
             />
-            <div className="flex items-center gap-2 border-t px-2 text-sm shrink-0 h-9 bg-muted/30">
+            <div className="flex items-center gap-3 border-t px-3 text-sm shrink-0 py-2.5 bg-muted/30">
               <div className="flex-1 min-w-0" aria-hidden />
-              <Button
-                size="sm"
-                variant="default"
-                className="gap-1.5 shrink-0 active:scale-[0.97] transition-transform"
-                onClick={() => setExportOpen(true)}
-              >
-                <FileDown className="h-3.5 w-3.5" />
-                Eksporter
-              </Button>
+              <ReportButton onClick={() => setExportOpen(true)} />
             </div>
           </>
         )}
        </div>
       </div>
+
+      {/* Auto-match preview dialog */}
+      <AutoMatchPreview
+        open={autoMatchPreviewOpen}
+        onOpenChange={(open) => {
+          setAutoMatchPreviewOpen(open);
+          if (!open && autoMatchCompleted) {
+            setAutoMatchCompleted(false);
+            setAutoMatchStats(null);
+          }
+        }}
+        stats={autoMatchStats}
+        loading={autoMatchLoading}
+        committing={autoMatchCommitting}
+        onConfirm={handleAutoMatchConfirm}
+        animationProgress={autoMatchAnimProgress}
+        barTransitionMs={autoMatchBarDuration}
+        animatedCount={autoMatchAnimCount}
+        completed={autoMatchCompleted}
+        matchedTransactionCount={autoMatchTxCount}
+      />
+
+      {/* Unmatch all confirmation dialog */}
+      <Dialog open={unmatchAllConfirmOpen} onOpenChange={setUnmatchAllConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              Opphev alle matcher
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Er du sikker? Alle {matchedGroups.length} matchgrupper vil bli opphevet og transaksjonene flyttes tilbake til &laquo;Åpne&raquo;.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setUnmatchAllConfirmOpen(false)}>
+              Avbryt
+            </Button>
+            <Button variant="destructive" size="sm" onClick={confirmUnmatchAll}>
+              Opphev alle
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Export generating: animation while file is being created (after "Last ned" in modal) */}
       {exportGenerating && (
@@ -1840,11 +2329,21 @@ export function MatchingViewClient({
         </DialogContent>
       </Dialog>
 
-      {/* Manual transaction dialog */}
-      <Dialog open={manualTxOpen} onOpenChange={setManualTxOpen}>
+      {/* Manual transaction dialog (create + edit) */}
+      <Dialog
+        open={manualTxOpen}
+        onOpenChange={(open) => {
+          if (!open) setEditTxTarget(null);
+          setManualTxOpen(open);
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Opprett korreksjonspost — {manualTxSet === 1 ? set1Label : set2Label}</DialogTitle>
+            <DialogTitle>
+              {editTxTarget
+                ? `Rediger åpningspost — ${manualTxSet === 1 ? set1Label : set2Label}`
+                : `Opprett åpningspost — ${manualTxSet === 1 ? set1Label : set2Label}`}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -1871,7 +2370,7 @@ export function MatchingViewClient({
                 id="mtx-text"
                 value={manualTxText}
                 onChange={(e) => setManualTxText(e.target.value)}
-                placeholder="Korreksjonspost..."
+                placeholder="Åpningspost..."
                 rows={2}
               />
             </div>
@@ -1884,31 +2383,54 @@ export function MatchingViewClient({
                 placeholder="Valgfritt"
               />
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                id="mtx-balance"
-                type="checkbox"
-                className="rounded"
-                checked={manualTxAffectBalance}
-                onChange={(e) => setManualTxAffectBalance(e.target.checked)}
-              />
-              <Label htmlFor="mtx-balance" className="cursor-pointer text-sm font-normal">
-                Juster inngående saldo med beløpet
-              </Label>
-            </div>
             {manualTxError && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 text-destructive px-3 py-2 text-sm">
                 {manualTxError}
               </div>
             )}
             <div className="flex gap-2 justify-end pt-2">
-              <Button variant="outline" onClick={() => setManualTxOpen(false)}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditTxTarget(null);
+                  setManualTxOpen(false);
+                }}
+              >
                 Avbryt
               </Button>
-              <Button onClick={handleCreateManualTx} disabled={manualTxSaving}>
-                {manualTxSaving ? "Oppretter…" : "Opprett"}
+              <Button onClick={handleSaveManualTx} disabled={manualTxSaving}>
+                {manualTxSaving
+                  ? editTxTarget
+                    ? "Lagrer…"
+                    : "Oppretter…"
+                  : editTxTarget
+                    ? "Lagre"
+                    : "Opprett"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete åpningspost confirmation */}
+      <Dialog
+        open={deleteTxTarget !== null}
+        onOpenChange={(open) => { if (!open) setDeleteTxTarget(null); }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Slett åpningspost?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Er du sikker på at du vil slette denne posten? Denne handlingen kan ikke angres.
+          </p>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" onClick={() => setDeleteTxTarget(null)} disabled={deleteTxLoading}>
+              Avbryt
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteManualTx} disabled={deleteTxLoading}>
+              {deleteTxLoading ? "Sletter…" : "Slett"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -1925,43 +2447,46 @@ export function MatchingViewClient({
           {/* Balance summary */}
           {pendingFile && (() => {
             const currentBal = pendingSet === 1 ? liveBalance1 : liveBalance2;
-            const fileSum = preview
+            const previewSum = preview
               ? preview.transactions.reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0)
               : null;
+            const fileSum = wizardNewSum ?? previewSum ?? wizardFileSum;
             const newBal = fileSum !== null ? currentBal + fileSum : null;
-            const fmt = (n: number) => n.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const fmt = fmtNum;
             const setName = pendingSet === 1 ? set1Label : set2Label;
             return (
-              <div className="rounded-md border bg-muted/30 px-4 py-2 text-sm shrink-0">
-                <div className="text-xs text-muted-foreground mb-1.5">
-                  Saldoeffekt for <span className="font-medium text-foreground">{setName}</span> ved import av denne filen
+              <div className="rounded-md border bg-muted/30 px-4 py-3 shrink-0">
+                <div className="text-xs text-muted-foreground mb-2">
+                  Saldoeffekt for <span className="font-medium text-foreground">{setName}</span>
                 </div>
-                <div className="flex items-center gap-4 font-mono">
-                <div className="text-center">
-                  <div className="text-[10px] text-muted-foreground font-sans uppercase tracking-wide">Saldo nå</div>
-                  <div className="font-medium">{fmt(currentBal)}</div>
-                </div>
-                {fileSum !== null && (
-                  <>
-                    <div className="text-muted-foreground">+</div>
-                    <div className="text-center">
-                      <div className="text-[10px] text-muted-foreground font-sans uppercase tracking-wide">Bevegelse</div>
-                      <div className={cn("font-medium", fileSum < 0 ? "text-destructive" : fileSum > 0 ? "text-green-600" : "")}>
-                        {fileSum >= 0 ? "+" : ""}{fmt(fileSum)}
-                      </div>
-                    </div>
-                    <div className="text-muted-foreground">=</div>
-                    <div className="text-center">
-                      <div className="text-[10px] text-muted-foreground font-sans uppercase tracking-wide">Saldo etter</div>
-                      <div className="font-semibold">{fmt(newBal!)}</div>
-                    </div>
-                  </>
-                )}
-                {fileSum === null && (
-                  <div className="text-xs text-muted-foreground font-sans">
-                    Bevegelse vises etter forhåndsvisning
+                <div className="flex items-center gap-3 font-mono">
+                  <div>
+                    <div className="text-xs text-muted-foreground font-sans mb-0.5">Saldo nå</div>
+                    <div className="text-base font-semibold tabular-nums">{fmt(currentBal)}</div>
                   </div>
-                )}
+                  {fileSum !== null ? (
+                    <>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <div className="text-xs text-muted-foreground font-sans mb-0.5">Bevegelse</div>
+                        <div className={cn(
+                          "text-base font-semibold tabular-nums",
+                          fileSum < 0 ? "text-destructive" : fileSum > 0 ? "text-green-600 dark:text-green-400" : ""
+                        )}>
+                          {fileSum >= 0 ? "+" : ""}{fmt(fileSum)}
+                        </div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <div className="text-xs text-muted-foreground font-sans mb-0.5">Saldo etter</div>
+                        <div className="text-base font-bold tabular-nums">{fmt(newBal!)}</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-muted-foreground font-sans">
+                      Bevegelse beregnes når kolonner er valgt
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1975,7 +2500,72 @@ export function MatchingViewClient({
                   <p className="mt-0.5">{importError}</p>
                 </div>
               )}
-              {loading ? (
+              {exactDuplicate ? (
+                <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+                  <div className="rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm space-y-3 shrink-0">
+                    <div className="flex items-start gap-2">
+                      <Copy className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-amber-800 dark:text-amber-300">
+                          Deler av denne filen er allerede importert
+                        </p>
+                        <p className="text-amber-700 dark:text-amber-400 mt-1">
+                          Poster som allerede finnes i tabellen blir automatisk utelatt.
+                          Kun nye poster importeres.
+                        </p>
+                      </div>
+                    </div>
+                    {!wizardDupSelectMode && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => handleWizardDupAction("importAll")}
+                          disabled={loading}
+                        >
+                          {loading ? "Importerer…" : "Importer nye poster"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleWizardDupAction("selectMode")}
+                          disabled={loading}
+                        >
+                          Velg manuelt
+                        </Button>
+                      </div>
+                    )}
+                    {wizardDupSelectMode && wizardDupPreview && selectedTxIndices.size > 0 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-500 font-medium">
+                        {selectedTxIndices.size} av {wizardDupPreview.length} transaksjoner valgt
+                      </p>
+                    )}
+                  </div>
+                  {wizardDupSelectMode && wizardDupPreview && (
+                    <>
+                      <ImportPreview
+                        transactions={wizardDupPreview}
+                        errors={[]}
+                        className="min-h-0 flex-1"
+                        selectable
+                        selectedIndices={selectedTxIndices}
+                        onSelectionChange={setSelectedTxIndices}
+                      />
+                      <div className="flex shrink-0 items-center justify-end gap-2 border-t pt-3">
+                        <Button variant="outline" size="sm" onClick={handleCloseImport}>
+                          Avbryt
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleWizardDupAction("importSelected")}
+                          disabled={loading || selectedTxIndices.size === 0}
+                        >
+                          {loading ? "Importerer…" : `Importer valgte (${selectedTxIndices.size})`}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : loading ? (
                 <div className="flex flex-1 items-center justify-center">
                   <p className="text-muted-foreground text-sm">Importerer…</p>
                 </div>
@@ -1984,6 +2574,7 @@ export function MatchingViewClient({
                   rawRows={wizardRawRows}
                   onComplete={handleWizardComplete}
                   onCancel={handleCloseImport}
+                  onFileSumChange={setWizardFileSum}
                 />
               )}
             </div>
@@ -2139,8 +2730,8 @@ export function MatchingViewClient({
 
               {dupReport.duplicates.length > 0 && (
                 <div className="rounded-md border max-h-40 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-muted/50 sticky top-0">
+                  <table className={cn("w-full text-xs", tableAppearance.tableClass)}>
+                    <thead className={cn("bg-muted/50 sticky top-0", tableAppearance.theadClass)}>
                       <tr>
                         <th className="text-left p-2 font-medium">Rad</th>
                         <th className="text-left p-2 font-medium">Dato</th>
@@ -2150,7 +2741,14 @@ export function MatchingViewClient({
                     </thead>
                     <tbody className="divide-y">
                       {dupReport.duplicates.map((d, i) => (
-                        <tr key={i} className="text-muted-foreground">
+                        <tr
+                          key={i}
+                          className={cn(
+                            "text-muted-foreground",
+                            tableAppearance.rowBorderClass,
+                            i % 2 === 1 && tableAppearance.rowAlternateClass
+                          )}
+                        >
                           <td className="p-2">{d.rowNumber}</td>
                           <td className="p-2">{d.date1}</td>
                           <td className="p-2 text-right">{d.amount}</td>
@@ -2199,7 +2797,7 @@ export function MatchingViewClient({
         set1Label={set1Label}
         set2Label={set2Label}
         setNumber={fileManagerSet ?? undefined}
-        onRefresh={() => router.refresh()}
+        onRefresh={() => refreshData()}
       />
 
       {/* Smart panel overlay */}
@@ -2209,7 +2807,7 @@ export function MatchingViewClient({
         const otherLabel = pa ? (pa.sourceSet === 1 ? set2Label : set1Label) : "";
         const sameLabel = pa ? (pa.sourceSet === 1 ? set1Label : set2Label) : "";
         const amountAbs = pa && isAmount
-          ? Math.abs(pa.action.numericValue ?? 0).toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          ? fmtAbs(pa.action.numericValue ?? 0)
           : "";
         const displayValue = pa
           ? isAmount
@@ -2227,24 +2825,55 @@ export function MatchingViewClient({
               { id: "filterOther", label: `Filtrer: ${displayValue} i ${otherLabel}`, icon: <Search className="h-3.5 w-3.5" /> },
             ];
 
-        const allOptions = [
-          ...options,
-        ];
+        const rowForContext = pa
+          ? (patchedRows1.find((r) => r.id === pa.action.txId) ?? patchedRows2.find((r) => r.id === pa.action.txId))
+          : null;
+        const isManualRow = rowForContext?.isManual === true;
+
+        const manualOptions = isManualRow && pa
+          ? [
+              { id: "editManual", label: "Rediger åpningspost", icon: <Pencil className="h-3.5 w-3.5" /> },
+              { id: "deleteManual", label: "Slett åpningspost", icon: <Trash2 className="h-3.5 w-3.5" /> },
+            ]
+          : [];
+
+        const optionsWithSep =
+          isManualRow && options.length > 0
+            ? [{ ...options[0], separator: true }, ...options.slice(1)]
+            : options;
+
+        const allOptions = [...manualOptions, ...optionsWithSep];
 
         const resultLabel = smartPanelActiveOption === "counterpartOther" || smartPanelActiveOption === "filterOther"
           ? otherLabel
           : sameLabel;
+
+        const cellPanelTitle = pa
+          ? (isAmount ? "Beløp" : pa.action.field === "date" ? "Dato" : pa.action.field === "voucher" ? "Bilag" : pa.action.field === "notat" ? "Notat" : "Tekst")
+          : "Post";
 
         return (
           <SmartPanel
             open={smartPanelOpen}
             onClose={closeSmartPanel}
             position={smartPanelPos}
+            title="Smart panel"
             options={allOptions}
             onOptionSelect={handleSmartPanelOptionSelect}
             activeOptionId={smartPanelActiveOption}
+            contentSectionLabel={cellPanelTitle}
+            sectionAboveFooter={
+              <SmartPanelInnstillingerSection
+                isActive={smartPanelActiveOption === "design"}
+                onToggle={handleCellPanelDesignToggle}
+              />
+            }
+            footerContent={<SmartPanelTipsSection />}
+            useStandardLayout
             resultContent={
-              smartPanelResult && pa ? (
+              smartPanelActiveOption === "design" ? (
+                <DesignPanelContent />
+              ) : smartPanelResult && pa ? (
                 <div className="p-3 space-y-3">
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <div className="text-xs text-muted-foreground">
@@ -2286,7 +2915,7 @@ export function MatchingViewClient({
                       )}
                       {!canMatch && selectedCount >= 2 && (
                         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-                          Differanse: {selectedSum.toLocaleString("nb-NO", { minimumFractionDigits: 2 })} — må gå i 0 for å matche.
+                          Differanse: {fmtNum(selectedSum)} — må gå i 0 for å matche.
                         </div>
                       )}
                     </>

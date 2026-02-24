@@ -122,27 +122,35 @@ export const matchingRules = pgTable(
 // ---------------------------------------------------------------------------
 // Imports (file import batches)
 // ---------------------------------------------------------------------------
-export const imports = pgTable("imports", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  clientId: uuid("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
-  setNumber: integer("set_number").notNull(), // 1 or 2
-  filename: text("filename").notNull(),
-  filePath: text("file_path").notNull(),
-  fileHash: text("file_hash"),
-  fileSize: integer("file_size"),
-  parserConfigId: uuid("parser_config_id").references(() => parserConfigs.id),
-  recordCount: integer("record_count").default(0),
-  status: text("status", {
-    enum: ["pending", "processing", "completed", "failed", "duplicate"],
-  }).default("pending"),
-  errorMessage: text("error_message"),
-  importedBy: text("imported_by"),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-  archivedAt: timestamp("archived_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const imports = pgTable(
+  "imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    setNumber: integer("set_number").notNull(), // 1 or 2
+    filename: text("filename").notNull(),
+    filePath: text("file_path").notNull(),
+    fileHash: text("file_hash"),
+    fileSize: integer("file_size"),
+    parserConfigId: uuid("parser_config_id").references(() => parserConfigs.id),
+    recordCount: integer("record_count").default(0),
+    status: text("status", {
+      enum: ["pending", "processing", "completed", "failed", "duplicate"],
+    }).default("pending"),
+    errorMessage: text("error_message"),
+    importedBy: text("imported_by"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_imports_client_set").on(t.clientId, t.setNumber),
+    index("idx_imports_client_deleted").on(t.clientId, t.deletedAt),
+    index("idx_imports_file_hash").on(t.clientId, t.setNumber, t.fileHash),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // Matches (groups of matched transactions)
@@ -221,6 +229,8 @@ export const transactions = pgTable(
     notatAuthor: text("notat_author"),
     mentionedUserId: text("mentioned_user_id"),
     notatCreatedAt: timestamp("notat_created_at", { withTimezone: true }),
+    /** For manual transactions: amount that was added to client opening balance when created. Reversed on delete. */
+    openingBalanceDelta: numeric("opening_balance_delta", { precision: 18, scale: 2 }).default("0"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [

@@ -10,6 +10,7 @@ import { supabase, UPLOAD_BUCKET } from "@/lib/supabase";
 import { z } from "zod";
 import { logAuditTx } from "@/lib/audit";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
+import { notifyImportCompleted } from "@/lib/notifications";
 import * as Sentry from "@sentry/nextjs";
 
 // ── Constants ──
@@ -33,6 +34,11 @@ async function hashBuffer(buffer: ArrayBuffer): Promise<string> {
     .join("");
 }
 
+function normalizeAmountForFingerprint(raw: string): string {
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n.toFixed(2) : raw;
+}
+
 function txFingerprint(t: {
   date1: string;
   amount: string;
@@ -42,7 +48,7 @@ function txFingerprint(t: {
 }): string {
   return [
     t.date1,
-    t.amount,
+    normalizeAmountForFingerprint(t.amount),
     (t.description ?? "").toLowerCase().trim(),
     (t.reference ?? "").trim(),
     (t.bilag ?? "").trim(),
@@ -118,6 +124,8 @@ export async function POST(request: Request) {
   const skipDuplicatesRaw = formData.get("skipDuplicates");
   const forceAllRaw = formData.get("forceAll");
   const selectedIndicesRaw = formData.get("selectedIndices") as string | null;
+  const dateFromRaw = formData.get("dateFrom") as string | null;
+  const dateToRaw = formData.get("dateTo") as string | null;
 
   let parsedSelectedIndices: number[] | undefined;
   if (selectedIndicesRaw) {
@@ -211,24 +219,15 @@ export async function POST(request: Request) {
         eq(imports.fileHash, fileHash),
         eq(imports.clientId, cId),
         eq(imports.setNumber, setNum),
-        sql`${imports.deletedAt} IS NULL`
+        sql`${imports.deletedAt} IS NULL`,
+        sql`${imports.status} != 'duplicate'`
       )
     )
     .limit(1);
 
-  if (existingImport && !forceAll && !(selectedIndices && selectedIndices.length > 0)) {
-    await db.insert(imports).values({
-      clientId: cId,
-      setNumber: setNum,
-      filename: file.name,
-      filePath: "",
-      fileHash,
-      fileSize: file.size,
-      recordCount: 0,
-      status: "duplicate",
-      importedBy: userId,
-    });
+  const isExactFileDuplicate = !!existingImport && !forceAll && !skipDuplicates && !(selectedIndices && selectedIndices.length > 0);
 
+  if (isExactFileDuplicate && !dryRun) {
     return NextResponse.json(
       {
         error: "Duplikat",
@@ -262,7 +261,7 @@ export async function POST(request: Request) {
   }
 
   // ── Parse ──
-  let parseResult: { transactions: import("@/lib/parsers").ParsedTransaction[]; errors: string[] };
+  let parseResult: { transactions: import("@/lib/parsers").ParsedTransaction[]; errors: string[]; skippedRows?: import("@/lib/parsers").RowIssue[] };
   try {
     if (pType === "excel" && excelConfig) {
       parseResult = parseExcel(fileBuffer, excelConfig);
@@ -304,7 +303,13 @@ export async function POST(request: Request) {
   const serverSkipped = parseResult.transactions.length - validTx.length;
   parseResult.transactions = validTx;
 
-  if (validTx.length === 0) {
+  if (dateFromRaw && dateToRaw) {
+    parseResult.transactions = parseResult.transactions.filter(
+      (t) => t.date1 >= dateFromRaw && t.date1 <= dateToRaw
+    );
+  }
+
+  if (parseResult.transactions.length === 0) {
     return NextResponse.json(
       {
         error: "Ingen gyldige transaksjoner",
@@ -365,11 +370,14 @@ export async function POST(request: Request) {
 
   // ── Dry-run: return duplicate report without inserting ──
   if (dryRun) {
+    const newSum = newTx.reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0);
     return NextResponse.json({
       dryRun: true,
+      isExactDuplicate: isExactFileDuplicate,
       totalCount: parseResult.transactions.length,
       duplicateCount: dupTx.length,
       newCount: newTx.length,
+      newSum,
       skippedCount: serverSkipped,
       duplicates: dupTx.slice(0, 50),
     });
@@ -515,13 +523,23 @@ export async function POST(request: Request) {
       return importRow;
     });
 
+    notifyImportCompleted({
+      tenantId: orgId,
+      userId,
+      clientId: cId,
+      clientName: clientRow.name,
+      filename: file.name,
+      recordCount: txToInsert.length,
+      setNumber: setNum,
+    }).catch((e) => console.error("[import] notification failed:", e));
+
     return NextResponse.json({
       importId: result.id,
       recordCount: txToInsert.length,
+      totalParsed: parseResult.transactions.length,
+      duplicateCount: dupTx.length,
+      duplicatesSkipped: hasDuplicates && !forceAll,
       errors: parseResult.errors,
-      ...(hasDuplicates && !forceAll
-        ? { duplicateCount: dupTx.length, duplicatesSkipped: true }
-        : {}),
       ...(serverSkipped > 0
         ? { skippedCount: serverSkipped, skippedInfo: `${serverSkipped} rad(er) med ugyldige verdier ble hoppet over.` }
         : {}),

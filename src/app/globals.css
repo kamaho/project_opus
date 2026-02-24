@@ -164,8 +164,8 @@ html[data-input="keyboard"] .row-action-bar {
 
 @keyframes match-glow {
   0%   { opacity: 1; transform: scale(1);     background-color: transparent; }
-  35%  { opacity: 1; transform: scale(1.006);  background-color: oklch(0.85 0.14 145 / 0.35); }
-  100% { opacity: 1; transform: scale(1);      background-color: oklch(0.85 0.14 145 / 0.35); }
+  35%  { opacity: 1; transform: scale(1.006);  background-color: oklch(0.85 0.12 285 / 0.35); }
+  100% { opacity: 1; transform: scale(1);      background-color: oklch(0.85 0.12 285 / 0.35); }
 }
 
 @keyframes match-fly-out {
@@ -180,21 +180,21 @@ html[data-input="keyboard"] .row-action-bar {
 }
 
 .match-animating {
-  animation: match-glow 450ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: match-glow 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
   will-change: transform, opacity;
   position: relative;
   z-index: 1;
 }
 
 .match-animating.match-exit {
-  animation: match-fly-out 550ms cubic-bezier(0.55, 0, 0.15, 1) forwards;
+  animation: match-fly-out 300ms cubic-bezier(0.55, 0, 0.15, 1) forwards;
   transform-origin: center top;
   pointer-events: none;
 }
 
 .dark .match-animating:not(.match-exit) {
   animation: none;
-  background-color: oklch(0.45 0.14 145 / 0.3);
+  background-color: oklch(0.35 0.12 285 / 0.3);
 }
 
 /* ── "Lukkede" button pulse when matches land ────────────────────── */
@@ -260,4 +260,651 @@ html[data-input="keyboard"] .row-action-bar {
 
 .dark .notification-highlight {
   animation: notification-pulse-dark 3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* UI typography preferences (Innstillinger → Utseende). !important to override base/Tailwind. */
+html[data-text-size="normal"] { font-size: 16px !important; }
+html[data-text-size="large"]  { font-size: 18px !important; }
+html[data-text-size="larger"] { font-size: 20px !important; }
+
+html[data-text-weight="normal"] { font-weight: 400 !important; }
+html[data-text-weight="medium"] { font-weight: 500 !important; }
+html[data-text-weight="bold"]   { font-weight: 600 !important; }
+
+/* ── Smart Match magical button ──────────────────────────────────── */
+.sm-btn {
+  --_r: 0.5rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  padding: 5px 14px;
+  background:
+    radial-gradient(65% 65% at 50% 100%, oklch(0.65 0.22 310 / 0.8) 0%, oklch(0.65 0.22 310 / 0) 100%),
+    linear-gradient(0deg, oklch(0.52 0.24 285), oklch(0.52 0.24 285));
+  border-radius: var(--_r);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.sm-btn::before,
+.sm-btn::after {
+  content: "";
+  position: absolute;
+  inset: var(--_inset);
+  border-radius: calc(var(--_r) - var(--_inset));
+  z-index: 0;
+  transition: opacity 0.4s ease;
+}
+.sm-btn::before {
+  --_inset: 1px;
+  background: linear-gradient(178deg, oklch(1 0 0 / 0.19) 0%, oklch(1 0 0 / 0) 100%);
+}
+.sm-btn::after {
+  --_inset: 2px;
+  background:
+    radial-gradient(65% 65% at 50% 100%, oklch(0.65 0.22 310 / 0.8) 0%, oklch(0.65 0.22 310 / 0) 100%),
+    linear-gradient(0deg, oklch(0.52 0.24 285), oklch(0.52 0.24 285));
+}
+.sm-btn:active:not(:disabled) { transform: scale(0.95); }
+.sm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.sm-btn--loading { opacity: 1; cursor: wait; }
+
+/* Fold corner */
+.sm-btn__fold {
+  z-index: 1;
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 0.65rem;
+  width: 0.65rem;
+  transition: margin 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  background: radial-gradient(100% 75% at 55%, oklch(0.65 0.22 310 / 0.8) 0%, oklch(0.65 0.22 310 / 0) 100%);
+  box-shadow: 0 0 2px oklch(0 0 0 / 0.3);
+  border-bottom-left-radius: 0.3rem;
+  border-top-right-radius: var(--_r);
+}
+.sm-btn__fold::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 150%;
+  height: 150%;
+  transform: rotate(45deg) translateY(-10px);
+  background-color: var(--background);
+  pointer-events: none;
+}
+.sm-btn:hover:not(:disabled) .sm-btn__fold {
+  margin-top: -0.65rem;
+  margin-right: -0.65rem;
+}
+
+/* Floating particles */
+.sm-btn__particles {
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+.sm-btn__point {
+  bottom: -6px;
+  position: absolute;
+  animation: sm-float infinite ease-in-out;
+  pointer-events: none;
+  width: 1.5px;
+  height: 1.5px;
+  background-color: oklch(1 0 0 / 0.7);
+  border-radius: 9999px;
+}
+.sm-btn:hover .sm-btn__point {
+  background-color: oklch(1 0 0);
+  width: 2px;
+  height: 2px;
+}
+@keyframes sm-float {
+  0%   { transform: translateY(0); }
+  85%  { opacity: 0; }
+  100% { transform: translateY(-40px); opacity: 0; }
+}
+
+/* Inner content */
+.sm-btn__inner {
+  z-index: 2;
+  gap: 5px;
+  position: relative;
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Icon stroke draw + fill animation */
+.sm-btn__icon {
+  transition: fill 0.1s linear;
+  fill: transparent;
+}
+.sm-btn:focus-visible .sm-btn__icon { fill: white; }
+.sm-btn:hover:not(:disabled) .sm-btn__icon {
+  animation:
+    sm-draw 0.8s linear forwards,
+    sm-fill 0.1s linear forwards 0.75s;
+}
+@keyframes sm-draw {
+  from { stroke-dasharray: 0 200; }
+  to   { stroke-dasharray: 200 0; }
+}
+@keyframes sm-fill {
+  to { fill: white; }
+}
+
+/* Smart Match theme utilities — purple accent across dialogs */
+.sm-text { color: oklch(0.52 0.24 285); }
+.dark .sm-text { color: oklch(0.68 0.22 285); }
+.sm-bg-subtle { background-color: oklch(0.95 0.06 285); }
+.dark .sm-bg-subtle { background-color: oklch(0.25 0.08 285); }
+.sm-border { border-color: oklch(0.52 0.24 285); }
+.dark .sm-border { border-color: oklch(0.68 0.22 285); }
+.sm-btn-solid {
+  background:
+    radial-gradient(65% 65% at 50% 100%, oklch(0.65 0.22 310 / 0.8) 0%, oklch(0.65 0.22 310 / 0) 100%),
+    linear-gradient(0deg, oklch(0.52 0.24 285), oklch(0.52 0.24 285)) !important;
+  color: white !important;
+  border: none !important;
+}
+.sm-btn-solid:hover { opacity: 0.9; }
+
+/* Smart Match pegtop loader */
+.sm-loader {
+  width: 48px;
+  height: 48px;
+  position: relative;
+  color: oklch(0.52 0.24 285);
+  filter: drop-shadow(0 0 6px oklch(0.52 0.24 285 / 0.3));
+}
+.dark .sm-loader { color: oklch(0.68 0.22 285); filter: drop-shadow(0 0 6px oklch(0.68 0.22 285 / 0.3)); }
+.sm-loader__one,
+.sm-loader__two,
+.sm-loader__three {
+  position: absolute;
+  inset: 0;
+}
+.sm-loader__one { animation: sm-peg1 1s linear infinite; }
+.sm-loader__two { animation: sm-peg2 1s linear infinite 0.3s; opacity: 0; }
+.sm-loader__three { animation: sm-peg3 1s linear infinite 0.6s; opacity: 0; }
+
+@keyframes sm-peg1 {
+  0%   { transform: scale(0.5) translateY(-24px); opacity: 0; }
+  25%  { transform: scale(0.75) translateY(-12px); opacity: 1; }
+  50%  { transform: scale(1) translateY(0); opacity: 1; }
+  75%  { transform: scale(0.5) translateY(6px); opacity: 1; }
+  100% { transform: scale(0) translateY(12px); opacity: 0; }
+}
+@keyframes sm-peg2 {
+  0%   { transform: scale(0.5) rotate(-10deg) translateY(-24px) translateX(-12px); opacity: 0; }
+  25%  { transform: scale(1) rotate(-5deg) translateY(-12px) translateX(-6px); opacity: 1; }
+  50%  { transform: scale(1) rotate(0deg) translateY(0) translateX(-3px); opacity: 1; }
+  75%  { transform: scale(0.5) rotate(5deg) translateY(6px) translateX(0); opacity: 1; }
+  100% { transform: scale(0) rotate(10deg) translateY(12px) translateX(3px); opacity: 0; }
+}
+@keyframes sm-peg3 {
+  0%   { transform: scale(0.5) rotate(10deg) translateY(-24px) translateX(12px); opacity: 0; }
+  25%  { transform: scale(1) rotate(5deg) translateY(-12px) translateX(6px); opacity: 1; }
+  50%  { transform: scale(1) rotate(0deg) translateY(0) translateX(3px); opacity: 1; }
+  75%  { transform: scale(0.5) rotate(-5deg) translateY(6px) translateX(0); opacity: 1; }
+  100% { transform: scale(0) rotate(-10deg) translateY(12px) translateX(-3px); opacity: 0; }
+}
+
+/* ── Animated circular checkbox ───────────────────────────────────── */
+.cbx-wrap {
+  position: relative;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+}
+.cbx-wrap input[type="checkbox"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  margin: 0;
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.cbx-wrap input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.cbx-wrap .cbx-splash {
+  width: 16px;
+  height: 16px;
+  background: none;
+  border-radius: 50%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+.cbx-wrap svg {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 1;
+  pointer-events: none;
+  fill: none;
+}
+.cbx-wrap svg path {
+  stroke: transparent;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 19;
+  stroke-dashoffset: 19;
+  transition: stroke-dashoffset 0.3s ease 0.15s, stroke 0.1s;
+}
+.cbx-wrap input:checked {
+  background: oklch(0.55 0.24 285);
+  border-color: oklch(0.55 0.24 285);
+}
+.dark .cbx-wrap input:checked {
+  background: oklch(0.68 0.22 285);
+  border-color: oklch(0.68 0.22 285);
+}
+.cbx-wrap input:checked + .cbx-splash {
+  animation: cbx-splash 0.5s ease forwards;
+}
+.cbx-wrap input:checked ~ svg path {
+  stroke: white;
+  stroke-dashoffset: 0;
+}
+.cbx-wrap input:indeterminate {
+  background: oklch(0.55 0.24 285);
+  border-color: oklch(0.55 0.24 285);
+}
+.dark .cbx-wrap input:indeterminate {
+  background: oklch(0.68 0.22 285);
+  border-color: oklch(0.68 0.22 285);
+}
+.cbx-wrap:has(input:indeterminate)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 1.5px;
+  background: white;
+  border-radius: 1px;
+  z-index: 2;
+  pointer-events: none;
+}
+@keyframes cbx-splash {
+  40% {
+    background: oklch(0.55 0.24 285);
+    box-shadow:
+      0 -10px 0 -4px oklch(0.55 0.24 285),
+      9px -4px 0 -4px oklch(0.55 0.24 285),
+      9px 4px 0 -4px oklch(0.55 0.24 285),
+      0 10px 0 -4px oklch(0.55 0.24 285),
+      -9px 4px 0 -4px oklch(0.55 0.24 285),
+      -9px -4px 0 -4px oklch(0.55 0.24 285);
+  }
+  100% {
+    background: oklch(0.55 0.24 285);
+    box-shadow:
+      0 -18px 0 -6px transparent,
+      16px -8px 0 -6px transparent,
+      16px 8px 0 -6px transparent,
+      0 18px 0 -6px transparent,
+      -16px 8px 0 -6px transparent,
+      -16px -8px 0 -6px transparent;
+  }
+}
+
+/* ── Search pill input ────────────────────────────────────────────── */
+.search-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: var(--background);
+  padding-inline: 0.6em;
+  overflow: hidden;
+}
+.search-pill::before {
+  content: "";
+  position: absolute;
+  background: var(--foreground);
+  transform: scaleX(0);
+  transform-origin: center;
+  width: 100%;
+  height: 1.5px;
+  left: 0;
+  bottom: 0;
+  border-radius: 1px;
+  transition: transform 0.3s ease;
+}
+.search-pill:focus-within {
+  border-radius: var(--radius-sm, 4px);
+}
+.search-pill:focus-within::before {
+  transform: scaleX(1);
+}
+
+/* ── Toggle switch (Åpne / Lukkede) ──────────────────────────────── */
+.toggle-switch {
+  --_sw-bg: oklch(0.35 0 0);
+  --_sw-slider: oklch(0.15 0 0 / 0.75);
+  --_sw-slider-on: oklch(0.10 0 0);
+  --_sw-pad: 4px;
+  --_sw-ease: cubic-bezier(0.47, 1.64, 0.41, 0.8);
+  color: white;
+  width: fit-content;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  position: relative;
+  isolation: isolate;
+  border-radius: 9999px;
+  cursor: pointer;
+}
+.dark .toggle-switch {
+  --_sw-bg: oklch(0.28 0 0);
+  --_sw-slider: oklch(0.12 0 0 / 0.75);
+  --_sw-slider-on: oklch(0.06 0 0);
+}
+
+/* Slider */
+.toggle-switch::before {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  background-color: var(--_sw-slider);
+  inset: var(--_sw-pad) 50% var(--_sw-pad) var(--_sw-pad);
+  transition:
+    inset 500ms var(--_sw-ease),
+    background-color 500ms ease-in-out;
+  z-index: -1;
+  box-shadow:
+    inset 0 1px 1px oklch(0 0 0 / 0.3),
+    0 1px oklch(1 0 0 / 0.15);
+}
+
+/* Background fill */
+.toggle-switch::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--_sw-bg);
+  z-index: -2;
+}
+
+/* Focus ring */
+.toggle-switch:focus-within::after {
+  inset: -0.2rem;
+}
+
+/* Slider → right when closed */
+.toggle-switch[data-mode="closed"]::before {
+  background-color: var(--_sw-slider-on);
+  inset: var(--_sw-pad) var(--_sw-pad) var(--_sw-pad) 50%;
+}
+
+/* Hover peek */
+.toggle-switch[data-mode="closed"]:hover::before {
+  inset: var(--_sw-pad) var(--_sw-pad) var(--_sw-pad) 45%;
+}
+.toggle-switch[data-mode="open"]:hover::before {
+  inset: var(--_sw-pad) 45% var(--_sw-pad) var(--_sw-pad);
+}
+
+/* Inactive label hover opacity boost */
+.toggle-switch[data-mode="closed"]:hover .toggle-switch__opt:first-child,
+.toggle-switch[data-mode="open"]:hover .toggle-switch__opt:last-child {
+  opacity: 1;
+  transition-delay: 0ms;
+  transition-duration: 100ms;
+}
+
+/* Option buttons */
+.toggle-switch__opt {
+  all: unset;
+  display: grid;
+  place-content: center;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 300ms ease-in-out 150ms;
+}
+
+/* Active / inactive opacity (matches inspiration exactly) */
+.toggle-switch[data-mode="open"] .toggle-switch__opt:last-child,
+.toggle-switch[data-mode="closed"] .toggle-switch__opt:first-child {
+  opacity: 0.75;
+}
+.toggle-switch[data-mode="open"] .toggle-switch__opt:first-child,
+.toggle-switch[data-mode="closed"] .toggle-switch__opt:last-child {
+  opacity: 1;
+}
+
+/* Pulse animation on match */
+.toggle-switch--pulse::before {
+  animation: closed-btn-ring 700ms cubic-bezier(0.22, 1, 0.36, 1);
+  background-color: oklch(0.55 0.15 145) !important;
+}
+
+/* Focus visible */
+.toggle-switch__opt:focus-visible {
+  outline: none;
+}
+
+/* ── Eksport button ───────────────────────────────────────────────── */
+.rpt-btn {
+  --rpt-transition: 0.3s ease-in-out;
+  --rpt-active: 0;
+  cursor: pointer;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: transparent;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius, 0.5rem);
+  transform-origin: center;
+  transform: scale(calc(1 + (var(--rpt-active) * 0.06)));
+  transition: transform var(--rpt-transition);
+}
+.rpt-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: oklch(0.16 0 0);
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0.5px oklch(1 0 0 / 0.06),
+    0 2px 6px -2px oklch(0 0 0 / 0.3),
+    0 0 0 calc(var(--rpt-active) * 0.25rem) oklch(0.52 0.24 285 / 0.5);
+  transition: all var(--rpt-transition);
+  z-index: 0;
+}
+.rpt-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(65% 65% at 50% 100%, oklch(0.65 0.22 310 / 0.8) 0%, oklch(0.65 0.22 310 / 0) 100%),
+    linear-gradient(0deg, oklch(0.52 0.24 285), oklch(0.52 0.24 285));
+  opacity: var(--rpt-active);
+  border-radius: inherit;
+  transition: opacity var(--rpt-transition);
+  z-index: 2;
+}
+.rpt-btn:is(:hover, :focus-visible):not(:disabled) {
+  --rpt-active: 1;
+}
+.rpt-btn:active:not(:disabled) {
+  transform: scale(1);
+}
+.rpt-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rpt-btn:focus-visible {
+  outline: none;
+}
+
+/* Rotating border glow */
+.rpt-btn .rpt-dots {
+  overflow: hidden;
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  z-index: -1;
+}
+.rpt-btn .rpt-dots::before {
+  content: "";
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  transform-origin: left;
+  width: 100%;
+  height: 1.5rem;
+  background: oklch(1 0 0 / 0.5);
+  mask: linear-gradient(transparent 0%, white 120%);
+  animation: rpt-rotate 2s linear infinite;
+}
+@keyframes rpt-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* Download icon */
+.rpt-btn .rpt-icon {
+  position: relative;
+  z-index: 10;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: oklch(1 0 0);
+  transition: transform 0.3s ease;
+}
+.rpt-btn:is(:hover, :focus-visible):not(:disabled) .rpt-icon {
+  animation: rpt-bounce 0.5s ease 0.15s;
+}
+@keyframes rpt-bounce {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(2px); }
+  60% { transform: translateY(-1px); }
+}
+
+/* Text label */
+.rpt-btn .rpt-text {
+  position: relative;
+  z-index: 10;
+  color: oklch(1 0 0);
+}
+
+/* Dark mode tweaks */
+.dark .rpt-btn::before {
+  background-color: oklch(0.22 0 0);
+  box-shadow:
+    inset 0 0.5px oklch(1 0 0 / 0.04),
+    0 2px 6px -2px oklch(0 0 0 / 0.5),
+    0 0 0 calc(var(--rpt-active) * 0.25rem) oklch(0.52 0.24 285 / 0.45);
+}
+
+/* ── Toggle switch (SVG goo) ────────────────────────────────────── */
+.tgl {
+  --tgl-active: oklch(0.52 0.24 285);
+  --tgl-inactive: oklch(0.82 0 0);
+  position: relative;
+  aspect-ratio: 292 / 142;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+.tgl--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.tgl__input {
+  appearance: none;
+  margin: 0;
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  cursor: pointer;
+}
+.tgl__input:focus-visible + .tgl__svg {
+  outline: 2px solid var(--ring, oklch(0.55 0 0));
+  outline-offset: 2px;
+  border-radius: 9999px;
+}
+.tgl__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.tgl__bg {
+  fill: var(--tgl-inactive);
+  transition: fill 0.4s;
+}
+.tgl__input:checked + .tgl__svg .tgl__bg {
+  fill: var(--tgl-active);
+}
+.tgl__center {
+  transform-origin: center;
+  transition: transform 0.6s;
+}
+.tgl__input:checked + .tgl__svg .tgl__center {
+  transform: translateX(150px);
+}
+.tgl__circle {
+  transform-origin: center;
+  backface-visibility: hidden;
+  transition: transform 0.45s;
+}
+.tgl__circle--left { transform: scale(1); }
+.tgl__input:checked + .tgl__svg .tgl__circle--left { transform: scale(0); }
+.tgl__circle--right { transform: scale(0); }
+.tgl__input:checked + .tgl__svg .tgl__circle--right { transform: scale(1); }
+.tgl__icon-on {
+  fill: var(--tgl-inactive);
+  transition: fill 0.4s;
+}
+.tgl__input:checked + .tgl__svg .tgl__icon-on { fill: #fff; }
+.tgl__icon-off {
+  fill: oklch(0.92 0 0);
+  transition: fill 0.4s;
+}
+.tgl__input:checked + .tgl__svg .tgl__icon-off { fill: var(--tgl-active); }
+
+.dark .tgl {
+  --tgl-inactive: oklch(0.35 0 0);
+}
+.dark .tgl__icon-off {
+  fill: oklch(0.42 0 0);
 }

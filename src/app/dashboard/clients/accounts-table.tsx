@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { ChevronRight, Upload } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useTableAppearance, useFormatting } from "@/contexts/ui-preferences-context";
 
 export interface AccountRow {
   id: string;
@@ -17,14 +19,15 @@ export interface AccountRow {
 }
 
 export function AccountsTable({ rows }: { rows: AccountRow[] }) {
-  const formatBalance = (n: number) =>
-    n.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const tableAppearance = useTableAppearance();
+  const { fmtNum, fmtDate: fmtD } = useFormatting();
+  const formatBalance = fmtNum;
   const isNegative = (n: number) => n < 0;
 
   return (
     <div className="rounded-md border overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
+      <table className={cn("w-full text-sm", tableAppearance.tableClass)}>
+        <thead className={tableAppearance.theadClass}>
           <tr className="border-b bg-muted/50">
             <th className="w-8 p-2 text-left"></th>
             <th className="p-2 text-left font-medium">Matchgruppe</th>
@@ -39,8 +42,15 @@ export function AccountsTable({ rows }: { rows: AccountRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-b hover:bg-muted/30">
+          {rows.map((r, idx) => (
+            <tr
+              key={r.id}
+              className={cn(
+                "border-b hover:bg-muted/30",
+                tableAppearance.rowBorderClass,
+                idx % 2 === 1 && tableAppearance.rowAlternateClass
+              )}
+            >
               <td className="p-2">
                 <Link
                   href={`/dashboard/clients/${r.id}/matching`}
@@ -75,8 +85,8 @@ export function AccountsTable({ rows }: { rows: AccountRow[] }) {
               <td className="p-2 text-center">
                 {r.hasDoc ? <Upload className="h-4 w-4 inline text-muted-foreground" /> : "—"}
               </td>
-              <td className="p-2 text-muted-foreground">{r.lastTrans ?? "—"}</td>
-              <td className="p-2 text-muted-foreground">{r.lastRecon ?? "—"}</td>
+              <td className="p-2 text-muted-foreground">{r.lastTrans ? fmtD(r.lastTrans) : "—"}</td>
+              <td className="p-2 text-muted-foreground">{r.lastRecon ? fmtD(r.lastRecon) : "—"}</td>
             </tr>
           ))}
         </tbody>

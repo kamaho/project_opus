@@ -1,14 +1,16 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+
+const PINNED_STORAGE_KEY = "smart-panel-pinned";
 import { SmartPanel } from "./smart-panel";
 import { Info } from "lucide-react";
+import {
+  DesignPanelContent,
+  SmartPanelInnstillingerSection,
+  SmartPanelSectionLabel,
+  SmartPanelTipsSection,
+} from "./smart-panel-standard";
 
 interface SmartPanelContextValue {
   isGlobalPanelOpen: boolean;
@@ -66,8 +68,28 @@ function getElementDescription(target: EventTarget | null): string | null {
 
 export function SmartPanelProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [description, setDescription] = useState<string | null>(null);
+  const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(PINNED_STORAGE_KEY);
+      if (stored !== null) setPinned(stored === "true");
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handlePinChange = useCallback((next: boolean) => {
+    setPinned(next);
+    try {
+      sessionStorage.setItem(PINNED_STORAGE_KEY, String(next));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     const desc = getElementDescription(e.target);
@@ -77,12 +99,40 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
     setDescription(desc);
     setPos({ x: e.clientX, y: e.clientY });
     setOpen(true);
+    setActiveOptionId(null);
   }, []);
 
   const handleClose = useCallback(() => {
     setOpen(false);
     setDescription(null);
+    setActiveOptionId(null);
   }, []);
+
+  const handleOptionSelect = useCallback((optionId: string) => {
+    setActiveOptionId(optionId || null);
+  }, []);
+
+  const resultContent =
+    activeOptionId === "design" ? (
+      <DesignPanelContent />
+    ) : description ? (
+      <div className="p-3">
+        <SmartPanelSectionLabel>Om elementet</SmartPanelSectionLabel>
+        <div className="flex items-start gap-2.5 mt-2">
+          <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
+          <p className="text-sm leading-relaxed">{description}</p>
+        </div>
+      </div>
+    ) : undefined;
+
+  const sectionAboveFooter = (
+    <SmartPanelInnstillingerSection
+      isActive={activeOptionId === "design"}
+      onToggle={() =>
+        activeOptionId === "design" ? handleOptionSelect("") : handleOptionSelect("design")
+      }
+    />
+  );
 
   return (
     <SmartPanelContext.Provider value={{ isGlobalPanelOpen: open }}>
@@ -93,17 +143,16 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
         open={open}
         onClose={handleClose}
         position={pos}
+        title={activeOptionId === "design" ? "Design" : "Smart panel"}
         options={[]}
-        onOptionSelect={() => {}}
-        activeOptionId={null}
-        resultContent={
-          description ? (
-            <div className="flex items-start gap-2.5 p-3">
-              <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
-              <p className="text-sm leading-relaxed">{description}</p>
-            </div>
-          ) : undefined
-        }
+        onOptionSelect={handleOptionSelect}
+        activeOptionId={activeOptionId}
+        resultContent={resultContent}
+        sectionAboveFooter={sectionAboveFooter}
+        footerContent={<SmartPanelTipsSection />}
+        useStandardLayout
+        pinned={pinned}
+        onPinChange={handlePinChange}
       />
     </SmartPanelContext.Provider>
   );

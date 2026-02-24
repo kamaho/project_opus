@@ -282,7 +282,7 @@ that users make decisions from. Precision is paramount.
 ```
 
 **Table Rules:**
-- **Header:** `bg-muted/95 text-xs font-medium text-muted-foreground sticky top-0 z-10`
+- **Header:** `bg-muted text-xs font-medium text-muted-foreground sticky top-0 z-10`
 - **Rows:** `border-t hover:bg-muted/50 text-sm` — height 36px for density
 - **Selected row:** `bg-blue-50 dark:bg-blue-950/40` — clear but not overwhelming
 - **Amounts ALWAYS right-aligned:** `text-right font-mono tabular-nums`
@@ -295,6 +295,7 @@ that users make decisions from. Precision is paramount.
 - **Empty state:** Never show an empty table. Centered message + icon + optional action button.
 - **Zebra striping:** Do NOT use. Rely on hover and borders for separation.
 - **Footer row:** Show count + sum. Format: `"{n} transaksjoner totalt  Sum: {formatted}"`
+- **Table appearance preference:** Users can turn visible row/column dividers on or off in **Innstillinger → Utseende**. All data tables must use the shared `useTableAppearance()` hook from `@/contexts/ui-preferences-context` and apply the returned `tableClass`, `theadClass`, `rowBorderClass`, and `rowAlternateClass` so that one preference drives every table in the app.
 
 ### 5.3 Forms & Inputs
 

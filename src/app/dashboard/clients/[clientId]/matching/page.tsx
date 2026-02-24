@@ -22,23 +22,6 @@ export default async function MatchingPage({
   const clientRow = await validateClientTenant(clientId, orgId);
   if (!clientRow) notFound();
 
-  const [set1Account, set2Account, clientData] = await Promise.all([
-    getCachedAccount(clientRow.set1AccountId, orgId),
-    getCachedAccount(clientRow.set2AccountId, orgId),
-    db
-      .select({
-        openingBalanceSet1: clients.openingBalanceSet1,
-        openingBalanceSet2: clients.openingBalanceSet2,
-        openingBalanceDate: clients.openingBalanceDate,
-      })
-      .from(clients)
-      .where(eq(clients.id, clientId))
-      .then((rows) => rows[0]),
-  ]);
-
-  const set1Label = set1Account?.name ?? "Mengde 1";
-  const set2Label = set2Account?.name ?? "Mengde 2";
-
   const hasAttachmentSubquery = exists(
     db
       .select({ one: sql`1` })
@@ -50,6 +33,7 @@ export default async function MatchingPage({
     db
       .select({
         id: transactions.id,
+        importId: transactions.importId,
         date1: transactions.date1,
         amount: transactions.amount,
         reference: transactions.reference,
@@ -72,48 +56,59 @@ export default async function MatchingPage({
       )
       .orderBy(transactions.date1);
 
-  const matchedTxQuery = db
-    .select({
-      id: transactions.id,
-      setNumber: transactions.setNumber,
-      date1: transactions.date1,
-      amount: transactions.amount,
-      bilag: transactions.bilag,
-      reference: transactions.reference,
-      description: transactions.description,
-      matchId: transactions.matchId,
-    })
-    .from(transactions)
-    .leftJoin(imports, eq(transactions.importId, imports.id))
-    .where(
-      and(
-        eq(transactions.clientId, clientId),
-        eq(transactions.matchStatus, "matched"),
-        sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
-      )
-    );
-
-  const matchesQuery = db
-    .select({
-      id: matches.id,
-      matchedAt: matches.matchedAt,
-      matchedBy: matches.matchedBy,
-      difference: matches.difference,
-    })
-    .from(matches)
-    .where(eq(matches.clientId, clientId))
-    .orderBy(sql`${matches.matchedAt} DESC`);
-
-  const [txSet1, txSet2, matchedTxRows, matchRows] = await Promise.all([
+  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows] = await Promise.all([
+    getCachedAccount(clientRow.set1AccountId, orgId),
+    getCachedAccount(clientRow.set2AccountId, orgId),
+    db
+      .select({
+        openingBalanceSet1: clients.openingBalanceSet1,
+        openingBalanceSet2: clients.openingBalanceSet2,
+        openingBalanceDate: clients.openingBalanceDate,
+      })
+      .from(clients)
+      .where(eq(clients.id, clientId))
+      .then((rows) => rows[0]),
     unmatchedQuery(1),
     unmatchedQuery(2),
-    matchedTxQuery,
-    matchesQuery,
+    db
+      .select({
+        id: transactions.id,
+        setNumber: transactions.setNumber,
+        date1: transactions.date1,
+        amount: transactions.amount,
+        bilag: transactions.bilag,
+        reference: transactions.reference,
+        description: transactions.description,
+        matchId: transactions.matchId,
+      })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(
+        and(
+          eq(transactions.clientId, clientId),
+          eq(transactions.matchStatus, "matched"),
+          sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
+        )
+      ),
+    db
+      .select({
+        id: matches.id,
+        matchedAt: matches.matchedAt,
+        matchedBy: matches.matchedBy,
+        difference: matches.difference,
+      })
+      .from(matches)
+      .where(eq(matches.clientId, clientId))
+      .orderBy(sql`${matches.matchedAt} DESC`),
   ]);
+
+  const set1Label = set1Account?.name ?? "Mengde 1";
+  const set2Label = set2Account?.name ?? "Mengde 2";
 
   const toRow = (
     t: {
       id: string;
+      importId: string | null;
       date1: Date | string;
       amount: string | null;
       reference: string | null;
@@ -134,14 +129,11 @@ export default async function MatchingPage({
     notatAuthor: t.notatAuthor ?? null,
     mentionedUserId: t.mentionedUserId ?? null,
     hasAttachment: t.hasAttachment === true,
+    isManual: t.importId === null,
   });
 
   const rows1: TransactionRow[] = txSet1.map(toRow);
-  // Flip sign for set 2 for avstemming (e.g. debet vs kredit)
-  const rows2: TransactionRow[] = txSet2.map((t) => {
-    const row = toRow(t);
-    return { ...row, amount: -row.amount };
-  });
+  const rows2: TransactionRow[] = txSet2.map(toRow);
 
   const balance1 = rows1.reduce((s, r) => s + r.amount, 0);
   const balance2 = rows2.reduce((s, r) => s + r.amount, 0);
