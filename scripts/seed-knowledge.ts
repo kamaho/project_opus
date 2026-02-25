@@ -222,7 +222,18 @@ const snippets = [
 // ---------------------------------------------------------------------------
 // Product Guides
 // ---------------------------------------------------------------------------
-const guides = [
+type GuideDifficulty = "beginner" | "intermediate" | "advanced";
+const guides: Array<{
+  feature: string;
+  title: string;
+  slug: string;
+  description: string;
+  prerequisites: string[];
+  steps: Array<{ title: string; description: string }>;
+  difficulty: GuideDifficulty;
+  estimatedTimeMinutes: number;
+  keywords: string[];
+}> = [
   {
     feature: "onboarding",
     title: "Kom i gang med Revizo",
