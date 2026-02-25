@@ -5,6 +5,7 @@ import { accounts, clients, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getClientsByTenant } from "@/lib/db/tenant";
 import { revalidateClients, revalidateAccounts } from "@/lib/revalidate";
+import { seedStandardRules } from "@/lib/matching/seed-rules";
 
 /** GET: Liste avstemminger for org. Optional ?companyId= for å filtrere på selskap. */
 export async function GET(request: Request) {
@@ -80,6 +81,10 @@ export async function POST(request: Request) {
       set2AccountId: account2.id,
     })
     .returning();
+
+  seedStandardRules(created.id, orgId).catch((e) =>
+    console.error("[clients] Failed to seed standard matching rules:", e)
+  );
 
   revalidateClients();
   revalidateAccounts();
