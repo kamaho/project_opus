@@ -104,7 +104,7 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
             type="button"
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mr-1"
             onClick={onAgentSettings}
-            data-smart-info="Åpne innstillinger for Revizo Agent — automatisk Smart Match og rapportering på e-post."
+            data-smart-info="Åpne innstillinger for Reviz — automatisk Smart Match og rapportering på e-post."
           >
             <CalendarClock className="h-3.5 w-3.5" />
             Agent

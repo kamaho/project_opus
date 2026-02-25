@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 
 const PINNED_STORAGE_KEY = "smart-panel-pinned";
 import { SmartPanel } from "./smart-panel";
@@ -10,7 +11,70 @@ import {
   SmartPanelInnstillingerSection,
   SmartPanelSectionLabel,
   SmartPanelTipsSection,
+  SmartPanelTutorialSection,
 } from "./smart-panel-standard";
+import { useTutorialMode } from "@/contexts/tutorial-mode-context";
+
+interface PageElement {
+  name: string;
+  description: string;
+}
+
+/** Path pattern (prefix match) -> page elements. First match wins. */
+const PAGE_ELEMENTS_BY_PATH: { pattern: string; elements: PageElement[] }[] = [
+  {
+    pattern: "/dashboard/matching-rules",
+    elements: [
+      { name: "Regelliste", description: "Viser alle matching-regler. Klikk for å redigere eller opprette ny regel." },
+      { name: "Ny regel", description: "Oppretter en ny regel for Smart Match (1-til-1 eller mange-til-1)." },
+      { name: "Prioritet", description: "Rekkefølgen avgjør hvilke regler som kjører først ved automatisk matching." },
+    ],
+  },
+  {
+    pattern: "/dashboard/mva-avstemming",
+    elements: [
+      { name: "Periode og klient", description: "Velg hvilken periode og klient du vil avstemme MVA for." },
+      { name: "Avstemmingsvisning", description: "Sammenligner MVA i regnskapet med MVA-melding fra Altinn og viser avvik." },
+    ],
+  },
+  {
+    pattern: "/dashboard/settings",
+    elements: [
+      { name: "Profil", description: "Din brukerprofil og innstillinger knyttet til kontoen." },
+      { name: "Utseende", description: "Tallformat, datoformat, språk og tabellvisning (skillelinjer m.m.)." },
+      { name: "Organisasjon", description: "Organisasjonsdetaljer og invitasjon av flere brukere." },
+    ],
+  },
+  {
+    pattern: "/dashboard/clients",
+    elements: [
+      { name: "Klientliste", description: "Oversikt over alle avstemminger/klienter. Klikk på en klient for å åpne den." },
+      { name: "Matching / Import", description: "Gå til bankavstemming, import av transaksjoner eller Smart Match for valgt klient." },
+      { name: "Header og filtrering", description: "Søk og filtre klienter, eller opprett ny avstemming." },
+    ],
+  },
+  {
+    pattern: "/dashboard",
+    elements: [
+      { name: "Sidemeny", description: "Naviger til Dashboard, Avstemminger, Matching-regler, MVA-avstemming eller Innstillinger." },
+      { name: "Oversikt / kort", description: "Snarveier, frister og status for avstemminger." },
+      { name: "Header", description: "Breadcrumbs og notifikasjoner." },
+    ],
+  },
+];
+
+function getPageElementsForPath(pathname: string): PageElement[] {
+  const normalized = pathname ?? "";
+  for (const { pattern, elements } of PAGE_ELEMENTS_BY_PATH) {
+    if (normalized === pattern || normalized.startsWith(pattern + "/")) {
+      return elements;
+    }
+  }
+  return [
+    { name: "Sidemeny", description: "Hovednavigasjon til ulike deler av Revizo." },
+    { name: "Innhold", description: "Hovedinnholdet for den siden du er på." },
+  ];
+}
 
 interface SmartPanelContextValue {
   isGlobalPanelOpen: boolean;
@@ -67,6 +131,8 @@ function getElementDescription(target: EventTarget | null): string | null {
 }
 
 export function SmartPanelProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const { enabled: tutorialMode } = useTutorialMode();
   const [open, setOpen] = useState(false);
   const [pinned, setPinned] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -92,12 +158,21 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    const desc = getElementDescription(e.target);
-    if (!desc) return;
-
     e.preventDefault();
+    e.stopPropagation();
+    const desc = getElementDescription(e.target);
     setDescription(desc);
-    setPos({ x: e.clientX, y: e.clientY });
+    // Re-activate panel on every right-click so user can click different elements without closing first
+    if (typeof window !== "undefined") {
+      const panelWidth = 320;
+      const panelHeightEstimate = 400;
+      setPos({
+        x: Math.max(8, (window.innerWidth - panelWidth) / 2),
+        y: Math.max(8, (window.innerHeight - panelHeightEstimate) / 2),
+      });
+    } else {
+      setPos({ x: 0, y: 0 });
+    }
     setOpen(true);
     setActiveOptionId(null);
   }, []);
@@ -112,6 +187,21 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
     setActiveOptionId(optionId || null);
   }, []);
 
+  const pageElements = getPageElementsForPath(pathname ?? "");
+  const tutorialContent = (
+    <div className="p-3">
+      <SmartPanelSectionLabel>Elementer på denne siden</SmartPanelSectionLabel>
+      <ul className="space-y-2.5 mt-2 px-3">
+        {pageElements.map((el, i) => (
+          <li key={i} className="text-sm">
+            <span className="font-medium text-foreground">{el.name}</span>
+            <p className="text-muted-foreground mt-0.5 leading-relaxed">{el.description}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+
   const resultContent =
     activeOptionId === "design" ? (
       <DesignPanelContent />
@@ -123,7 +213,16 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
           <p className="text-sm leading-relaxed">{description}</p>
         </div>
       </div>
-    ) : undefined;
+    ) : tutorialMode ? (
+      tutorialContent
+    ) : (
+      <div className="p-3">
+        <SmartPanelSectionLabel>Smarte funksjonaliteter</SmartPanelSectionLabel>
+        <p className="text-sm text-muted-foreground mt-2">
+          Høyreklikk på et element for å lese mer om det, eller bruk Assistent-fanen nedenfor.
+        </p>
+      </div>
+    );
 
   const sectionAboveFooter = (
     <SmartPanelInnstillingerSection
@@ -136,20 +235,27 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
 
   return (
     <SmartPanelContext.Provider value={{ isGlobalPanelOpen: open }}>
-      <div onContextMenu={handleContextMenu} className="contents">
+      {/* Capture phase so right-click anywhere opens smart panel before other handlers (e.g. table cell) or browser menu */}
+      <div onContextMenuCapture={handleContextMenu} className="contents">
         {children}
       </div>
       <SmartPanel
         open={open}
         onClose={handleClose}
         position={pos}
-        title={activeOptionId === "design" ? "Design" : "Smart panel"}
+        title={activeOptionId === "design" ? "Design" : "Smarte funksjonaliteter"}
         options={[]}
         onOptionSelect={handleOptionSelect}
         activeOptionId={activeOptionId}
         resultContent={resultContent}
         sectionAboveFooter={sectionAboveFooter}
-        footerContent={<SmartPanelTipsSection />}
+        footerContent={
+          <>
+            <SmartPanelTipsSection />
+            <div className="border-t" />
+            <SmartPanelTutorialSection />
+          </>
+        }
         useStandardLayout
         pinned={pinned}
         onPinChange={handlePinChange}

@@ -3,14 +3,17 @@ import { db } from "@/lib/db";
 import { clients, companies, accounts, transactions } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { AccountsTable } from "./accounts-table";
+import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
 
 export default async function ClientsPage() {
   const { orgId } = await auth();
   if (!orgId) {
     return (
       <div>
-        <h1 className="text-2xl font-semibold">Kontoer</h1>
-        <p className="text-muted-foreground">Velg en organisasjon for å se kontoer.</p>
+        <h1 className="text-2xl font-semibold">Avstemminger</h1>
+        <p className="text-muted-foreground">
+          Velg en organisasjon for å se avstemminger.
+        </p>
       </div>
     );
   }
@@ -33,12 +36,34 @@ export default async function ClientsPage() {
   if (clientIds.length === 0) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-semibold">Kontoer</h1>
-        <div className="rounded-lg border bg-muted/30 p-4 space-y-2 max-w-xl">
-          <p className="text-muted-foreground">Ingen kontoer for denne organisasjonen.</p>
-          <p className="text-sm text-muted-foreground">
-            For demo-data: <code className="rounded bg-muted px-1">SEED_TENANT_ID={orgId} npm run seed</code>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Avstemminger</h1>
+          <CreateReconciliationDialog />
+        </div>
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 p-12 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
+            <svg
+              className="h-6 w-6 text-muted-foreground"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4.5v15m7.5-7.5h-15"
+              />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium">Ingen avstemminger ennå</h3>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+            Opprett din første avstemming for å begynne med matching av
+            transaksjoner mellom hovedbok og bank.
           </p>
+          <div className="mt-6">
+            <CreateReconciliationDialog />
+          </div>
         </div>
       </div>
     );
@@ -60,7 +85,10 @@ export default async function ClientsPage() {
     )
     .groupBy(transactions.clientId, transactions.setNumber);
 
-  const byClient = new Map<string, { openSet1: number; openSet2: number; leftBalance: number; rightBalance: number }>();
+  const byClient = new Map<
+    string,
+    { openSet1: number; openSet2: number; leftBalance: number; rightBalance: number }
+  >();
   for (const c of list) {
     byClient.set(c.id, { openSet1: 0, openSet2: 0, leftBalance: 0, rightBalance: 0 });
   }
@@ -84,7 +112,9 @@ export default async function ClientsPage() {
       id: c.id,
       matchGroup: c.name,
       company: c.companyName,
-      ledgerAccountGroup: c.set1AccountNumber ? c.set1AccountNumber.slice(0, 2) + "xx" : "—",
+      ledgerAccountGroup: c.set1AccountNumber
+        ? c.set1AccountNumber.slice(0, 2) + "xx"
+        : "—",
       openItems: agg.openSet1 + agg.openSet2,
       leftBalance: agg.leftBalance,
       rightBalance: agg.rightBalance,
@@ -96,39 +126,14 @@ export default async function ClientsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-semibold">Kontoer</h1>
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Avstemming nødvendig</span>
-          <input type="checkbox" className="rounded border" />
-        </label>
-      </div>
+      <h1 className="text-2xl font-semibold">Avstemminger</h1>
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
-        >
-          Oppdater
-        </button>
-        <button
-          type="button"
-          className="rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-muted"
-        >
-          Visning
-        </button>
-        <div className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
-          <span className="text-muted-foreground">Filter</span>
-          <button type="button" className="font-medium">
-            Selskap
-          </button>
-          <span className="text-muted-foreground">er Alle</span>
-          <button type="button" className="text-muted-foreground hover:text-foreground">
-            Tøm
-          </button>
-        </div>
+        <CreateReconciliationDialog />
       </div>
       <AccountsTable rows={rows} />
-      <p className="text-muted-foreground text-sm">{rows.length} kontoer totalt</p>
+      <p className="text-muted-foreground text-sm">
+        {rows.length} {rows.length === 1 ? "avstemming" : "avstemminger"} totalt
+      </p>
     </div>
   );
 }

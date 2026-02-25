@@ -908,3 +908,58 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 .dark .tgl__icon-off {
   fill: oklch(0.42 0 0);
 }
+
+/* Sparkle button */
+.sparkle-btn-wrap {
+  --sb-bg: oklch(0.45 0.18 155);
+  --sb-glow: oklch(0.72 0.20 155);
+}
+.sparkle-btn-wrap:hover {
+  --sb-bg: oklch(0.50 0.20 155);
+}
+.sparkle-btn-core {
+  background: var(--sb-bg);
+  transition: box-shadow 0.3s, scale 0.3s, background 0.3s;
+}
+.sparkle-btn-core:hover {
+  box-shadow:
+    0 0 1.5em 0.5em oklch(0.72 0.20 155 / 0.3),
+    0 0 0 0 oklch(0.55 0.18 155) inset;
+}
+.sparkle-btn-core::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border: 2px solid oklch(0.72 0.20 155 / 0.4);
+  border-radius: 9999px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.sparkle-btn-wrap:hover .sparkle-btn-core::before {
+  opacity: 1;
+}
+.sparkle-spark {
+  mask: linear-gradient(white, transparent 50%);
+  animation: sparkle-flip 4s steps(2, end) infinite;
+}
+.sparkle-spark-inner {
+  animation: sparkle-rotate 2s linear infinite;
+  background: conic-gradient(from 0deg, transparent 0 340deg, white 360deg);
+}
+.sparkle-btn-backdrop {
+  background: var(--sb-bg);
+  transition: background 0.3s;
+}
+.sparkle-btn-wrap:hover .sparkle-path {
+  animation-play-state: running;
+}
+@keyframes sparkle-flip {
+  to { rotate: 360deg; }
+}
+@keyframes sparkle-rotate {
+  to { transform: rotate(90deg); }
+}
+@keyframes sparkle-bounce {
+  35%, 65% { scale: 0.6; }
+}

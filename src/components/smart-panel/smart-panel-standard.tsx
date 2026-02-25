@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, Palette } from "lucide-react";
+import { ChevronLeft, ChevronRight, GraduationCap, Palette } from "lucide-react";
 import type {
   TextSizePreference,
   TextWeightPreference,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
+import { useTutorialMode } from "@/contexts/tutorial-mode-context";
 
 const PANEL_TIPS = [
   "Høyreklikk på elementer med informasjonsstøtte for å lese forklaringer.",
@@ -256,6 +257,26 @@ export function SmartPanelTipsSection() {
     <div>
       <SmartPanelSectionLabel>Tips</SmartPanelSectionLabel>
       <TipsCarousel />
+    </div>
+  );
+}
+
+export function SmartPanelTutorialSection() {
+  const { enabled, setEnabled } = useTutorialMode();
+  return (
+    <div>
+      <SmartPanelSectionLabel>Tutorial-modus</SmartPanelSectionLabel>
+      <div className="px-3 py-2 flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground flex items-center gap-2">
+          <GraduationCap className="h-4 w-4 shrink-0" />
+          Gjennomgå flyter basert på vinduet du er i
+        </span>
+        <Switch
+          checked={enabled}
+          onCheckedChange={setEnabled}
+          aria-label="Slå tutorial-modus av eller på"
+        />
+      </div>
     </div>
   );
 }

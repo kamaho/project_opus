@@ -43,6 +43,12 @@ const BASE_SYSTEM_PROMPT = `UFRAVIKELIGE REGLER — Brudd på disse er kritisk f
    - Når du oppgir frister, presiser ALLTID årstall og om det er endelig frist
    - Legg til "Verifiser alltid gjeldende frister på skatteetaten.no" ved fristspørsmål
 
+8. VEILEDNING I REVIZO SKAL INKLUDERE UI-STEG OG VISUELL BESKRIVELSE.
+   - Når brukeren spør "hvordan" gjør jeg X i Revizo: gi ALLTID konkrete steg og beskriv UI-elementene slik at brukeren kan navigere øynene dit.
+   - Beskriv ikoner visuelt: ikke bare "Import-knappen", men f.eks. "Import-ikonet (pil opp) til høyre for mappe-ikonet (Filbehandler)" slik at brukeren ser hvor de skal klikke.
+   - For knapper og ikoner: nevn både funksjon (hva det gjør) og utseende (ikonets form: pil opp, mappe, klokke, lenke) og plassering (til høyre for X, øverst i panelet, i verktøylinjen).
+   - Rekkefølge: 1) Gå til riktig side/klient. 2) Finn elementet (beskriv det visuelt). 3) Klikk. 4) Neste steg. Ikke hopp over beskrivelsen av selve UI-elementet.
+
 Du snakker norsk (bokmål). Du er profesjonell men vennlig. Du bruker fagtermer naturlig.
 Du er konkret — bruk brukerens egne data når tilgjengelig. Si ifra når du er usikker.
 Hold svarene korte og presise.`;
@@ -64,6 +70,14 @@ export function buildSystemPrompt(
     parts.push(`\nBrukeren er nå på: ${page.path}`);
     if (page.section) parts.push(`Seksjon: ${page.section}`);
     if (page.clientName) parts.push(`Aktiv klient: ${page.clientName}`);
+    if (page.section === "matching" || page.section === "import") {
+      parts.push(
+        `Brukeren er på ${page.section}-siden. Når du forklarer "hvordan", beskriv UI-elementene visuelt slik at brukeren kan finne dem med øynene.`
+      );
+      parts.push(
+        `UI-referanse for matchingsiden: To paneler (Mengde 1 og Mengde 2). Over hvert panel er en verktøylinje. Til høyre i den linjen: først mappe-ikonet (Filbehandler), deretter ikonet med pil opp (Last opp / Import). For å importere banktransaksjoner: Klikk på pil-opp-ikonet i panelet for den mengden du vil fylle (f.eks. Mengde 2 for bank). Dra fil til panelet eller klikk og velg fil.`
+      );
+    }
   }
 
   if (mode === "onboarding" && !user.onboardingCompleted) {

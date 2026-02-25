@@ -24,6 +24,7 @@ export const companies = pgTable(
     tenantId: text("tenant_id").notNull(),
     name: text("name").notNull(),
     orgNumber: text("org_number"),
+    type: text("type", { enum: ["company", "group"] }).default("company").notNull(),
     // Self-reference: FK added in migration (avoids circular type)
     parentCompanyId: uuid("parent_company_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -493,6 +494,7 @@ export const userOnboarding = pgTable(
     firstMatchRun: boolean("first_match_run").default(false),
     teamInvited: boolean("team_invited").default(false),
     notificationsConfigured: boolean("notifications_configured").default(false),
+    revizoEnabled: boolean("revizo_enabled").default(false),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

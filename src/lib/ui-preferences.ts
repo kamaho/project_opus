@@ -12,7 +12,12 @@ export type NumberFormatPreference = "nb" | "en" | "ch";
 /** nb = dd.MM.yyyy · iso = yyyy-MM-dd · us = MM/dd/yyyy */
 export type DateFormatPreference = "nb" | "iso" | "us";
 
+/** UI language: Norwegian (bokmål) or English */
+export type LocalePreference = "nb" | "en";
+
 export interface UiPreferences {
+  /** UI language for labels, messages, etc. */
+  locale: LocalePreference;
   table: {
     /** Tydelige skillelinjer mellom rader og kolonner. Default true. */
     visibleDividers: boolean;
@@ -32,6 +37,7 @@ export interface UiPreferences {
 }
 
 export const DEFAULT_UI_PREFERENCES: UiPreferences = {
+  locale: "nb",
   table: {
     visibleDividers: true,
   },
@@ -58,6 +64,12 @@ export function loadUiPreferences(): UiPreferences {
     if (!raw) return DEFAULT_UI_PREFERENCES;
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object") return DEFAULT_UI_PREFERENCES;
+    const rawLocale =
+      typeof (parsed as { locale?: unknown }).locale === "string"
+        ? String((parsed as { locale: string }).locale)
+        : "";
+    const validLocale: LocalePreference =
+      rawLocale === "en" ? "en" : "nb";
     const table = (parsed as { table?: unknown }).table;
     const visibleDividers =
       typeof table === "object" && table !== null && "visibleDividers" in table
@@ -95,6 +107,7 @@ export function loadUiPreferences(): UiPreferences {
       rawDateFormat === "iso" || rawDateFormat === "us" ? rawDateFormat : "nb";
 
     return {
+      locale: validLocale,
       table: { visibleDividers },
       typography: { textSize: validSize, textWeight: validWeight },
       formatting: { numberFormat: validNumberFormat, dateFormat: validDateFormat },

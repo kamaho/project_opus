@@ -165,7 +165,7 @@ export function AppBreadcrumb() {
 
       {separator}
 
-      {/* Segment 3: Konto (avstemmingsenhet) */}
+      {/* Segment 3: Avstemming */}
       <DropdownMenu>
         <DropdownMenuTrigger
           className={cn(segmentButtonClass, "data-[state=open]:bg-muted/80")}
@@ -173,18 +173,18 @@ export function AppBreadcrumb() {
         >
           <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate max-w-[160px]">
-            {currentClient?.name ?? (clientIdFromPath ? "…" : "Velg konto")}
+            {currentClient?.name ?? (clientIdFromPath ? "…" : "Velg avstemming")}
           </span>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[200px] max-h-[280px] overflow-y-auto">
           {clientsForCompany.length === 0 && !loading && (
-            <DropdownMenuItem disabled>Ingen kontoer</DropdownMenuItem>
+            <DropdownMenuItem disabled>Ingen avstemminger</DropdownMenuItem>
           )}
           {clientsForCompany.map((c) => (
             <DropdownMenuItem
               key={c.id}
-              onClick={() => router.push(`/dashboard/clients/${c.id}`)}
+              onClick={() => router.push(`/dashboard/clients/${c.id}/matching`)}
             >
               {c.name}
             </DropdownMenuItem>

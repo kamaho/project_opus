@@ -50,6 +50,29 @@ export async function getOrCreateOnboarding(
   };
 }
 
+/** Returns true if the user has completed the welcome onboarding (completedAt set). Does not create a row. */
+export async function hasCompletedOnboarding(userId: string): Promise<boolean> {
+  const row = await db
+    .select({ completedAt: userOnboarding.completedAt })
+    .from(userOnboarding)
+    .where(eq(userOnboarding.userId, userId))
+    .limit(1);
+  return row[0]?.completedAt != null;
+}
+
+/** Mark the welcome onboarding as completed (sets completedAt, optional revizoEnabled). Uses orgId or userId as placeholder if no org. */
+export async function markOnboardingComplete(
+  userId: string,
+  orgId: string | null,
+  revizoEnabled: boolean = false
+): Promise<void> {
+  await getOrCreateOnboarding(userId, orgId ?? userId);
+  await db
+    .update(userOnboarding)
+    .set({ completedAt: new Date(), revizoEnabled })
+    .where(eq(userOnboarding.userId, userId));
+}
+
 export function getNextOnboardingStep(
   status: OnboardingStatus
 ): string | null {

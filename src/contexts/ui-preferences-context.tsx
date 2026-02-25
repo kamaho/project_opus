@@ -28,6 +28,7 @@ interface UiPreferencesContextValue {
   updateTablePreferences: (patch: Partial<UiPreferences["table"]>) => void;
   updateTypographyPreferences: (patch: Partial<UiPreferences["typography"]>) => void;
   updateFormattingPreferences: (patch: Partial<UiPreferences["formatting"]>) => void;
+  updateLocalePreference: (locale: UiPreferences["locale"]) => void;
 }
 
 const UiPreferencesContext = createContext<UiPreferencesContextValue | null>(
@@ -158,15 +159,24 @@ export function UiPreferencesProvider({ children }: UiPreferencesProviderProps) 
     [setPreferences]
   );
 
+  const updateLocalePreference = useCallback(
+    (locale: UiPreferences["locale"]) => {
+      setPreferences((prev) => ({ ...prev, locale }));
+    },
+    [setPreferences]
+  );
+
   useEffect(() => {
     const el = document.documentElement;
     el.setAttribute("data-text-size", preferences.typography.textSize);
     el.setAttribute("data-text-weight", preferences.typography.textWeight);
+    el.setAttribute("lang", preferences.locale === "en" ? "en" : "nb");
     return () => {
       el.removeAttribute("data-text-size");
       el.removeAttribute("data-text-weight");
+      el.removeAttribute("lang");
     };
-  }, [preferences.typography.textSize, preferences.typography.textWeight]);
+  }, [preferences.typography.textSize, preferences.typography.textWeight, preferences.locale]);
 
   const value = useMemo<UiPreferencesContextValue>(
     () => ({
@@ -175,8 +185,9 @@ export function UiPreferencesProvider({ children }: UiPreferencesProviderProps) 
       updateTablePreferences,
       updateTypographyPreferences,
       updateFormattingPreferences,
+      updateLocalePreference,
     }),
-    [preferences, setPreferences, updateTablePreferences, updateTypographyPreferences, updateFormattingPreferences]
+    [preferences, setPreferences, updateTablePreferences, updateTypographyPreferences, updateFormattingPreferences, updateLocalePreference]
   );
 
   return (

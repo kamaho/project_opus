@@ -99,4 +99,4 @@ export function classifyQuery(message: string): QueryClassification {
 }
 
 export const OFF_TOPIC_RESPONSE =
-  "Jeg er Revizo sin produktassistent og kan hjelpe deg med avstemming, frister, rapporter og alt annet i Revizo. Hva kan jeg hjelpe deg med?";
+  "Jeg er Reviz, produktassistenten i Revizo, og kan hjelpe deg med avstemming, frister, rapporter og alt annet i appen. Hva kan jeg hjelpe deg med?";

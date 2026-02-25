@@ -184,7 +184,7 @@ export function AgentReportSettings({
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4" />
-            Revizo Agent
+            Reviz
           </SheetTitle>
           <SheetDescription>
             Konfigurer automatisk Smart Match og rapportering for denne klienten.
@@ -200,7 +200,7 @@ export function AgentReportSettings({
             {/* Main toggle */}
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-sm font-medium">Aktiver Revizo Agent</Label>
+                <Label className="text-sm font-medium">Aktiver Reviz</Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Automatisk Smart Match og rapportering
                 </p>
