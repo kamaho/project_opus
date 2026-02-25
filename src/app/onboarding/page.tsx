@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ const STEPS = [
 ] as const;
 
 export default function OnboardingPage() {
+  const [showIntro, setShowIntro] = useState(true);
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const [setupResult, setSetupResult] = useState<SetupResult | null>(null);
@@ -95,6 +96,10 @@ export default function OnboardingPage() {
         router.push("/dashboard");
       }
     }
+  }
+
+  if (showIntro) {
+    return <IntroAnimation onComplete={() => setShowIntro(false)} />;
   }
 
   if (!userLoaded) {
@@ -183,6 +188,121 @@ export default function OnboardingPage() {
         )}
         {step === 4 && <StepReady onFinish={handleFinish} />}
       </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Intro Animation                                                     */
+/* ------------------------------------------------------------------ */
+
+function IntroAnimation({ onComplete }: { onComplete: () => void }) {
+  const [phase, setPhase] = useState<
+    "initial" | "swap" | "wipe" | "brand" | "done"
+  >("initial");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const advance = useCallback(() => {
+    setPhase((p) => {
+      switch (p) {
+        case "initial": return "swap";
+        case "swap":    return "wipe";
+        case "wipe":    return "brand";
+        case "brand":   return "done";
+        default:        return p;
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timers.push(setTimeout(() => advance(), 1500));
+    timers.push(setTimeout(() => advance(), 3900));
+    timers.push(setTimeout(() => advance(), 4700));
+    timers.push(setTimeout(() => advance(), 6400));
+    return () => timers.forEach(clearTimeout);
+  }, [advance]);
+
+  useEffect(() => {
+    if (phase === "done") onComplete();
+  }, [phase, onComplete]);
+
+  const showSwapped = phase === "swap" || phase === "wipe" || phase === "brand" || phase === "done";
+  const showWipe    = phase === "wipe" || phase === "brand" || phase === "done";
+  const showBrand   = phase === "brand" || phase === "done";
+
+  return (
+    <div
+      ref={containerRef}
+      className="intro-easing fixed inset-0 z-50 flex items-center justify-center bg-background overflow-hidden"
+    >
+      {/* Text phase */}
+      <div
+        className="relative text-center w-full"
+        style={{ display: showBrand ? "none" : undefined }}
+      >
+        <div
+          className="flex items-center justify-center gap-[0.25em] leading-none"
+          style={{
+            fontSize: "clamp(2rem, 8vw, 6rem)",
+            fontWeight: 700,
+            letterSpacing: "-0.04em",
+            height: "1.2em",
+          }}
+        >
+          {/* Prefix word */}
+          <span
+            className="inline-flex relative overflow-hidden items-center"
+            style={{ height: "1.2em" }}
+          >
+            <span
+              className={cn("intro-word inline-block", showSwapped && "intro-exit-up")}
+            >
+              Besøk av
+            </span>
+            {showSwapped && (
+              <span className="intro-word intro-enter-up inline-block absolute left-0">
+                klar for
+              </span>
+            )}
+          </span>
+
+          {/* "revisor" */}
+          <span
+            className="inline-flex relative overflow-hidden items-center"
+            style={{ height: "1.2em" }}
+          >
+            <span className={cn("intro-word inline-block", showWipe && "intro-exit-up")}>
+              revisor
+            </span>
+          </span>
+
+          {/* "?" */}
+          <span
+            className="inline-flex relative overflow-hidden items-center"
+            style={{ height: "1.2em" }}
+          >
+            <span className={cn("intro-word inline-block", showWipe && "intro-exit-up")}>
+              ?
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Brand reveal */}
+      {showBrand && (
+        <div
+          className="intro-brand-active absolute left-1/2 top-1/2"
+          style={{
+            fontSize: "clamp(3rem, 12vw, 10rem)",
+            fontWeight: 800,
+            letterSpacing: "-0.06em",
+            transform: "translate(-50%, -50%)",
+          }}
+        >
+          revizo<span className="text-[oklch(0.72_0.20_155)]">.</span>
+        </div>
+      )}
     </div>
   );
 }
