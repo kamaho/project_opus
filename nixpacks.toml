@@ -1,0 +1,5 @@
+[phases.build]
+cmds = ["echo 'Worker service — skipping Next.js build'"]
+
+[start]
+cmd = "npm run worker"
