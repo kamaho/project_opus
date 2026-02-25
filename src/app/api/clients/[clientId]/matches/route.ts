@@ -190,7 +190,7 @@ export async function DELETE(
       await logAuditTx(tx, {
         tenantId: orgId,
         userId,
-        action: "match.bulk_deleted",
+        action: "match.deleted",
         entityType: "match",
         metadata: {
           matchCount: deleted.length,
@@ -248,7 +248,7 @@ export async function DELETE(
       await logAuditTx(tx, {
         tenantId: orgId,
         userId,
-        action: dissolved ? "match.deleted" : "match.transaction_removed",
+        action: "match.deleted",
         entityType: "match",
         entityId: txRow.matchId!,
         metadata: { transactionId, dissolved },
