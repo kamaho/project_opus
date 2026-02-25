@@ -9,7 +9,13 @@ if (!apiKey) {
 export const resend = apiKey ? new Resend(apiKey) : null;
 
 const FROM_ADDRESS =
-  process.env.RESEND_FROM_ADDRESS ?? "Revizo <noreply@revizo.no>";
+  process.env.RESEND_FROM_ADDRESS ?? "Revizo <noreply@accountcontrol.no>";
+
+function logSendResult(label: string, result: { data: unknown; error: unknown }) {
+  if (result.error) {
+    console.error(`[resend] ${label} failed:`, result.error);
+  }
+}
 
 // ── Design tokens (matching design system, email-safe hex) ──────────────────
 const T = {
@@ -110,7 +116,7 @@ export async function sendNoteMentionEmail(params: {
 
   const { toEmail, fromUserName, noteText, transactionDescription, link } = params;
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `${fromUserName} nevnte deg i et notat`,
@@ -126,6 +132,7 @@ export async function sendNoteMentionEmail(params: {
       ${cta("Se transaksjonen", link)}
     `),
   });
+  logSendResult("note-mention", result);
 }
 
 export async function sendSmartMatchEmail(params: {
@@ -140,7 +147,7 @@ export async function sendSmartMatchEmail(params: {
 
   const { toEmail, userName, clientName, matchCount, transactionCount, link } = params;
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `Smart Match fullført — ${matchCount} grupper matchet for ${clientName}`,
@@ -155,6 +162,7 @@ export async function sendSmartMatchEmail(params: {
       ${cta("Se resultatet", link)}
     `),
   });
+  logSendResult("smart-match", result);
 }
 
 export async function sendImportCompletedEmail(params: {
@@ -171,7 +179,7 @@ export async function sendImportCompletedEmail(params: {
   const { toEmail, userName, clientName, filename, recordCount, setNumber, link } = params;
   const setLabel = setNumber === 1 ? "Mengde 1" : "Mengde 2";
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `Import fullført — ${recordCount} poster importert for ${clientName}`,
@@ -189,6 +197,7 @@ export async function sendImportCompletedEmail(params: {
       ${cta("Gå til avstemming", link)}
     `),
   });
+  logSendResult("import-completed", result);
 }
 
 export async function sendAgentReportEmail(params: {
@@ -227,7 +236,7 @@ export async function sendAgentReportEmail(params: {
 
   const diff = totalSet1 - totalSet2;
 
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `Revizo Rapport — ${clientName} — ${reportDate}`,
@@ -277,4 +286,5 @@ export async function sendAgentReportEmail(params: {
         }
       : {}),
   });
+  logSendResult("agent-report", result);
 }

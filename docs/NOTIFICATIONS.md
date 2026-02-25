@@ -67,7 +67,7 @@ Hendelse (import, match, notat)
 
 ```
 RESEND_API_KEY=re_...
-RESEND_FROM_ADDRESS=Revizo <noreply@revizo.no>
+RESEND_FROM_ADDRESS=Revizo <noreply@accountcontrol.no>
 ```
 
 ### E-postmaler

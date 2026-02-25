@@ -126,7 +126,7 @@ export async function runJob(db: Db, config: Config) {
             {
               tenantId: config.tenantId,
               userId: config.createdBy,
-              userEmail: "system@revizo.no",
+              userEmail: "system@accountcontrol.no",
             }
           );
           pdfBuffer = exportResult.buffer;

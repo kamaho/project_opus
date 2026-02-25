@@ -37,7 +37,7 @@ Under **Environment Variables** i Vercel legger du inn disse. Kopier verdiene fr
 | `NEXT_PUBLIC_APP_URL` | Vercel-URL etter første deploy, f.eks. `https://project-opus-xxxx.vercel.app` (kan settes til placeholder først, oppdater og redeploy etterpå) |
 | **Resend (e-post)** | |
 | `RESEND_API_KEY` | API-nøkkel fra Resend |
-| `RESEND_FROM_ADDRESS` | F.eks. `Revizo <noreply@revizo.no>` |
+| `RESEND_FROM_ADDRESS` | F.eks. `Revizo <noreply@accountcontrol.no>` |
 | **Sentry** | |
 | `NEXT_PUBLIC_SENTRY_DSN` | DSN fra Sentry-prosjektet |
 | `SENTRY_DSN` | Samme DSN |
