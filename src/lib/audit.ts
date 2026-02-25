@@ -8,6 +8,7 @@ type AuditAction =
   | "import.restored"
   | "match.created"
   | "match.deleted"
+  | "match.bulk_deleted"
   | "transaction.created"
   | "transaction.updated"
   | "transaction.deleted"

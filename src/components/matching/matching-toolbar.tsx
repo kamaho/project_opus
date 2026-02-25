@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { CalendarDays, Unlink, X } from "lucide-react";
+import { CalendarClock, CalendarDays, Unlink, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SmartMatchButton } from "@/components/matching/smart-match-button";
 
@@ -20,6 +20,7 @@ interface MatchingToolbarProps {
   onUnmatchAll?: () => void;
   unmatchAllLoading?: boolean;
   hasMatches?: boolean;
+  onAgentSettings?: () => void;
 }
 
 export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProps>(function MatchingToolbar({
@@ -35,6 +36,7 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
   onUnmatchAll,
   unmatchAllLoading,
   hasMatches,
+  onAgentSettings,
 }, closedBtnRef) {
   const hasDateFilter = dateFrom || dateTo;
   return (
@@ -95,8 +97,21 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
         )}
       </div>
 
-      {/* Høyre: Datovelger */}
+      {/* Høyre: Agent + Datovelger */}
       <div className="flex items-center gap-1 ml-auto">
+        {onAgentSettings && (
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mr-1"
+            onClick={onAgentSettings}
+            data-smart-info="Åpne innstillinger for Revizo Agent — automatisk Smart Match og rapportering på e-post."
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Agent
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-1">
         <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <input
           type="date"

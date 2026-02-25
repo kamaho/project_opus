@@ -1,4 +1,4 @@
-# Production Readiness Audit — Account Control
+# Production Readiness Audit — Revizo
 
 > Audit date: 2026-02-19
 > Audited against: `PRODUCTION_READINESS.md`

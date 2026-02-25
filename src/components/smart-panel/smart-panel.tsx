@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, GripHorizontal, Pin, PinOff, SendHorizonal, Sparkles, X } from "lucide-react";
+import { ArrowLeft, GripHorizontal, Pin, PinOff, RotateCcw, SendHorizonal, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SmartPanelSectionLabel } from "./smart-panel-standard";
+import { useAiChat } from "@/hooks/use-ai-chat";
 
 const DEFAULT_WIDTH = 320;
 
@@ -48,10 +49,11 @@ interface SmartPanelProps {
   onPinChange?: (pinned: boolean) => void;
 }
 
-interface ChatMessage {
-  role: "user" | "agent";
-  text: string;
-}
+const SUGGESTED_QUESTIONS = [
+  "Vis umatchede poster for alle klienter",
+  "Hvilke frister har vi de neste 30 dagene?",
+  "Hvordan importerer jeg banktransaksjoner?",
+];
 
 function AgentPlaceholderInput({ onClick }: { onClick: () => void }) {
   const [idx, setIdx] = useState(0);
@@ -90,8 +92,7 @@ function AgentPlaceholderInput({ onClick }: { onClick: () => void }) {
 
 function AgentChatView() {
   const [query, setQuery] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [thinking, setThinking] = useState(false);
+  const { messages, isLoading, error, sendMessage, reset } = useAiChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -101,37 +102,45 @@ function AgentChatView() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, thinking]);
+  }, [messages, isLoading]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const text = query.trim();
-    if (!text || thinking) return;
-    setMessages((prev) => [...prev, { role: "user", text }]);
+    if (!text || isLoading) return;
     setQuery("");
-    setThinking(true);
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        { role: "agent", text: "Denne funksjonen er under utvikling. Snart kan du stille spørsmål om transaksjoner, avstemming og regnskap direkte her." },
-      ]);
-      setThinking(false);
-      setTimeout(() => inputRef.current?.focus(), 0);
-    }, 1500);
+    sendMessage(text);
+  };
+
+  const handleSuggestion = (text: string) => {
+    if (isLoading) return;
+    sendMessage(text);
   };
 
   return (
     <div className="flex flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto px-3 pt-3 pb-1 space-y-2.5 max-h-[280px]">
-        {messages.length === 0 && !thinking && (
-          <div className="flex flex-col items-center justify-center py-6 text-center">
+      <div className="flex-1 overflow-y-auto px-3 pt-3 pb-1 space-y-2.5 max-h-[360px]">
+        {messages.length === 0 && !isLoading && (
+          <div className="flex flex-col items-center justify-center py-4 text-center">
             <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
               <Sparkles className="h-5 w-5 text-primary" />
             </div>
             <p className="text-sm font-medium">Hei! Jeg er din assistent.</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
-              Still spørsmål om transaksjoner, poster, avstemming eller regnskap.
+              Still spørsmål om transaksjoner, poster, avstemming eller frister.
             </p>
+            <div className="mt-3 flex flex-col gap-1.5 w-full">
+              {SUGGESTED_QUESTIONS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className="text-xs text-left px-3 py-2 rounded-md border bg-muted/30 hover:bg-muted/60 transition-colors text-muted-foreground hover:text-foreground"
+                  onClick={() => handleSuggestion(q)}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {messages.map((msg, i) => (
@@ -142,24 +151,24 @@ function AgentChatView() {
               msg.role === "user" ? "justify-end" : "justify-start"
             )}
           >
-            {msg.role === "agent" && (
+            {msg.role === "assistant" && (
               <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
                 <Sparkles className="h-3 w-3 text-primary" />
               </div>
             )}
             <div
               className={cn(
-                "rounded-lg px-3 py-2 max-w-[85%] leading-relaxed",
+                "rounded-lg px-3 py-2 max-w-[85%] leading-relaxed whitespace-pre-wrap",
                 msg.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted/60 text-foreground"
               )}
             >
-              {msg.text}
+              {msg.content}
             </div>
           </div>
         ))}
-        {thinking && (
+        {isLoading && (
           <div className="flex gap-2 text-sm animate-in fade-in duration-150">
             <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
               <Sparkles className="h-3 w-3 text-primary" />
@@ -171,10 +180,33 @@ function AgentChatView() {
             </div>
           </div>
         )}
+        {error && (
+          <div className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2">
+            {error}
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
+      <div className="border-t px-3 py-1">
+        <p className="text-[10px] text-muted-foreground/50 leading-tight">
+          Revizo AI er en produktassistent. Den gir ikke regnskaps- eller juridisk rådgivning.
+        </p>
+      </div>
       <form onSubmit={handleSubmit} className="border-t px-3 py-2">
-        <div className="relative flex items-center gap-2">
+        <div className="relative flex items-center gap-1.5">
+          {messages.length > 0 && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 shrink-0 text-muted-foreground/60 hover:text-foreground"
+              onClick={reset}
+              title="Ny samtale"
+              aria-label="Ny samtale"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+          )}
           <input
             ref={inputRef}
             type="text"
@@ -188,7 +220,7 @@ function AgentChatView() {
             size="icon"
             variant="ghost"
             className={cn("h-8 w-8 shrink-0", query.trim() ? "text-primary" : "text-muted-foreground/40")}
-            disabled={!query.trim() || thinking}
+            disabled={!query.trim() || isLoading}
           >
             <SendHorizonal className="h-4 w-4" />
           </Button>

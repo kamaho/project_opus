@@ -73,4 +73,6 @@ export function rateLimit(
 export const RATE_LIMITS = {
   import: { limit: 20, windowMs: 60_000 } as RateLimitConfig,
   api: { limit: 100, windowMs: 60_000 } as RateLimitConfig,
+  aiChat: { limit: 10, windowMs: 60_000 } as RateLimitConfig,
+  aiChatHourly: { limit: 60, windowMs: 3_600_000 } as RateLimitConfig,
 } as const;

@@ -2,12 +2,16 @@
 
 ## Oversikt over eksterne tjenester
 
-| Tjeneste         | Formål                           | Dashboard-URL                           |
-|------------------|-----------------------------------|-----------------------------------------|
-| **Supabase**     | PostgreSQL + Storage              | https://supabase.com/dashboard          |
-| **Clerk**        | Autentisering og organisasjoner   | https://dashboard.clerk.com             |
-| **Vercel**       | Hosting (Next.js)                 | https://vercel.com/dashboard            |
-| **Sentry**       | Feilsporing og observability      | https://sentry.io                       |
+| Tjeneste | Formål | Dashboard-URL |
+|----------|--------|---------------|
+| **Supabase** | PostgreSQL + Storage | https://supabase.com/dashboard |
+| **Clerk** | Autentisering og organisasjoner | https://dashboard.clerk.com |
+| **Vercel** | Hosting (Next.js web) | https://vercel.com/dashboard |
+| **Railway** | Hosting (Worker bakgrunnsjobber) | https://railway.app/dashboard |
+| **Resend** | Transaksjonelle e-poster | https://resend.com |
+| **Anthropic** | AI-chatbot (Claude Sonnet 4) | https://console.anthropic.com |
+| **OpenAI** | Embeddings for kunnskapssøk | https://platform.openai.com |
+| **Sentry** | Feilsporing og observability | https://sentry.io |
 
 ---
 
@@ -164,26 +168,134 @@ export const db = drizzle(client, { schema: { ...tables } });
 
 ## Alle miljøvariabler
 
-| Variabel                                    | Type    | Beskrivelse                                |
-|--------------------------------------------|---------|--------------------------------------------|
-| `DATABASE_URL`                              | Server  | PostgreSQL connection string               |
-| `NEXT_PUBLIC_SUPABASE_URL`                  | Public  | Supabase prosjekt-URL                      |
-| `SUPABASE_SERVICE_ROLE_KEY`                 | Server  | Supabase service role key                  |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`         | Public  | Clerk publishable key                      |
-| `CLERK_SECRET_KEY`                          | Server  | Clerk secret key                           |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL`             | Public  | Innloggingsside-URL                        |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL`             | Public  | Registreringsside-URL                      |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL`       | Public  | Redirect etter innlogging                  |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL`       | Public  | Redirect etter registrering                |
-| `SEED_TENANT_ID`                            | Server  | Clerk org-ID for seed-script (valgfri)     |
-
-| `NEXT_PUBLIC_SENTRY_DSN`                    | Public  | Sentry DSN for klient-side feilsporing    |
-| `SENTRY_DSN`                                | Server  | Sentry DSN for server-side feilsporing    |
-| `SENTRY_ORG`                                | Server  | Sentry organisasjon (for source maps)     |
-| `SENTRY_PROJECT`                            | Server  | Sentry prosjektnavn                       |
-| `SENTRY_AUTH_TOKEN`                         | Server  | Sentry auth token (for source map upload) |
+| Variabel | Type | Beskrivelse |
+|----------|------|-------------|
+| `DATABASE_URL` | Server | PostgreSQL connection string |
+| `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase prosjekt-URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server | Supabase service role key |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Public | Clerk publishable key |
+| `CLERK_SECRET_KEY` | Server | Clerk secret key |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | Public | Innloggingsside-URL |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | Public | Registreringsside-URL |
+| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | Public | Redirect etter innlogging |
+| `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | Public | Redirect etter registrering |
+| `SEED_TENANT_ID` | Server | Clerk org-ID for seed-script (valgfri) |
+| `RESEND_API_KEY` | Server | Resend API-nøkkel for e-post |
+| `RESEND_FROM_ADDRESS` | Server | Avsenderadresse for e-post |
+| `NEXT_PUBLIC_APP_URL` | Public | Base-URL for appen (lenker i e-post) |
+| `ANTHROPIC_API_KEY` | Server | Anthropic API-nøkkel (Claude) |
+| `OPENAI_API_KEY` | Server | OpenAI API-nøkkel (embeddings) |
+| `NEXT_PUBLIC_SENTRY_DSN` | Public | Sentry DSN for klient-side feilsporing |
+| `SENTRY_DSN` | Server | Sentry DSN for server-side feilsporing |
+| `SENTRY_ORG` | Server | Sentry organisasjon (for source maps) |
+| `SENTRY_PROJECT` | Server | Sentry prosjektnavn |
+| `SENTRY_AUTH_TOKEN` | Server | Sentry auth token (for source map upload) |
+| `WORKER_CONCURRENCY` | Server | Maks samtidige worker-jobber (default 3) |
+| `WORKER_POLL_INTERVAL_MS` | Server | Worker poll-intervall i ms (default 30000) |
 
 **Server**-variabler er kun tilgjengelige på server-side. **Public**-variabler (`NEXT_PUBLIC_`) er tilgjengelige i klienten.
+
+---
+
+## Resend (E-post)
+
+### Hva vi bruker
+
+1. **Transaksjonelle e-poster** — varsler ved notat-mention, Smart Match, import
+2. **Agent-rapporter** — automatisk genererte PDF-rapporter med nøkkeltall
+3. **HTML-maler** — egenbyggede responsive e-postmaler med design tokens
+
+### Konfigurasjon
+
+```env
+RESEND_API_KEY=re_...
+RESEND_FROM_ADDRESS=Revizo <noreply@revizo.no>
+```
+
+### Bruk i kode
+
+E-postfunksjoner i `src/lib/resend.ts`:
+- `sendNoteMentionEmail()` — notat med @-mention
+- `sendSmartMatchEmail()` — Smart Match fullført
+- `sendImportCompletedEmail()` — import fullført
+- `sendAgentReportEmail()` — automatisk rapport med PDF-vedlegg
+
+Se [NOTIFICATIONS.md](NOTIFICATIONS.md) for detaljer.
+
+---
+
+## Anthropic (AI)
+
+### Hva vi bruker
+
+1. **Claude Sonnet 4** (`claude-sonnet-4-20250514`) — AI-chatbot for produktstøtte
+2. **Tool calling** — Claude kan hente live-data via definerte verktøy
+
+### Konfigurasjon
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Bruk i kode
+
+- `src/app/api/ai/chat/route.ts` — API-endepunkt som kaller Anthropic
+- `src/lib/ai/actions.ts` — Tool-definisjoner (get_client_status, get_upcoming_deadlines, etc.)
+- Maks 1024 tokens per respons, maks 5 tool-runder
+
+Se [AI_SYSTEM.md](AI_SYSTEM.md) for detaljer.
+
+---
+
+## OpenAI (Embeddings)
+
+### Hva vi bruker
+
+1. **text-embedding-3-small** — genererer embeddings for semantisk søk i kunnskapsbasen
+
+### Konfigurasjon
+
+```env
+OPENAI_API_KEY=sk-...
+```
+
+### Bruk i kode
+
+- `src/lib/ai/embeddings.ts` — `generateEmbedding()`, `generateEmbeddings()`
+- Brukes som fallback i kunnskapssøk når FTS ikke gir nok resultater
+- Input trunkeres til 8000 tegn
+
+---
+
+## Railway (Worker)
+
+### Hva vi bruker
+
+1. **Persistent Node.js-prosess** — kjører bakgrunnsjobber (Smart Match, PDF-rapporter, e-post)
+2. **Automatisk deploy** — fra GitHub, separat service fra web-appen
+
+### Oppsett
+
+Railway bruker to services fra samme repo:
+- **Web**: `npm start` (Next.js)
+- **Worker**: `npm run worker` (Node.js)
+
+### Miljøvariabler
+
+Worker trenger samme variabler som web-appen, pluss:
+
+```env
+WORKER_CONCURRENCY=3
+WORKER_POLL_INTERVAL_MS=30000
+```
+
+### Lokal utvikling
+
+```bash
+npm run worker:dev    # Kjører worker med hot-reload
+```
+
+Se [AGENT_SYSTEM.md](AGENT_SYSTEM.md) for detaljer om worker-arkitekturen.
 
 ---
 

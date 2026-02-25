@@ -1,4 +1,4 @@
-# Account Control — Domain Specification
+# Revizo — Domain Specification
 
 > This document describes the business domain, rules, and data flows for a reconciliation SaaS
 > targeting Norwegian accountants. It serves as the primary context for AI-assisted development

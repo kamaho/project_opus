@@ -11,7 +11,7 @@ import { Zap, CheckCircle2, PartyPopper } from "lucide-react";
 import type { AutoMatchStats } from "@/lib/matching/engine";
 
 const SM_GRADIENT =
-  "linear-gradient(90deg, oklch(0.52 0.24 285), oklch(0.58 0.22 300), oklch(0.52 0.24 285))";
+  "linear-gradient(90deg, oklch(0.62 0.20 155), oklch(0.68 0.20 160), oklch(0.62 0.20 155))";
 
 const PEGTOP_PATH =
   "M63,37c-6.7-4-4-27-13-27s-6.3,23-13,27-27,4-27,13,20.3,9,27,13,4,27,13,27,6.3-23,13-27,27-4,27-13-20.3-9-27-13Z";

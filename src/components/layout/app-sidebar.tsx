@@ -6,6 +6,7 @@ import { LayoutDashboard, Wallet, Receipt, Settings, ChevronDown } from "lucide-
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/sidebar";
 import { UserButton, useUser, useOrganization } from "@clerk/nextjs";
 import { NotificationBell } from "@/components/layout/notification-bell";
+import { RevizoLogo } from "@/components/ui/revizo-logo";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, smartInfo: "Dashboard — oversikt over kontoer, status og snarveier." },
@@ -72,6 +74,11 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="border-t border-sidebar-border p-3">
+        <Link href="/dashboard" className="flex items-center">
+          <RevizoLogo width={100} height={25} />
+        </Link>
+      </SidebarFooter>
     </Sidebar>
   );
 }

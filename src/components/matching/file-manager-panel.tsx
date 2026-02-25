@@ -368,16 +368,16 @@ export function FileManagerPanel({
                 {duplicateImports.map((imp) => (
                   <div
                     key={imp.id}
-                    className="rounded-lg border border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20 p-3 space-y-2"
+                    className="rounded-lg border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/20 p-3 space-y-2"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <Copy className="h-4 w-4 text-violet-600 shrink-0" />
+                          <Copy className="h-4 w-4 text-amber-600 shrink-0" />
                           <span className="text-sm font-medium truncate">{imp.filename}</span>
                         </div>
                         <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-950/50 px-2 py-0.5">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-950/50 px-2 py-0.5">
                             {setLabel(imp.setNumber)}
                           </span>
                           <span>{formatSize(imp.fileSize)}</span>
@@ -399,7 +399,7 @@ export function FileManagerPanel({
                       </Button>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <AlertTriangle className="h-3 w-3 text-violet-500" />
+                      <AlertTriangle className="h-3 w-3 text-amber-500" />
                       <span>Identisk fil allerede importert · {formatDate(imp.createdAt)}</span>
                     </div>
                   </div>

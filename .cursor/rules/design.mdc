@@ -1,9 +1,9 @@
 ---
-description: Designsystem og UI/UX-retningslinjer for Account Control
+description: Designsystem og UI/UX-retningslinjer for Revizo
 alwaysApply: true
 ---
 
-# Design — Account Control
+# Design — Revizo
 
 > **Komplett designsystem:** `docs/DESIGN_SYSTEM.md` — ALLE UI-endringer MÅ følge dette dokumentet.
 > Les det FØR du lager eller endrer noe visuelt.
@@ -36,7 +36,7 @@ i disse produktene, er den ikke klar.
 - **Font**: Geist Sans + Geist Mono
 - **Radius**: 8px (`--radius: 0.5rem`) — ikke runde bobler
 - **Primærknapper**: Nesten svart (`--primary: oklch(0.15 0 0)`)
-- **Brand-accent**: Oransje — KUN for identitetsdetaljer (logo-dot, notifikasjons-badge, fremdriftsindikatorer). Aldri for knapper, lenker eller brødtekst. Se §14 i designsystemet.
+- **Brand-accent**: Neon grønn (Supabase-inspirert) — KUN for identitetsdetaljer (logo-dot, notifikasjons-badge, fremdriftsindikatorer, Smart Match accent). Aldri for primærknapper, lenker eller brødtekst. Se §14 i designsystemet.
 - **Farger**: oklch i CSS-variabler, konsumert via Tailwind-klasser. Aldri hardkod hex.
 - **Komponenter**: shadcn/ui (New York variant)
 - **Ikoner**: Lucide React — ingen andre biblioteker

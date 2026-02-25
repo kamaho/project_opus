@@ -1,3 +1,5 @@
+import { RevizoLogo } from "@/components/ui/revizo-logo";
+
 export default function AuthLayout({
   children,
 }: {
@@ -5,13 +7,8 @@ export default function AuthLayout({
 }) {
   return (
     <div className="min-h-screen bg-muted/30 flex flex-col items-center justify-center p-4">
-      <div className="mb-8 text-center">
-        <div className="flex items-center justify-center gap-2 mb-1">
-          <span className="text-xl font-semibold tracking-tight">
-            Account Control
-          </span>
-          <span className="inline-block h-2 w-2 rounded-full bg-brand" />
-        </div>
+      <div className="mb-8 flex flex-col items-center gap-2">
+        <RevizoLogo width={160} height={40} />
         <p className="text-sm text-muted-foreground">
           Avstemming for regnskapsfirmaer
         </p>

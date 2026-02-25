@@ -1,4 +1,4 @@
-# Account Control Client — referanse for views og tabeller
+# Revizo Client — referanse for views og tabeller
 
 Referanse-frontenden ligger i mappen **account-control-client** (f.eks. `Dashboard branch/account-control-client`). Den er en monorepo med **apps/web** som hovedapp og delte **packages** (features, ui, i18n, etc.). Denne dokumentasjonen beskriver strukturen og mønstre du kan bruke som inspirasjon i project_opus.
 

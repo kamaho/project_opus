@@ -78,4 +78,4 @@ Markøren holder seg på riktig posisjon etter at tusenskilletegn settes inn, sl
 
 ## Salgsvinkel
 
-> «Account Control tilpasser seg dine brukere — ikke omvendt. Tallformat, datoformat og visningsinnstillinger kan endres med to klikk, og gjelder umiddelbart i hele appen. Norske standarder ut av boksen, med støtte for internasjonale formater når dataen kommer fra utlandet.»
+> «Revizo tilpasser seg dine brukere — ikke omvendt. Tallformat, datoformat og visningsinnstillinger kan endres med to klikk, og gjelder umiddelbart i hele appen. Norske standarder ut av boksen, med støtte for internasjonale formater når dataen kommer fra utlandet.»

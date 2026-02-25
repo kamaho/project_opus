@@ -1,72 +1,122 @@
-# Arkitektur — Account Control
+# Arkitektur — Revizo
 
 ## Oversikt
 
-Account Control er en norsk SaaS-plattform for avstemming (reconciliation) av regnskapstransaksjoner. Plattformen lar regnskapsbyråer importere filer fra ulike kilder (hovedbok, bankutskrift) og matche transaksjoner mellom to sett.
+Revizo er en norsk SaaS-plattform for avstemming (reconciliation) av regnskapstransaksjoner. Plattformen lar regnskapsbyråer importere filer fra ulike kilder (hovedbok, bankutskrift) og matche transaksjoner mellom to sett — manuelt eller automatisk via Smart Match-motoren. I tillegg har Revizo en AI-chatbot, et varslingssystem, eksportfunksjonalitet, og et agent-system for automatisert bakgrunnsbehandling.
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                      Frontend (Next.js 16)                │
-│  React 19 · Tailwind 4 · shadcn/ui · TypeScript          │
-├──────────────────────────────────────────────────────────┤
-│                     API Routes (Next.js)                  │
-│  /api/import · /api/clients · /api/companies              │
-├─────────────────────┬────────────────────────────────────┤
-│   Clerk (Auth)      │    Supabase                        │
-│   - Brukere         │    - PostgreSQL (data)             │
-│   - Organisasjoner  │    - Storage (filopplasting)       │
-│   - SSO/OAuth       │    - Drizzle ORM (queries)         │
-└─────────────────────┴────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                    Frontend (Next.js 16)                         │
+│  React 19 · Tailwind 4 · shadcn/ui · TypeScript                │
+│                                                                  │
+│  Matching · Smart Panel (AI) · Eksport · Varsler · Innstillinger │
+├──────────────────────────────────────────────────────────────────┤
+│                    API Routes (Next.js)                          │
+│  /api/import · /api/clients · /api/ai · /api/export              │
+│  /api/notifications · /api/companies                             │
+├───────────┬───────────┬──────────────────────────────────────────┤
+│  Clerk    │  Supabase │  Eksterne tjenester                      │
+│  - Auth   │  - PgSQL  │  - Resend (e-post)                       │
+│  - Orgs   │  - Storage│  - Anthropic Claude (AI)                 │
+│  - SSO    │  - Drizzle│  - OpenAI (embeddings)                   │
+├───────────┴───────────┴──────────────────────────────────────────┤
+│              Railway Worker (Node.js)                             │
+│  Bakgrunnsjobber: Smart Match · PDF-rapporter · E-post           │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ## Teknologistakk
 
-| Lag              | Teknologi                                | Rolle                                     |
-|------------------|------------------------------------------|--------------------------------------------|
-| Frontend         | Next.js 16 (App Router, Turbopack)       | SSR, routing, React Server Components      |
-| UI               | shadcn/ui + Tailwind CSS 4               | Komponentbibliotek, styling                |
-| Autentisering    | Clerk                                    | Brukere, organisasjoner, SSO               |
-| Database         | Supabase PostgreSQL                      | Relasjonell datalagring                    |
-| ORM              | Drizzle ORM                              | Type-safe queries, migrasjon               |
-| Fillagring       | Supabase Storage                         | Importerte filer lagres i bucket "imports"  |
-| Filparsing       | xlsx, papaparse, fast-xml-parser         | Excel, CSV, CAMT.053 XML-filer             |
-| Validering       | Zod                                      | Runtime-validering av API-input            |
-| Ikoner           | Lucide React                             | Ikonbibliotek                              |
+| Lag | Teknologi | Rolle |
+|-----|-----------|-------|
+| Frontend | Next.js 16 (App Router, Turbopack) | SSR, routing, React Server Components |
+| UI | shadcn/ui + Tailwind CSS 4 | Komponentbibliotek, styling |
+| Autentisering | Clerk | Brukere, organisasjoner, SSO |
+| Database | Supabase PostgreSQL | Relasjonell datalagring |
+| ORM | Drizzle ORM | Type-safe queries, migrasjon |
+| Fillagring | Supabase Storage | Importerte filer i bucket "imports" |
+| Filparsing | xlsx, papaparse, fast-xml-parser | Excel, CSV, CAMT.053 XML-filer |
+| AI (LLM) | Anthropic Claude Sonnet 4 | Chatbot, kunnskapssøk |
+| AI (Embeddings) | OpenAI text-embedding-3-small | Semantisk søk i kunnskapsbase |
+| E-post | Resend | Varsler, rapporter, notifikasjoner |
+| Eksport | pdfmake, xlsx | PDF- og XLSX-rapporter |
+| Feilsporing | Sentry | Klient- og server-side feilrapportering |
+| Validering | Zod | Runtime-validering av API-input |
+| Ikoner | Lucide React | Ikonbibliotek |
+| Bakgrunnsjobber | Railway Worker (Node.js) | Automatisk Smart Match og rapportering |
 
 ## Mappestruktur
 
 ```
 project_opus/
-├── docs/                    # Prosjektdokumentasjon
-├── scripts/                 # Verktøy (seed.ts)
-├── public/                  # Statiske filer
+├── docs/                        # Prosjektdokumentasjon
+│   ├── ARCHITECTURE.md          # Denne filen
+│   ├── MATCHING_ENGINE.md       # Smart Match-motor
+│   ├── AI_SYSTEM.md             # AI-chatbot og kunnskapsbase
+│   ├── AGENT_SYSTEM.md          # Automatisert matching og rapportering
+│   ├── NOTIFICATIONS.md         # Varslingssystem
+│   ├── EXPORT_SYSTEM.md         # PDF/XLSX-eksport
+│   ├── DATABASE.md              # Databaseskjema
+│   ├── API.md                   # API-referanse
+│   ├── SERVICES.md              # Eksterne tjenester og konfig
+│   ├── IMPORT_SYSTEM.md         # Import-system
+│   ├── DESIGN_SYSTEM.md         # Designsystem
+│   └── ...
+├── worker/                      # Railway Worker (bakgrunnsjobber)
+│   ├── index.ts                 # Entry point, poll-loop, locking
+│   └── job-runner.ts            # Jobb-logikk (match + rapport + e-post)
+├── scripts/                     # Verktøy (seed.ts, seed-knowledge.ts)
+├── public/                      # Statiske filer
 ├── src/
-│   ├── app/                 # Next.js App Router
-│   │   ├── (auth)/          # Innlogging (sign-in, sign-up)
-│   │   ├── api/             # API-ruter (se docs/API.md)
-│   │   │   ├── clients/     # Klient-CRUD + matching
-│   │   │   ├── companies/   # Selskap-listing
-│   │   │   └── import/      # Filimport
-│   │   └── dashboard/       # Dashboard-sider
-│   │       ├── accounts/    # Kontoadministrasjon
-│   │       ├── clients/     # Klienter + import + matching
-│   │       ├── companies/   # Selskaper
-│   │       └── settings/    # Innstillinger
+│   ├── app/                     # Next.js App Router
+│   │   ├── (auth)/              # Innlogging (sign-in, sign-up)
+│   │   ├── api/                 # API-ruter (se docs/API.md)
+│   │   │   ├── ai/              # AI-chat
+│   │   │   ├── clients/         # Klient-CRUD, matching, agent, transaksjoner
+│   │   │   ├── companies/       # Selskap-listing
+│   │   │   ├── export/          # PDF/XLSX-eksport
+│   │   │   ├── import/          # Filimport
+│   │   │   └── notifications/   # Varsler
+│   │   └── dashboard/           # Dashboard-sider
+│   │       ├── accounts/        # Kontoadministrasjon
+│   │       ├── clients/         # Klienter + import + matching
+│   │       ├── companies/       # Selskaper
+│   │       └── settings/        # Innstillinger
 │   ├── components/
-│   │   ├── import/          # Import-wizard, forhåndsvisning, dropzone
-│   │   ├── layout/          # Header, sidebar, breadcrumb
-│   │   ├── matching/        # Matching-visning, toolbar, paneler
-│   │   └── ui/              # shadcn/ui-komponenter
-│   ├── hooks/               # React-hooks
+│   │   ├── export/              # Eksport-modal og rapport-knapp
+│   │   ├── import/              # Import-wizard, forhåndsvisning, dropzone
+│   │   ├── layout/              # Header, sidebar, breadcrumb, notification-bell
+│   │   ├── matching/            # Matching-visning, toolbar, paneler, agent-settings
+│   │   ├── smart-panel/         # AI-chatbot UI
+│   │   └── ui/                  # shadcn/ui-komponenter
+│   ├── hooks/                   # React-hooks (useAiChat, useUiPreferences, etc.)
 │   └── lib/
-│       ├── db/              # Drizzle-skjema, tilkobling, migrasjoner
-│       ├── import-scripts/  # Import-script logikk og detektorer
-│       └── parsers/         # Fil-parsere (CSV, Excel, CAMT, Klink)
-├── drizzle.config.ts        # Drizzle-konfigurasjon
-├── next.config.ts           # Next.js-konfigurasjon
+│       ├── ai/                  # AI-system (prompt, guardrails, actions, knowledge)
+│       ├── db/                  # Drizzle-skjema, tilkobling, tenant-validering
+│       ├── export/              # Eksport-service, templates, registry
+│       ├── import-scripts/      # Import-script logikk og detektorer
+│       ├── matching/            # Smart Match-motor (engine, pipeline, scorer)
+│       └── parsers/             # Fil-parsere (CSV, Excel, CAMT, Klink)
+├── drizzle.config.ts            # Drizzle-konfigurasjon
+├── next.config.ts               # Next.js-konfigurasjon
 ├── package.json
 └── tsconfig.json
 ```
+
+## Hovedsystemer
+
+| System | Dokumentasjon | Beskrivelse |
+|--------|---------------|-------------|
+| **Smart Match** | [MATCHING_ENGINE.md](MATCHING_ENGINE.md) | Regelbasert matching med pipeline, scoring og indeksering |
+| **AI-chatbot** | [AI_SYSTEM.md](AI_SYSTEM.md) | Claude-drevet chatbot med kunnskapsbase og tool calling |
+| **Revizo Agent** | [AGENT_SYSTEM.md](AGENT_SYSTEM.md) | Automatisert Smart Match og PDF-rapportering via Railway Worker |
+| **Varsler** | [NOTIFICATIONS.md](NOTIFICATIONS.md) | In-app og e-postvarsler via Resend |
+| **Eksport** | [EXPORT_SYSTEM.md](EXPORT_SYSTEM.md) | PDF/XLSX-rapporter med template-mønster |
+| **Import** | [IMPORT_SYSTEM.md](IMPORT_SYSTEM.md) | Filimport (Excel, CSV, CAMT, Klink) med wizard |
+| **Database** | [DATABASE.md](DATABASE.md) | Databaseskjema og sikkerhet |
+| **API** | [API.md](API.md) | API-referanse for alle endepunkter |
+| **Tjenester** | [SERVICES.md](SERVICES.md) | Eksterne tjenester og miljøvariabler |
+| **Design** | [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) | Designsystem med farger, typografi og komponenter |
 
 ## Dataflyt: Filimport
 
@@ -112,7 +162,12 @@ Clerk Organization (orgId)
                     ├── transactions (set 1 + set 2)
                     ├── imports
                     ├── matches
-                    └── matching_rules
+                    ├── matching_rules
+                    ├── agent_report_configs
+                    └── agent_job_logs
+    └── notifications (tenant_id = orgId)
+    └── ai_conversations (organization_id = orgId)
+    └── ai_user_memory (organization_id = orgId)
 ```
 
 Alle data-spørringer filtrerer på `tenant_id` eller navigerer via `company → client`-relasjonen for å sikre dataisolering.

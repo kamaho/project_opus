@@ -1,7 +1,7 @@
 # Design System & UI/UX Guidelines
 
 > This document defines the visual language, component rules, and interaction patterns for
-> Account Control. Every UI element **must** follow these guidelines. If you need to deviate,
+> Revizo. Every UI element **must** follow these guidelines. If you need to deviate,
 > you MUST document WHY in a code comment and get explicit approval. No exceptions.
 >
 > When building any UI component, **CHECK THIS DOCUMENT FIRST**. If this document has a rule
@@ -81,21 +81,20 @@ See `globals.css` for exact values. When building components, always use the
 CSS variable classes (`bg-background`, `text-foreground`, `border-border`) — never
 hardcode hex or oklch values directly.
 
-### 2.3 Brand Accent — Orange
+### 2.3 Brand Accent — Neon Green
 
-Orange is our brand identity color. It is **deliberately limited** in use to create
-a distinctive but professional impression. Orange has inherent WCAG challenges on
-light backgrounds, so we follow strict rules.
+Neon green (Supabase-inspired) is our brand identity color. It is **deliberately limited**
+in use to create a distinctive but professional impression.
 
 ```css
-/* Brand accent — add these to globals.css */
---brand:            oklch(0.70 0.17 55);    /* Vibrant orange — decorative only */
---brand-emphasis:   oklch(0.55 0.16 50);    /* Darker orange — passes 4.5:1 on white for text */
---brand-subtle:     oklch(0.95 0.03 55);    /* Barely-there tint — backgrounds */
---brand-muted:      oklch(0.85 0.08 55);    /* Soft orange — borders, progress indicators */
+/* Brand accent — defined in globals.css */
+--brand:            oklch(0.72 0.20 155);   /* Neon green — decorative only */
+--brand-emphasis:   oklch(0.55 0.18 155);   /* Darker green — passes 4.5:1 on white for text */
+--brand-subtle:     oklch(0.95 0.04 155);   /* Barely-there tint — backgrounds */
+--brand-muted:      oklch(0.85 0.10 155);   /* Soft green — borders, progress indicators */
 ```
 
-#### Where to Use Orange
+#### Where to Use Green
 
 | Context | Token | Example |
 |---------|-------|---------|
@@ -106,26 +105,27 @@ light backgrounds, so we follow strict rules.
 | Hover glow on brand elements | `--brand` at 10% opacity | Subtle ring on logo hover |
 | Text that must be readable | `--brand-emphasis` | Only when AA contrast is verified |
 | Subtle tint backgrounds | `--brand-subtle` | "Ny funksjon" announcement banner |
+| Smart Match accent | `--brand` / emerald Tailwind | Buttons, gradients, selection highlights |
 
-#### Where to NEVER Use Orange
+#### Where to NEVER Use Green
 
 - Primary action buttons — those are near-black (`--primary`)
-- Body text — fails WCAG AA on light backgrounds
+- Body text without contrast check
 - Large filled areas — becomes overwhelming and unprofessional
 - Status indicators — matched/error/warning have dedicated semantic colors
 - Links — keep standard text color or underlined treatment
-- Borders on inputs — confusing with error states
+- Borders on inputs — confusing with success/error states
 
-#### WCAG Orange Safety Reference
+#### WCAG Green Safety Reference
 
-| Background | Orange token | Contrast | WCAG |
+| Background | Green token | Contrast | WCAG |
 |-----------|-------------|----------|------|
-| White `#fff` | `--brand` (oklch 0.70) | ~3.2:1 | **Fails** AA text — OK for large decorative |
-| White `#fff` | `--brand-emphasis` (oklch 0.55) | ~5.0:1 | **Passes** AA for normal text |
-| Dark `#1a1a1a` | `--brand` (oklch 0.70) | ~7.5:1 | **Passes** AA/AAA |
-| `--muted` bg | `--brand-emphasis` (oklch 0.55) | ~4.7:1 | **Passes** AA for normal text |
+| White `#fff` | `--brand` (oklch 0.72) | ~3.0:1 | **Fails** AA text — OK for large decorative |
+| White `#fff` | `--brand-emphasis` (oklch 0.55) | ~5.2:1 | **Passes** AA for normal text |
+| Dark `#1a1a1a` | `--brand` (oklch 0.72) | ~8.0:1 | **Passes** AA/AAA |
+| `--muted` bg | `--brand-emphasis` (oklch 0.55) | ~4.9:1 | **Passes** AA for normal text |
 
-**Rule:** If orange text must be readable, use `--brand-emphasis`. For decorative elements
+**Rule:** If green text must be readable, use `--brand-emphasis`. For decorative elements
 (dots, icons, borders), `--brand` is fine.
 
 ### 2.4 Semantic Colors
@@ -492,7 +492,7 @@ Dark mode is supported. The `.dark` class on `<html>` activates it.
 - **Avoid hardcoded colors** — `bg-white` becomes invisible in dark mode. Use `bg-background` or `bg-card`.
 - **Selection highlight:** `bg-blue-50 dark:bg-blue-950/40` — note the dark variant.
 - **Status light backgrounds:** Must have corresponding dark variants (e.g., `bg-green-50 dark:bg-green-950/20`).
-- **Brand orange in dark mode:** `--brand` (oklch 0.70) works well on dark backgrounds. Higher contrast than on white.
+- **Brand green in dark mode:** `--brand` (oklch 0.78) works well on dark backgrounds. Higher contrast than on white.
 
 ---
 
@@ -577,22 +577,22 @@ export function MyComponent({ ... }: MyComponentProps) {
 
 ---
 
-## 14. Brand Orange — Implementation Reference
+## 14. Brand Green — Implementation Reference
 
-To add the brand orange tokens, add these lines to `src/app/globals.css`:
+The brand green tokens are defined in `src/app/globals.css`:
 
 ```css
 /* Inside :root { ... } */
---brand: oklch(0.70 0.17 55);
---brand-emphasis: oklch(0.55 0.16 50);
---brand-subtle: oklch(0.95 0.03 55);
---brand-muted: oklch(0.85 0.08 55);
+--brand: oklch(0.72 0.20 155);
+--brand-emphasis: oklch(0.55 0.18 155);
+--brand-subtle: oklch(0.95 0.04 155);
+--brand-muted: oklch(0.85 0.10 155);
 
 /* Inside .dark { ... } */
---brand: oklch(0.72 0.17 55);
---brand-emphasis: oklch(0.75 0.15 55);
---brand-subtle: oklch(0.20 0.04 55);
---brand-muted: oklch(0.35 0.10 55);
+--brand: oklch(0.78 0.20 155);
+--brand-emphasis: oklch(0.82 0.18 155);
+--brand-subtle: oklch(0.20 0.04 155);
+--brand-muted: oklch(0.35 0.10 155);
 ```
 
 Then map in the `@theme inline` block:

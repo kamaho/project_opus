@@ -1,4 +1,4 @@
-# Account Control — Domain Specification
+# Revizo — Domain Specification
 
 > This document describes the business domain, rules, and data flows for a reconciliation SaaS
 > targeting Norwegian accountants. It serves as the primary context for AI-assisted development
@@ -477,7 +477,7 @@ Every report approval with:
 ### 6.5 Auditor access (future)
 
 - Read-only link for auditors to access a company's annual report package
-- No Account Control login required — token-based access with expiry
+- No Revizo login required — token-based access with expiry
 - Auditors can leave comments/questions on specific sections
 - Comments create tasks for the accountant
 
@@ -521,7 +521,7 @@ This allows adding new integrations without changing core business logic.
 - Authentication via Altinn API keys / Maskinporten
 
 ### 7.4 Public API
-Account Control exposes a public REST API for programmatic access. See DEVELOPMENT_RULES.md section 6.2 for full specification. Key capabilities:
+Revizo exposes a public REST API for programmatic access. See DEVELOPMENT_RULES.md section 6.2 for full specification. Key capabilities:
 - List and manage companies
 - Retrieve reconciliation reports and their status
 - Trigger reconciliation runs

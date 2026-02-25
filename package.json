@@ -10,9 +10,14 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "seed:knowledge": "tsx scripts/seed-knowledge.ts",
+    "worker": "tsx worker/index.ts",
+    "worker:dev": "tsx watch worker/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@clerk/backend": "^2.32.1",
     "@clerk/nextjs": "^6",
     "@sentry/nextjs": "^10.39.0",
     "@supabase/supabase-js": "^2.97.0",
@@ -25,6 +30,7 @@
     "fast-xml-parser": "^5.3.6",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
+    "openai": "^6.25.0",
     "papaparse": "^5.5.3",
     "pdfmake": "^0.3.5",
     "pg": "^8.18.0",

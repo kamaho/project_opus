@@ -84,6 +84,7 @@ interface TransactionPanelProps {
   highlightTxId?: string | null;
   onFileManager?: () => void;
   onCreateTransaction?: () => void;
+  selectionVariant?: "purple" | "blue";
 }
 
 type ColumnKey = keyof typeof DEFAULT_COLUMN_WIDTHS;
@@ -143,6 +144,7 @@ export function TransactionPanel({
   highlightTxId,
   onFileManager,
   onCreateTransaction,
+  selectionVariant = "purple",
 }: TransactionPanelProps) {
   const [colWidths, setColWidths] = useState(DEFAULT_COLUMN_WIDTHS);
   const [colOrder, setColOrder] = useState<ColumnKey[]>(DEFAULT_COLUMN_ORDER);
@@ -940,9 +942,9 @@ export function TransactionPanel({
                         isKbFocused && "outline outline-2 -outline-offset-2 outline-primary z-[1] kb-focused",
                         isHighlighted && "notification-highlight",
                         selectedIds.has(tx.id)
-                          ? "bg-violet-100 dark:bg-violet-950/40 hover:bg-violet-200/70 dark:hover:bg-violet-950/60"
+                          ? "bg-emerald-100 dark:bg-emerald-950/40 hover:bg-emerald-200/70 dark:hover:bg-emerald-950/60"
                           : counterpartHintIds?.has(tx.id)
-                            ? "bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 ring-1 ring-inset ring-emerald-300 dark:ring-emerald-700"
+                            ? "bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50 ring-1 ring-inset ring-violet-300 dark:ring-violet-700"
                             : counterpartSumHintIds?.has(tx.id)
                               ? "bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50 ring-1 ring-inset ring-amber-300 dark:ring-amber-700"
                               : vRow.index % 2 === 1 && tableAppearance.rowAlternateClass,

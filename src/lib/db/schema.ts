@@ -10,7 +10,9 @@ import {
   jsonb,
   index,
   varchar,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Companies (tenant = Clerk organization)
@@ -327,5 +329,266 @@ export const notifications = pgTable(
   (t) => [
     index("idx_notifications_user").on(t.userId, t.read, t.createdAt),
     index("idx_notifications_tenant").on(t.tenantId, t.createdAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Knowledge Articles (AI knowledge base)
+// ---------------------------------------------------------------------------
+export const knowledgeArticles = pgTable("knowledge_articles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  category: text("category").notNull(),
+  subcategory: text("subcategory"),
+  title: text("title").notNull(),
+  slug: text("slug").unique().notNull(),
+  content: text("content").notNull(),
+  summary: text("summary"),
+  keywords: text("keywords").array().default([]),
+  appliesTo: text("applies_to").array().default([]),
+  validFrom: date("valid_from"),
+  validTo: date("valid_to"),
+  source: text("source"),
+  sourceUrl: text("source_url"),
+  confidence: numeric("confidence", { precision: 3, scale: 2 }).default("1.00"),
+  version: integer("version").default(1),
+  status: text("status", { enum: ["published", "draft", "archived"] }).default("published"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Knowledge Snippets (quick facts)
+// ---------------------------------------------------------------------------
+export const knowledgeSnippets = pgTable("knowledge_snippets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  articleId: uuid("article_id").references(() => knowledgeArticles.id, { onDelete: "set null" }),
+  fact: text("fact").notNull(),
+  context: text("context"),
+  triggerPhrases: text("trigger_phrases").array().default([]),
+  priority: integer("priority").default(0),
+  alwaysInclude: boolean("always_include").default(false),
+  validFrom: date("valid_from"),
+  validTo: date("valid_to"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Product Guides (step-by-step)
+// ---------------------------------------------------------------------------
+export const productGuides = pgTable("product_guides", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  feature: text("feature").notNull(),
+  title: text("title").notNull(),
+  slug: text("slug").unique().notNull(),
+  description: text("description"),
+  prerequisites: text("prerequisites").array().default([]),
+  steps: jsonb("steps").default([]),
+  difficulty: text("difficulty", { enum: ["beginner", "intermediate", "advanced"] }).default("beginner"),
+  estimatedTimeMinutes: integer("estimated_time_minutes"),
+  roles: text("roles").array().default([]),
+  keywords: text("keywords").array().default([]),
+  status: text("status", { enum: ["published", "draft", "archived"] }).default("published"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Knowledge FAQ
+// ---------------------------------------------------------------------------
+export const knowledgeFaq = pgTable("knowledge_faq", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  question: text("question").notNull(),
+  questionVariants: text("question_variants").array().default([]),
+  answer: text("answer").notNull(),
+  answerAction: text("answer_action"),
+  category: text("category"),
+  feature: text("feature"),
+  priority: integer("priority").default(0),
+  timesMatched: integer("times_matched").default(0),
+  status: text("status", { enum: ["published", "draft", "archived"] }).default("published"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// Regulatory Deadlines (norske frister)
+// ---------------------------------------------------------------------------
+export const regulatoryDeadlines = pgTable("regulatory_deadlines", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  obligation: text("obligation").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  frequency: text("frequency", { enum: ["monthly", "bimonthly", "quarterly", "yearly"] }).notNull(),
+  periodStartMonth: integer("period_start_month"),
+  periodEndMonth: integer("period_end_month"),
+  deadlineRule: jsonb("deadline_rule").notNull(),
+  exceptions: jsonb("exceptions").default([]),
+  appliesToEntity: text("applies_to_entity").array().default([]),
+  appliesToRole: text("applies_to_role").array().default([]),
+  legalReference: text("legal_reference"),
+  legalUrl: text("legal_url"),
+  validFrom: date("valid_from"),
+  validTo: date("valid_to"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ---------------------------------------------------------------------------
+// AI User Memory (per user per org)
+// ---------------------------------------------------------------------------
+export const aiUserMemory = pgTable(
+  "ai_user_memory",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    memoryType: text("memory_type").notNull(),
+    content: text("content").notNull(),
+    confidence: numeric("confidence", { precision: 3, scale: 2 }).default("0.80"),
+    lastRelevantAt: timestamp("last_relevant_at", { withTimezone: true }).defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_ai_memory_user_org").on(t.userId, t.organizationId)]
+);
+
+// ---------------------------------------------------------------------------
+// AI Conversations
+// ---------------------------------------------------------------------------
+export const aiConversations = pgTable(
+  "ai_conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    messages: jsonb("messages").default([]),
+    mode: text("mode", { enum: ["support", "onboarding"] }).default("support"),
+    pageContext: text("page_context"),
+    toolsUsed: text("tools_used").array().default([]),
+    tokensUsed: integer("tokens_used").default(0),
+    rating: integer("rating"),
+    feedback: text("feedback"),
+    resolved: boolean("resolved"),
+    escalated: boolean("escalated").default(false),
+    durationSeconds: integer("duration_seconds"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_ai_conv_user_org").on(t.userId, t.organizationId),
+    index("idx_ai_conv_created").on(t.createdAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// User Onboarding
+// ---------------------------------------------------------------------------
+export const userOnboarding = pgTable(
+  "user_onboarding",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    profileCompleted: boolean("profile_completed").default(false),
+    firstClientCreated: boolean("first_client_created").default(false),
+    bankConnected: boolean("bank_connected").default(false),
+    firstMatchRun: boolean("first_match_run").default(false),
+    teamInvited: boolean("team_invited").default(false),
+    notificationsConfigured: boolean("notifications_configured").default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_user_onboarding_user").on(t.userId)]
+);
+
+// ---------------------------------------------------------------------------
+// Agent Report Configs (per-client scheduled matching & reporting)
+// ---------------------------------------------------------------------------
+export const SCHEDULE_PRESETS = [
+  "daily",
+  "weekly_mon",
+  "weekly_tue",
+  "weekly_wed",
+  "weekly_thu",
+  "weekly_fri",
+  "weekly_sat",
+  "weekly_sun",
+  "biweekly",
+  "monthly_1",
+  "monthly_15",
+] as const;
+
+export type SchedulePreset = (typeof SCHEDULE_PRESETS)[number];
+
+export const agentReportConfigs = pgTable(
+  "agent_report_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").notNull(),
+    enabled: boolean("enabled").default(false).notNull(),
+
+    reportTypes: jsonb("report_types")
+      .default(sql`'["open_items"]'::jsonb`)
+      .notNull(),
+
+    smartMatchEnabled: boolean("smart_match_enabled").default(true).notNull(),
+    smartMatchSchedule: text("smart_match_schedule"),
+
+    reportSchedule: text("report_schedule"),
+
+    specificDates: jsonb("specific_dates").default(sql`'[]'::jsonb`),
+
+    preferredTime: text("preferred_time").default("03:00"),
+
+    nextMatchRun: timestamp("next_match_run", { withTimezone: true }),
+    nextReportRun: timestamp("next_report_run", { withTimezone: true }),
+    lastMatchRun: timestamp("last_match_run", { withTimezone: true }),
+    lastReportRun: timestamp("last_report_run", { withTimezone: true }),
+    lastMatchCount: integer("last_match_count"),
+
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    lockedBy: text("locked_by"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_agent_config_client").on(t.clientId),
+    index("idx_agent_config_tenant").on(t.tenantId),
+    index("idx_agent_config_next_match").on(t.enabled, t.nextMatchRun),
+    index("idx_agent_config_next_report").on(t.enabled, t.nextReportRun),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Agent Job Logs (execution history)
+// ---------------------------------------------------------------------------
+export const agentJobLogs = pgTable(
+  "agent_job_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    configId: uuid("config_id")
+      .notNull()
+      .references(() => agentReportConfigs.id, { onDelete: "cascade" }),
+    tenantId: text("tenant_id").notNull(),
+    clientId: uuid("client_id").notNull(),
+    jobType: text("job_type", {
+      enum: ["smart_match", "report", "both"],
+    }).notNull(),
+    status: text("status", {
+      enum: ["success", "failed", "partial"],
+    }).notNull(),
+    matchCount: integer("match_count"),
+    transactionCount: integer("transaction_count"),
+    reportSent: boolean("report_sent").default(false),
+    errorMessage: text("error_message"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_agent_logs_config").on(t.configId, t.createdAt),
+    index("idx_agent_logs_client").on(t.clientId, t.createdAt),
   ]
 );

@@ -9,7 +9,7 @@ if (!apiKey) {
 export const resend = apiKey ? new Resend(apiKey) : null;
 
 const FROM_ADDRESS =
-  process.env.RESEND_FROM_ADDRESS ?? "Account Control <noreply@accountcontrol.no>";
+  process.env.RESEND_FROM_ADDRESS ?? "Revizo <noreply@revizo.no>";
 
 // ── Design tokens (matching design system, email-safe hex) ──────────────────
 const T = {
@@ -20,7 +20,7 @@ const T = {
   border: "#e5e5e5",
   btnBg: "#171717",
   btnFg: "#ffffff",
-  brand: "#d97706",
+  brand: "#38c96c",
   subtle: "#f5f5f5",
   radius: "8px",
   font: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif',
@@ -37,7 +37,7 @@ function emailLayout(content: string): string {
 
         <!-- Header -->
         <tr><td style="padding-bottom:24px;">
-          <span style="font-size:15px;font-weight:600;color:${T.fg};letter-spacing:-0.3px;">Account Control</span>
+          <span style="font-size:15px;font-weight:600;color:${T.fg};letter-spacing:-0.3px;">Revizo</span>
           <span style="display:inline-block;width:5px;height:5px;background:${T.brand};border-radius:50%;margin-left:2px;vertical-align:super;"></span>
         </td></tr>
 
@@ -49,7 +49,7 @@ function emailLayout(content: string): string {
         <!-- Footer -->
         <tr><td style="padding-top:24px;text-align:center;">
           <p style="margin:0;font-size:12px;color:${T.muted};line-height:1.6;">
-            Denne e-posten ble sendt fra Account Control.<br>
+            Denne e-posten ble sendt fra Revizo.<br>
             Du mottar den fordi du er medlem av et team som bruker plattformen.
           </p>
         </td></tr>
@@ -188,5 +188,93 @@ export async function sendImportCompletedEmail(params: {
       </div>
       ${cta("Gå til avstemming", link)}
     `),
+  });
+}
+
+export async function sendAgentReportEmail(params: {
+  toEmail: string;
+  userName: string;
+  clientName: string;
+  matchCount: number;
+  transactionCount: number;
+  openItemsSet1: number;
+  openItemsSet2: number;
+  totalSet1: number;
+  totalSet2: number;
+  link: string;
+  pdfBuffer?: Buffer;
+  reportDate: string;
+}) {
+  if (!resend) return;
+
+  const {
+    toEmail,
+    userName,
+    clientName,
+    matchCount,
+    transactionCount,
+    openItemsSet1,
+    openItemsSet2,
+    totalSet1,
+    totalSet2,
+    link,
+    pdfBuffer,
+    reportDate,
+  } = params;
+
+  const fmtNok = (n: number) =>
+    n.toLocaleString("nb-NO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const diff = totalSet1 - totalSet2;
+
+  await resend.emails.send({
+    from: FROM_ADDRESS,
+    to: toEmail,
+    subject: `Revizo Rapport — ${clientName} — ${reportDate}`,
+    html: emailLayout(`
+      ${heading("Revizo Agent Rapport")}
+      ${paragraph(`Hei ${userName}, her er den automatiske rapporten for <strong>${clientName}</strong>.`)}
+      ${matchCount > 0
+        ? `${statRow([
+            { label: "Nye matcher", value: String(matchCount) },
+            { label: "Transaksjoner", value: String(transactionCount) },
+          ])}
+          ${mutedText("Smart Match kjørte automatisk og avstemte poster basert på konfigurerte regler.")}`
+        : mutedText("Ingen nye matcher ble funnet i denne kjøringen.")}
+      ${divider()}
+      ${heading("Åpne poster")}
+      ${statRow([
+        { label: "Mengde 1", value: String(openItemsSet1) },
+        { label: "Mengde 2", value: String(openItemsSet2) },
+      ])}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${T.subtle};border-radius:6px;margin:0 0 20px;">
+        <tr>
+          <td style="padding:10px 16px;">
+            <div style="font-size:12px;color:${T.muted};text-transform:uppercase;letter-spacing:0.5px;">Saldo mengde 1</div>
+            <div style="font-size:16px;font-weight:600;color:${T.fg};font-family:monospace;">${fmtNok(totalSet1)}</div>
+          </td>
+          <td style="padding:10px 16px;">
+            <div style="font-size:12px;color:${T.muted};text-transform:uppercase;letter-spacing:0.5px;">Saldo mengde 2</div>
+            <div style="font-size:16px;font-weight:600;color:${T.fg};font-family:monospace;">${fmtNok(totalSet2)}</div>
+          </td>
+          <td style="padding:10px 16px;">
+            <div style="font-size:12px;color:${T.muted};text-transform:uppercase;letter-spacing:0.5px;">Differanse</div>
+            <div style="font-size:16px;font-weight:600;color:${Math.abs(diff) < 0.01 ? T.brand : "#dc2626"};font-family:monospace;">${fmtNok(diff)}</div>
+          </td>
+        </tr>
+      </table>
+      ${pdfBuffer ? mutedText("Fullstendig rapport er vedlagt som PDF.") : ""}
+      ${cta("Åpne i Revizo", link)}
+    `),
+    ...(pdfBuffer
+      ? {
+          attachments: [
+            {
+              filename: `revizo-rapport-${clientName.replace(/\s+/g, "-").toLowerCase()}-${reportDate}.pdf`,
+              content: pdfBuffer,
+            },
+          ],
+        }
+      : {}),
   });
 }

@@ -166,7 +166,7 @@ import type { Client } from "@/lib/db/schema";
 
 ### 6.2 Public API (Open API for External Consumers)
 
-Account Control exposes a public REST API so that customers, partners and third-party
+Revizo exposes a public REST API so that customers, partners and third-party
 developers can read and write data programmatically. The public API lives under
 `/api/v1/` and follows the same security rules as the rest of the application — but
 uses API key authentication instead of Clerk session cookies.

@@ -1,4 +1,4 @@
-# Design — Account Control
+# Design — Revizo
 
 Designet er inspirert av **Vercel**, **Linear**, **Apple** og **Supabase**. De utgjør vårt faste utgangspunkt for UI og visuell stil.
 
@@ -18,7 +18,7 @@ Designet er inspirert av **Vercel**, **Linear**, **Apple** og **Supabase**. De u
 - **Minimal** — få elementer, tydelig hierarki, ingen visuell støy
 - **Profesjonell SaaS** — troverdig, raskt å skanne, fokus på innhold
 - **Konsistent spacing og typografi** — god lesbarhet, forutsigbare avstander
-- **Subtil farge** — nøytral grå som base, oransje brand-accent brukt sparsomt
+- **Subtil farge** — nøytral grå som base, neon grønn brand-accent brukt sparsomt
 - **Tynne rammer** — diskré borders, lette skygger kun der det trengs
 
 ## Teknisk
@@ -26,11 +26,11 @@ Designet er inspirert av **Vercel**, **Linear**, **Apple** og **Supabase**. De u
 - **Fonter**: Geist Sans + Geist Mono (via `next/font`)
 - **Radius**: 8px (`--radius: 0.5rem`)
 - **Palett**: oklch-basert i `src/app/globals.css`
-- **Brand-farge**: Oransje — kun til identitetsdetaljer (se DESIGN_SYSTEM.md §14)
+- **Brand-farge**: Neon grønn (Supabase-inspirert) — kun til identitetsdetaljer (se DESIGN_SYSTEM.md §14)
 - **Komponenter**: shadcn/ui (New York variant), tilpasset gjennom CSS-variabler
 - **Ikoner**: Lucide React — ingen andre ikonbiblioteker
 
 ## Referanse-frontend
 
 For konkrete mønstre på kontooversikt, matching-visning, toolbar og transaksjonstabeller:
-se [ACCOUNT_CONTROL_CLIENT_REFERENCE.md](./ACCOUNT_CONTROL_CLIENT_REFERENCE.md).
+se [REVIZO_CLIENT_REFERENCE.md](./REVIZO_CLIENT_REFERENCE.md).

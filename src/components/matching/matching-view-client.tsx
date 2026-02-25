@@ -37,6 +37,7 @@ import { NoteDialog } from "@/components/matching/note-dialog";
 import { AttachmentPopover } from "@/components/matching/attachment-popover";
 import { AttachmentDialog } from "@/components/matching/attachment-dialog";
 import { ExportModal } from "@/components/export/export-modal";
+import { AgentReportSettings } from "@/components/matching/agent-report-settings";
 import { ExportIntroOverlay } from "@/components/export/export-intro-overlay";
 import { ReportButton } from "@/components/export/report-button";
 import { AutoMatchPreview } from "@/components/matching/auto-match-preview";
@@ -210,7 +211,7 @@ function EditableAccountBadge({
   label: string;
   accountId: string;
   clientId: string;
-  variant: "violet" | "brand";
+  variant: "purple" | "blue";
   onRenamed: (newName: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -248,9 +249,9 @@ function EditableAccountBadge({
   }, [value, label, accountId, clientId, onRenamed]);
 
   const badgeClasses =
-    variant === "violet"
+    variant === "purple"
       ? "bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 ring-violet-200 dark:ring-violet-800"
-      : "bg-brand-subtle text-brand-emphasis ring-brand-muted";
+      : "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 ring-blue-200 dark:ring-blue-800";
 
   if (editing) {
     return (
@@ -1348,6 +1349,7 @@ export function MatchingViewClient({
   const [excelBuffer, setExcelBuffer] = useState<ArrayBuffer | null>(null);
 
   const [fileManagerSet, setFileManagerSet] = useState<1 | 2 | null>(null);
+  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
 
   const [dupReport, setDupReport] = useState<DuplicateReport | null>(null);
   const [dupDialogOpen, setDupDialogOpen] = useState(false);
@@ -1938,6 +1940,7 @@ export function MatchingViewClient({
               onUnmatchAll={handleUnmatchAll}
               unmatchAllLoading={unmatchAllLoading}
               hasMatches={matchedGroups.length > 0}
+              onAgentSettings={() => setAgentSettingsOpen(true)}
             />
           </div>
         </div>
@@ -1976,7 +1979,7 @@ export function MatchingViewClient({
                   label={set1Label}
                   accountId={set1AccountId}
                   clientId={clientId}
-                  variant="violet"
+                  variant="purple"
                   onRenamed={(name) => { setSet1Label(name); refreshData(); }}
                 />
                 <span>
@@ -2032,6 +2035,7 @@ export function MatchingViewClient({
                   highlightTxId={highlightTxId}
                   onFileManager={() => setFileManagerSet(1)}
                   onCreateTransaction={() => openManualTxDialog(1)}
+                  selectionVariant="purple"
                 />
               ) : (
                 <SetDropzone
@@ -2064,7 +2068,7 @@ export function MatchingViewClient({
                     label={set2Label}
                     accountId={set2AccountId}
                     clientId={clientId}
-                    variant="brand"
+                    variant="blue"
                     onRenamed={(name) => { setSet2Label(name); refreshData(); }}
                   />
                 </div>
@@ -2104,6 +2108,7 @@ export function MatchingViewClient({
                   highlightTxId={highlightTxId}
                   onFileManager={() => setFileManagerSet(2)}
                   onCreateTransaction={() => openManualTxDialog(2)}
+                  selectionVariant="blue"
                 />
               ) : (
                 <SetDropzone
@@ -2136,7 +2141,7 @@ export function MatchingViewClient({
             className={cn(
               "flex items-center gap-3 border-t px-3 text-sm shrink-0 py-2.5 min-w-0 transition-colors",
               selectedCount > 0
-                ? "bg-violet-50 dark:bg-violet-950/30"
+                ? "bg-violet-50/50 dark:bg-violet-950/20"
                 : "bg-muted/30"
             )}
             data-smart-info="Statuslinjen viser valgte poster og matchinformasjon. Når poster er markert vises sum og match-knapp. Summen av markerte poster må være 0 for at matching er mulig."
@@ -2149,7 +2154,7 @@ export function MatchingViewClient({
                   )}
                   {selectedSet1.size > 0 && selectedSet2.size > 0 && <span>+</span>}
                   {selectedSet2.size > 0 && (
-                    <span className="flex items-center gap-1">{selectedSet2.size} fra <span className="inline-flex items-center rounded-full bg-brand-subtle px-2 py-px text-[11px] font-semibold text-brand-emphasis">{set2Label}</span></span>
+                    <span className="flex items-center gap-1">{selectedSet2.size} fra <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-px text-[11px] font-semibold text-blue-700 dark:text-blue-300">{set2Label}</span></span>
                   )}
                 </span>
                 <span className="text-muted-foreground">|</span>
@@ -2798,6 +2803,13 @@ export function MatchingViewClient({
         set2Label={set2Label}
         setNumber={fileManagerSet ?? undefined}
         onRefresh={() => refreshData()}
+      />
+
+      {/* Agent report settings */}
+      <AgentReportSettings
+        clientId={clientId}
+        open={agentSettingsOpen}
+        onOpenChange={setAgentSettingsOpen}
       />
 
       {/* Smart panel overlay */}
