@@ -9,11 +9,30 @@ export default async function ClientsPage() {
   const { orgId } = await auth();
   if (!orgId) {
     return (
-      <div>
+      <div className="space-y-6">
         <h1 className="text-2xl font-semibold">Avstemminger</h1>
-        <p className="text-muted-foreground">
-          Velg en organisasjon for å se avstemminger.
-        </p>
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 p-12 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
+            <svg
+              className="h-6 w-6 text-muted-foreground"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15"
+              />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium">Opprett en organisasjon</h3>
+          <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+            For å se og opprette avstemminger trenger du en organisasjon.
+            Bruk organisasjonsvelgeren øverst til venstre for å opprette en ny.
+          </p>
+        </div>
       </div>
     );
   }
