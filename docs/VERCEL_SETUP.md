@@ -18,42 +18,32 @@ Klikk **Deploy** ikke ennå – legg inn miljøvariabler først.
 
 ## 3. Miljøvariabler
 
-Under **Environment Variables** i Vercel legger du inn disse. Kopier verdiene fra `.env.local` (ikke lim inn hemmelige verdier her i docs). Merk alle som **Production** (og gjerne **Preview**).
+Under **Vercel → revizo → Settings → Environment Variables** legger du inn variablene under. Velg **Production** (og gjerne Preview).  
+**Viktig:** For produksjon (revizo.ai) bruker du **Revizo Prod**-Supabase. Ikke project opus (den er for lokal `.env.local`).
 
-| Variabel | Hva du legger inn |
-|----------|-------------------|
-| **Clerk** | |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Samme som lokalt (pk_test_... eller pk_live_...) |
-| `CLERK_SECRET_KEY` | Samme som lokalt (sk_test_... eller sk_live_...) |
+### Hvor skal hva stå?
+
+| I Vercel (Key) | Verdi / hvor du henter det |
+|----------------|----------------------------|
+| **Supabase (Revizo Prod)** | |
+| `DATABASE_URL` | **Revizo Prod** → Settings → **Database** → Connection string → **Session pooler** (port 5432). Erstatt `[YOUR-PASSWORD]` med DB-passord. |
+| `NEXT_PUBLIC_SUPABASE_URL` | **Revizo Prod** → Settings → **API** → **Project URL**. Eksempel: `https://pejkokemdzsekboaebmy.supabase.co`. Dette er «project URL» fra Supabase. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Revizo Prod** → Settings → **API** → **Project API keys** → **service_role** (hemmelig nøkkel, ikke anon). |
+| **Clerk (Revizo.ai production)** | |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Clerk → **Revizo.ai**-appen → Production → API Keys → `pk_live_...` |
+| `CLERK_SECRET_KEY` | Clerk → **Revizo.ai** → Production → API Keys → `sk_live_...` |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | `/sign-in` |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | `/sign-up` |
 | `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | `/dashboard` |
 | `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | `/onboarding` |
-| **Supabase** | |
-| `DATABASE_URL` | **Connection Pooler**-URL fra Supabase (Session mode, port 5432) – ikke direkte Postgres-URL |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://[PROJECT_REF].supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service role key fra Supabase Dashboard |
-| **App-URL** | |
-| `NEXT_PUBLIC_APP_URL` | Vercel-URL etter første deploy, f.eks. `https://project-opus-xxxx.vercel.app` (kan settes til placeholder først, oppdater og redeploy etterpå) |
-| **Resend (e-post)** | |
-| `RESEND_API_KEY` | API-nøkkel fra Resend |
-| `RESEND_FROM_ADDRESS` | F.eks. `Revizo <noreply@accountcontrol.no>` |
-| **Sentry** | |
-| `NEXT_PUBLIC_SENTRY_DSN` | DSN fra Sentry-prosjektet |
-| `SENTRY_DSN` | Samme DSN |
-| `SENTRY_ORG` | Org-slug i Sentry |
-| `SENTRY_PROJECT` | Prosjektnavn, f.eks. `account-control` |
-| `SENTRY_AUTH_TOKEN` | Auth token (for source maps ved build) |
-| **AI (Revizo-assistent)** | |
-| `ANTHROPIC_API_KEY` | API-nøkkel fra Anthropic |
-| `OPENAI_API_KEY` | API-nøkkel fra OpenAI |
-| **Worker (valgfritt på Vercel)** | |
-| `WORKER_CONCURRENCY` | F.eks. `3` |
-| `WORKER_POLL_INTERVAL_MS` | F.eks. `30000` |
+| **App** | |
+| `NEXT_PUBLIC_APP_URL` | `https://revizo.ai` (produksjons-URL). |
+| **Resend** | |
+| `RESEND_API_KEY` | Resend Dashboard → API Keys |
+| `RESEND_FROM_ADDRESS` | `Revizo <noreply@revizo.ai>` (etter at revizo.ai er verifisert i Resend) |
+| **Sentry, Anthropic, Worker** | Som du allerede har; endres ikke ved Supabase-bytte. |
 
-**Viktig:**  
-- `NEXT_PUBLIC_APP_URL` må peke på din faktiske Vercel-URL (oppdater etter første deploy og redeploy).  
-- Bruk **Connection Pooler** for `DATABASE_URL` (Supabase → Project Settings → Database → Connection string → «Connection pooling»).
+**Kort svar:** Supabase **Project URL** fra Revizo Prod → Settings → API settes som **`NEXT_PUBLIC_SUPABASE_URL`** i Vercel (f.eks. `https://pejkokemdzsekboaebmy.supabase.co`).
 
 ## 4. Første deploy
 

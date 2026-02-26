@@ -24,11 +24,20 @@ Kopier `.env.example` til `.env.local` og fyll inn verdier:
 cp .env.example .env.local
 ```
 
+**Viktig:** Bruk **separat database** for lokal utvikling og for produksjon. Aldri kjør migrasjoner eller testdata mot prod-DB fra din maskin.
+
+| Miljø | Hva du gjør |
+|-------|--------------|
+| **Lokal** | Opprett et eget Supabase-prosjekt (f.eks. "Revizo dev") eller kjør Postgres lokalt. Sett `DATABASE_URL` i `.env.local` til denne. |
+| **Produksjon** | Vercel → Environment Variables (Production) har `DATABASE_URL` som peker på prod-Supabase. Ikke bruk denne URL-en i `.env.local`. |
+
+**Full steg-for-steg (ny prod-DB, beholde project opus som lokal):** Se **docs/DATABASE_DEV_PROD.md**.
+
 Nødvendige variabler:
 
 | Variabel                              | Hvor finner du den                           |
 |---------------------------------------|----------------------------------------------|
-| `DATABASE_URL`                        | Supabase → Settings → Database → Connection string (Session pooler) |
+| `DATABASE_URL`                        | Supabase → Settings → Database → Connection string (Session pooler). **Lokal:** bruk dev-prosjektets URL. |
 | `NEXT_PUBLIC_SUPABASE_URL`            | Supabase → Settings → API → Project URL      |
 | `SUPABASE_SERVICE_ROLE_KEY`           | Supabase → Settings → API → service_role key |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`   | Clerk → API Keys → Publishable key           |

@@ -165,7 +165,7 @@ export function NotificationBell() {
         <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0">
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-orange-500 text-[10px] font-medium text-white flex items-center justify-center px-1">
+            <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 rounded-full bg-brand text-[10px] font-medium text-white flex items-center justify-center px-1">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}

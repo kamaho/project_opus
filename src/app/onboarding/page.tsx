@@ -42,24 +42,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SetupWizard, type SetupResult } from "@/components/setup/setup-wizard";
 
-const STEPS = [
-  { id: "welcome", label: "Velkommen" },
-  { id: "setup", label: "Oppsett" },
-  { id: "preferences", label: "Preferanser" },
-  { id: "services", label: "Tjenester" },
-  { id: "ready", label: "Klar" },
-] as const;
+// Minimal onboarding: velkommen → Kom i gang (mark complete, redirect til dashboard).
+// Brukeren setter opp selskap/klienter/avstemming fra dashboard når de er inne.
+const STEPS = [{ id: "welcome", label: "Velkommen" }] as const;
 
 export default function OnboardingPage() {
   const [showIntro, setShowIntro] = useState(true);
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
-  const [setupResult, setSetupResult] = useState<SetupResult | null>(null);
   const [enabledServices, setEnabledServices] = useState<Set<string>>(
     () => new Set(["dashboard", "avstemming"])
   );
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
   const { user, isLoaded: userLoaded } = useUser();
   const router = useRouter();
 
@@ -81,20 +77,24 @@ export default function OnboardingPage() {
   }
 
   async function handleFinish() {
+    setFinishError(null);
+    setFinishing(true);
     try {
-      await fetch("/api/onboarding/complete", {
+      const res = await fetch("/api/onboarding/complete", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          services: Array.from(enabledServices),
-        }),
+        body: JSON.stringify({ revizoEnabled: enabledServices.has("revizo-ai") }),
       });
-    } finally {
-      if (setupResult?.reconciliations?.[0]?.id) {
-        router.push(`/dashboard/clients/${setupResult.reconciliations[0].id}/matching`);
-      } else {
-        router.push("/dashboard");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? "Kunne ikke fullføre");
       }
+      router.push("/dashboard");
+    } catch (e) {
+      setFinishError(e instanceof Error ? e.message : "Noe gikk galt");
+    } finally {
+      setFinishing(false);
     }
   }
 
@@ -155,38 +155,14 @@ export default function OnboardingPage() {
             : "slide-in-from-left-4"
         )}
       >
-        {step === 0 && <StepWelcome firstName={firstName} onNext={() => goTo(1)} />}
-        {step === 1 && (
-          <div className="space-y-4">
-            <SetupWizard
-              mode="fullscreen"
-              hideProgress
-              onComplete={(result) => {
-                setSetupResult(result);
-                goTo(2);
-              }}
-            />
-            <div className="text-center">
-              <button
-                onClick={() => goTo(2)}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Hopp over — jeg setter opp avstemming senere
-              </button>
-            </div>
-          </div>
-        )}
-        {step === 2 && (
-          <StepPreferences onNext={() => goTo(3)} />
-        )}
-        {step === 3 && (
-          <StepServices
-            enabledServices={enabledServices}
-            onToggle={toggleService}
-            onNext={() => goTo(4)}
+        {step === 0 && (
+          <StepWelcome
+            firstName={firstName}
+            onNext={handleFinish}
+            loading={finishing}
+            error={finishError}
           />
         )}
-        {step === 4 && <StepReady onFinish={handleFinish} />}
       </div>
     </div>
   );
@@ -314,9 +290,13 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
 function StepWelcome({
   firstName,
   onNext,
+  loading,
+  error,
 }: {
   firstName: string;
   onNext: () => void;
+  loading?: boolean;
+  error?: string | null;
 }) {
   return (
     <div className="text-center space-y-6">
@@ -325,13 +305,27 @@ function StepWelcome({
           Velkommen, {firstName}
         </h1>
         <p className="text-muted-foreground max-w-md mx-auto mt-3">
-          Revizo er et moderne avstemmingsverktøy som gjør regnskapsarbeidet
-          enklere, raskere og mer nøyaktig.
+          Revizo er et moderne avstemmingsverktøy. Du kan opprette selskap og
+          klienter fra dashboard når du er inne.
         </p>
       </div>
-      <Button size="lg" onClick={onNext} className="gap-2">
-        Kom i gang
-        <ArrowRight className="h-4 w-4" />
+      {error && (
+        <p className="text-sm text-destructive">{error}</p>
+      )}
+      <Button
+        size="lg"
+        onClick={onNext}
+        disabled={loading}
+        className="gap-2"
+      >
+        {loading ? (
+          <>Venter …</>
+        ) : (
+          <>
+            Kom i gang
+            <ArrowRight className="h-4 w-4" />
+          </>
+        )}
       </Button>
     </div>
   );
