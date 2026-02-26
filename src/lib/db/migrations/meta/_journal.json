@@ -8,6 +8,13 @@
       "when": 1771519007888,
       "tag": "0000_rich_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772129517511,
+      "tag": "0001_flaky_mattie_franklin",
+      "breakpoints": true
     }
   ]
 }
