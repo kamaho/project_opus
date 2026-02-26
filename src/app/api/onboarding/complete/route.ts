@@ -16,6 +16,14 @@ export async function POST(req: Request) {
   } catch {
     // no body or invalid JSON
   }
-  await markOnboardingComplete(userId, orgId ?? null, revizoEnabled);
+  try {
+    await markOnboardingComplete(userId, orgId ?? null, revizoEnabled);
+  } catch (err) {
+    console.error("onboarding/complete DB error:", err);
+    return NextResponse.json(
+      { error: "Kunne ikke fullføre — databasefeil. Kontakt support." },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({ ok: true });
 }
