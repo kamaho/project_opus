@@ -25,8 +25,8 @@ export const companies = pgTable(
     name: text("name").notNull(),
     orgNumber: text("org_number"),
     type: text("type", { enum: ["company", "group"] }).default("company").notNull(),
-    // Self-reference: FK added in migration (avoids circular type)
     parentCompanyId: uuid("parent_company_id"),
+    tripletexCompanyId: integer("tripletex_company_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -47,6 +47,7 @@ export const accounts = pgTable("accounts", {
     enum: ["ledger", "bank"],
   }).notNull(),
   currency: text("currency").default("NOK"),
+  tripletexAccountId: integer("tripletex_account_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -85,6 +86,7 @@ export const clients = pgTable("clients", {
   openingBalanceDate: date("opening_balance_date"),
   allowTolerance: boolean("allow_tolerance").default(false),
   toleranceAmount: numeric("tolerance_amount", { precision: 18, scale: 2 }).default("0"),
+  assignedUserId: text("assigned_user_id"),
   status: text("status", { enum: ["active", "archived"] }).default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -232,8 +234,9 @@ export const transactions = pgTable(
     notatAuthor: text("notat_author"),
     mentionedUserId: text("mentioned_user_id"),
     notatCreatedAt: timestamp("notat_created_at", { withTimezone: true }),
-    /** For manual transactions: amount that was added to client opening balance when created. Reversed on delete. */
     openingBalanceDelta: numeric("opening_balance_delta", { precision: 18, scale: 2 }).default("0"),
+    sourceType: text("source_type").default("file"),
+    externalId: text("external_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [
@@ -246,6 +249,95 @@ export const transactions = pgTable(
     index("idx_transactions_dedup").on(t.clientId, t.setNumber, t.amount, t.date1, t.reference),
     index("idx_transactions_import_id").on(t.importId),
     index("idx_transactions_match_id").on(t.matchId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Client Groups (cross-client reconciliation groups)
+// ---------------------------------------------------------------------------
+export const clientGroups = pgTable(
+  "client_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    color: text("color"),
+    icon: text("icon"),
+    assignedUserId: text("assigned_user_id"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_client_groups_tenant").on(t.tenantId)]
+);
+
+export const clientGroupMembers = pgTable(
+  "client_group_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => clientGroups.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    index("idx_client_group_members_group").on(t.groupId),
+    index("idx_client_group_members_client").on(t.clientId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Tasks (oppgaver)
+// ---------------------------------------------------------------------------
+export const TASK_TYPES = [
+  "reconciliation_difference",
+  "unmatched_items",
+  "deadline",
+  "overdue_items",
+  "approval_needed",
+  "manual",
+] as const;
+
+export type TaskType = (typeof TASK_TYPES)[number];
+
+export const TASK_STATUSES = ["open", "in_progress", "waiting", "completed", "cancelled"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export const TASK_PRIORITIES = ["low", "medium", "high", "critical"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    type: text("type", { enum: [...TASK_TYPES] }).notNull().default("manual"),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status", { enum: [...TASK_STATUSES] }).notNull().default("open"),
+    priority: text("priority", { enum: [...TASK_PRIORITIES] }).notNull().default("medium"),
+    assigneeId: text("assignee_id"),
+    createdBy: text("created_by").notNull(),
+    dueDate: date("due_date"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedBy: text("completed_by"),
+    resolution: text("resolution"),
+    metadata: jsonb("metadata").default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_tasks_tenant").on(t.tenantId),
+    index("idx_tasks_assignee").on(t.tenantId, t.assigneeId),
+    index("idx_tasks_status").on(t.tenantId, t.status, t.dueDate),
+    index("idx_tasks_client").on(t.clientId),
+    index("idx_tasks_company").on(t.companyId),
+    index("idx_tasks_due_date").on(t.tenantId, t.dueDate),
   ]
 );
 
@@ -561,6 +653,88 @@ export const agentReportConfigs = pgTable(
     index("idx_agent_config_tenant").on(t.tenantId),
     index("idx_agent_config_next_match").on(t.enabled, t.nextMatchRun),
     index("idx_agent_config_next_report").on(t.enabled, t.nextReportRun),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Contacts (external contact persons — revisor, kunder, etc.)
+// ---------------------------------------------------------------------------
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    role: text("role"),
+    company: text("company"),
+    phone: text("phone"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_contacts_tenant").on(t.tenantId)]
+);
+
+// ---------------------------------------------------------------------------
+// Tripletex Connections (per-tenant API credentials)
+// ---------------------------------------------------------------------------
+export const tripletexConnections = pgTable(
+  "tripletex_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    consumerToken: text("consumer_token").notNull(),
+    employeeToken: text("employee_token").notNull(),
+    baseUrl: text("base_url").notNull().default("https://tripletex.no/v2"),
+    label: text("label"),
+    isActive: boolean("is_active").notNull().default(true),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_tripletex_conn_tenant").on(t.tenantId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Tripletex Sync Configs
+// ---------------------------------------------------------------------------
+export const tripletexSyncConfigs = pgTable(
+  "tripletex_sync_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    tenantId: text("tenant_id").notNull(),
+    tripletexCompanyId: integer("tripletex_company_id").notNull(),
+    set1TripletexAccountId: integer("set1_tripletex_account_id"),
+    set2TripletexAccountId: integer("set2_tripletex_account_id"),
+    set1TripletexAccountIds: jsonb("set1_tripletex_account_ids").$type<number[]>().default([]),
+    set2TripletexAccountIds: jsonb("set2_tripletex_account_ids").$type<number[]>().default([]),
+    enabledFields: jsonb("enabled_fields").$type<Record<string, boolean>>().default({
+      description: true,
+      bilag: true,
+      faktura: false,
+      reference: true,
+      foreignAmount: false,
+      accountNumber: true,
+    }),
+    dateFrom: date("date_from").notNull(),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastSyncPostingId: integer("last_sync_posting_id"),
+    lastSyncBankTxId: integer("last_sync_bank_tx_id"),
+    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(60),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_tripletex_sync_client").on(t.clientId),
+    index("idx_tripletex_sync_active").on(t.isActive, t.lastSyncAt),
   ]
 );
 

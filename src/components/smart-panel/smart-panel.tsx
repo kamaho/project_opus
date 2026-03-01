@@ -2,18 +2,28 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, GripHorizontal, Pin, PinOff, RotateCcw, SendHorizonal, Sparkles, X } from "lucide-react";
+import { ArrowLeft, GripHorizontal, Mic, RotateCcw, SendHorizonal, X } from "lucide-react";
+import { RevizoIcon, AiAvatar } from "@/components/ui/revizo-icon";
+import { PanelSizeToggle } from "./panel-size-toggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { SmartPanelSectionLabel } from "./smart-panel-standard";
+import {
+  DesignPanelContent,
+  SmartPanelDesignRow,
+  SmartPanelSectionLabel,
+  SmartPanelTutorialRow,
+} from "./smart-panel-standard";
 import { useAiChat } from "@/hooks/use-ai-chat";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 import { useTutorialMode } from "@/contexts/tutorial-mode-context";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+export type PanelMode = "mini" | "normal" | "big";
+
 const DEFAULT_WIDTH = 320;
 const TUTORIAL_WIDTH = 420;
-const TUTORIAL_MAX_HEIGHT = 300;
+const TUTORIAL_MAX_HEIGHT = "min(85vh, 520px)";
 
 /** Forslag til spørsmål basert på hvilken side brukeren er på. */
 function getSuggestedQuestionsForPath(pathname: string): string[] {
@@ -93,17 +103,12 @@ interface SmartPanelProps {
   onOptionSelect: (optionId: string) => void;
   activeOptionId: string | null;
   resultContent?: ReactNode;
-  /** Rendered above footer (e.g. Innstillinger + Design). */
-  sectionAboveFooter?: ReactNode;
-  footerContent?: ReactNode;
-  /** Use same layout as reference: agent input, section labels, Innstillinger, Tips. */
-  useStandardLayout?: boolean;
   /** Section heading above main content (e.g. "Om elementet", "Kolonne: Beløp"). */
   contentSectionLabel?: string;
-  /** When set, panel can be pinned to stay open across navigation. */
-  pinned?: boolean;
-  /** Called when user toggles pin. If not provided, pin button is hidden. */
-  onPinChange?: (pinned: boolean) => void;
+  /** Current panel size mode. Controls mode selector visibility. */
+  panelMode?: PanelMode;
+  /** Called when user switches panel size mode. If not provided, mode selector is hidden. */
+  onModeChange?: (mode: PanelMode, currentPos: { x: number; y: number }) => void;
 }
 
 /** Stjerne-ikon for smart søk (ingen forstørrelsesglass, ingen filterknapp). */
@@ -177,8 +182,21 @@ function AgentChatView() {
   const [query, setQuery] = useState("");
   const pathname = usePathname();
   const suggestedQuestions = getSuggestedQuestionsForPath(pathname ?? "");
-  const { messages, isLoading, error, sendMessage, reset } = useAiChat();
+  const { messages, isLoading, loadingText, isWorking, workingText, error, sendMessage, reset } = useAiChat();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const { isListening, isSupported: voiceSupported, transcript, toggle: toggleVoice } = useVoiceInput((text) => {
+    if (text.trim() && !isLoading && !isWorking) {
+      setQuery("");
+      sendMessage(text.trim());
+    }
+  });
+
+  useEffect(() => {
+    if (isListening && transcript) {
+      setQuery(transcript);
+    }
+  }, [isListening, transcript]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -187,13 +205,13 @@ function AgentChatView() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const text = query.trim();
-    if (!text || isLoading) return;
+    if (!text || isLoading || isWorking) return;
     setQuery("");
     sendMessage(text);
   };
 
   const handleSuggestion = (text: string) => {
-    if (isLoading) return;
+    if (isLoading || isWorking) return;
     sendMessage(text);
   };
 
@@ -202,9 +220,7 @@ function AgentChatView() {
       <div className="flex-1 overflow-y-auto px-3 pt-3 pb-1 space-y-2.5 max-h-[360px]">
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center py-4 text-center">
-            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-              <Sparkles className="h-5 w-5 text-primary" />
-            </div>
+            <AiAvatar size={40} className="mb-3" />
             <p className="text-sm font-medium">Hei! Jeg er din assistent.</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
               Still spørsmål om transaksjoner, poster, avstemming eller frister.
@@ -232,9 +248,7 @@ function AgentChatView() {
             )}
           >
             {msg.role === "assistant" && (
-              <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
-                <Sparkles className="h-3 w-3 text-primary" />
-              </div>
+              <AiAvatar size={24} className="mt-0.5" />
             )}
             <div
               className={cn(
@@ -252,15 +266,25 @@ function AgentChatView() {
             </div>
           </div>
         ))}
-        {isLoading && (
+        {isLoading && loadingText && (
           <div className="flex gap-2 text-sm animate-in fade-in duration-150">
-            <div className="shrink-0 h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
-              <Sparkles className="h-3 w-3 text-primary" />
+            <AiAvatar size={24} className="mt-0.5 animate-[pulse_2s_ease-in-out_infinite]" />
+            <div
+              key={loadingText}
+              className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground italic animate-in fade-in slide-in-from-bottom-1 duration-200"
+            >
+              {loadingText}
             </div>
-            <div className="rounded-lg bg-muted/60 px-3 py-2.5 flex gap-1 items-center">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/40 animate-bounce [animation-delay:0ms]" />
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/40 animate-bounce [animation-delay:150ms]" />
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-foreground/40 animate-bounce [animation-delay:300ms]" />
+          </div>
+        )}
+        {isWorking && workingText && (
+          <div className="flex gap-2 text-sm animate-in fade-in duration-150">
+            <AiAvatar size={24} className="mt-0.5 animate-spin-slow" />
+            <div
+              key={workingText}
+              className="rounded-lg bg-muted/60 px-3 py-2.5 text-sm text-muted-foreground italic animate-in fade-in slide-in-from-bottom-1 duration-200"
+            >
+              {workingText}
             </div>
           </div>
         )}
@@ -296,15 +320,37 @@ function AgentChatView() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Skriv en melding…"
-            className="flex-1 h-9 rounded-lg border bg-muted/30 pl-3 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all"
+            placeholder={isListening ? "Lytter…" : "Skriv en melding…"}
+            className={cn(
+              "flex-1 h-9 rounded-lg border bg-muted/30 pl-3 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all",
+              isListening && "border-primary/60 ring-2 ring-primary/20"
+            )}
           />
+          {voiceSupported && (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className={cn(
+                "h-8 w-8 shrink-0 transition-colors",
+                isListening
+                  ? "text-primary animate-pulse"
+                  : "text-muted-foreground/40 hover:text-foreground"
+              )}
+              onClick={toggleVoice}
+              disabled={isLoading || isWorking}
+              title={isListening ? "Stopp stemmeinndata" : "Snakk til assistenten"}
+              aria-label={isListening ? "Stopp stemmeinndata" : "Snakk til assistenten"}
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             type="submit"
             size="icon"
             variant="ghost"
             className={cn("h-8 w-8 shrink-0", query.trim() ? "text-primary" : "text-muted-foreground/40")}
-            disabled={!query.trim() || isLoading}
+            disabled={!query.trim() || isLoading || isWorking}
           >
             <SendHorizonal className="h-4 w-4" />
           </Button>
@@ -323,34 +369,30 @@ export function SmartPanel({
   onOptionSelect,
   activeOptionId,
   resultContent,
-  sectionAboveFooter,
-  footerContent,
-  useStandardLayout = false,
   contentSectionLabel,
-  pinned = false,
-  onPinChange,
+  panelMode = "normal",
+  onModeChange,
 }: SmartPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pos, setPos] = useState(position);
   const [dragging, setDragging] = useState(false);
   const dragOffset = useRef({ x: 0, y: 0 });
-  const prevPosition = useRef({ x: 0, y: 0 });
+  const prevPosition = useRef(position);
   const [chatOpen, setChatOpen] = useState(false);
+  const [designOpen, setDesignOpen] = useState(false);
 
-  const { enabled: tutorialMode } = useTutorialMode();
+  const { enabled: tutorialMode, setEnabled: setTutorialEnabled } = useTutorialMode();
   const effectiveWidth = tutorialMode ? TUTORIAL_WIDTH : DEFAULT_WIDTH;
   const effectiveMaxHeight = tutorialMode ? TUTORIAL_MAX_HEIGHT : "min(85vh, 640px)";
 
   useEffect(() => {
-    if (!open) { setChatOpen(false); return; }
+    if (!open) { setChatOpen(false); setDesignOpen(false); return; }
     if (position.x === prevPosition.current.x && position.y === prevPosition.current.y) return;
     prevPosition.current = { x: position.x, y: position.y };
-    requestAnimationFrame(() => {
-      const panelH = panelRef.current?.offsetHeight ?? 300;
-      setPos({
-        x: Math.max(8, Math.min(position.x, window.innerWidth - effectiveWidth - 8)),
-        y: Math.max(8, Math.min(position.y, window.innerHeight - panelH - 8)),
-      });
+    const panelH = panelRef.current?.offsetHeight ?? 300;
+    setPos({
+      x: Math.max(8, Math.min(position.x, window.innerWidth - effectiveWidth - 8)),
+      y: Math.max(8, Math.min(position.y, window.innerHeight - panelH - 8)),
     });
   }, [open, position, effectiveWidth]);
 
@@ -382,32 +424,47 @@ export function SmartPanel({
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (chatOpen) { setChatOpen(false); return; }
+        if (designOpen) { setDesignOpen(false); return; }
         onClose();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose, chatOpen]);
+  }, [open, onClose, chatOpen, designOpen]);
 
   const activeLabel = options.find((o) => o.id === activeOptionId)?.label;
-  const showingSubPage = activeOptionId || chatOpen;
-  const headerTitle = useStandardLayout
-    ? (chatOpen ? "Assistent" : activeOptionId === "design" ? "Design" : tutorialMode ? "Tutorial" : activeOptionId ? activeLabel : "Smarte funksjonaliteter")
-    : (chatOpen ? "Assistent" : activeOptionId ? activeLabel : tutorialMode ? "Tutorial" : title);
+  const showingSubPage = activeOptionId || chatOpen || designOpen;
+  const isMainView = !chatOpen && !designOpen && !activeOptionId;
+
+  const headerTitle = chatOpen
+    ? "Assistent"
+    : designOpen
+      ? "Design"
+      : activeOptionId
+        ? activeLabel
+        : tutorialMode
+          ? "Tutorial"
+          : title;
+
+  const handleBack = () => {
+    if (chatOpen) setChatOpen(false);
+    else if (designOpen) setDesignOpen(false);
+    else onOptionSelect("");
+  };
 
   return open ? (
     <>
-      {/* Overlay with pointer-events: none so the user can click and right-click the page while panel is open. Close via X or Escape. */}
       <div className="fixed inset-0 z-40 pointer-events-none" />
       <div
         ref={panelRef}
         className={cn(
-          "fixed z-50 flex flex-col rounded-lg border bg-background shadow-xl",
+          "fixed z-50 flex flex-col rounded-lg border bg-background smart-panel-aura smart-panel-morph",
           dragging && "select-none",
         )}
         style={{ left: pos.x, top: pos.y, width: effectiveWidth, maxHeight: effectiveMaxHeight }}
       >
-        {/* Draggable header */}
+        <div className="smart-panel-aura-glow" />
+        {/* Header */}
         <div
           className="flex items-center gap-2 border-b px-3 py-2 cursor-grab active:cursor-grabbing shrink-0"
           onPointerDown={handlePointerDown}
@@ -419,31 +476,23 @@ export function SmartPanel({
               size="icon"
               variant="ghost"
               className="h-6 w-6 shrink-0 -ml-1"
-              onClick={() => {
-                if (chatOpen) setChatOpen(false);
-                else onOptionSelect("");
-              }}
+              onClick={handleBack}
             >
               <ArrowLeft className="h-3.5 w-3.5" />
             </Button>
           ) : (
-            <Sparkles className="h-4 w-4 text-primary shrink-0" />
+            <RevizoIcon size={16} />
           )}
           <span className="text-sm font-medium flex-1 truncate">
             {headerTitle}
           </span>
           <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-          {onPinChange != null && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn("h-6 w-6 shrink-0", pinned && "text-primary")}
-              onClick={() => onPinChange(!pinned)}
-              title={pinned ? "Løsne panel" : "Fest panel (står igjen ved navigering)"}
-              aria-label={pinned ? "Løsne panel" : "Fest panel"}
-            >
-              {pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-            </Button>
+          {onModeChange && (
+            <PanelSizeToggle
+              expanded
+              onClick={() => onModeChange("big", pos)}
+              className="h-6 w-6"
+            />
           )}
           <Button
             size="icon"
@@ -457,30 +506,28 @@ export function SmartPanel({
           </Button>
         </div>
 
-        {/* Chat page */}
-        {chatOpen && !activeOptionId && <AgentChatView />}
+        {/* Agent chat */}
+        {chatOpen && <AgentChatView />}
 
-        {/* Standard layout: agent input only in main view (not in tutorial mode or Design etc.) */}
-        {useStandardLayout && !chatOpen && !activeOptionId && !tutorialMode && (
+        {/* Agent search input — shown on main view */}
+        {isMainView && (
           <>
             <AgentPlaceholderInput onClick={() => setChatOpen(true)} />
             <div className="border-t" />
           </>
         )}
 
-        {/* Main page: agent input + options (non-standard) */}
-        {!useStandardLayout && !chatOpen && !activeOptionId && !tutorialMode && (
-          <>
-            <AgentPlaceholderInput onClick={() => setChatOpen(true)} />
-            {options.length > 0 && <div className="border-t" />}
-          </>
+        {/* Design sub-view (owned by panel) */}
+        {designOpen && !chatOpen && (
+          <div className="overflow-y-auto min-h-0 flex-1">
+            <DesignPanelContent />
+          </div>
         )}
 
-        {/* Content: options list or result */}
-        {!chatOpen && (
+        {/* Content area: options list or result from parent */}
+        {!chatOpen && !designOpen && (
           <div className="overflow-y-auto min-h-0 flex-1">
             {activeOptionId && resultContent ? (
-              /* Sub-view: only the chosen content, no section label */
               resultContent
             ) : !activeOptionId && options.length > 0 ? (
               <div className="py-1">
@@ -521,17 +568,18 @@ export function SmartPanel({
           </div>
         )}
 
-        {/* Innstillinger + Tips only in main view when using standard layout */}
-        {!chatOpen && sectionAboveFooter && (!useStandardLayout || !activeOptionId) && (
+        {/* Innstillinger — always at bottom on main view */}
+        {isMainView && (
           <>
             <div className="border-t" />
-            <div className="shrink-0">{sectionAboveFooter}</div>
-          </>
-        )}
-        {!chatOpen && footerContent && (!useStandardLayout || !activeOptionId) && (
-          <>
-            <div className="border-t" />
-            <div className="overflow-auto shrink-0">{footerContent}</div>
+            <div className="shrink-0">
+              <SmartPanelSectionLabel>Innstillinger</SmartPanelSectionLabel>
+              <SmartPanelDesignRow onClick={() => setDesignOpen(true)} />
+              <SmartPanelTutorialRow
+                isActive={tutorialMode}
+                onClick={() => setTutorialEnabled(!tutorialMode)}
+              />
+            </div>
           </>
         )}
       </div>

@@ -191,6 +191,14 @@ export async function previewAutoMatch(clientId: string): Promise<AutoMatchStats
 export interface AutoMatchResult extends AutoMatchStats {
   /** Each element is one match group: [set1Ids, set2Ids] */
   matchGroups: [string[], string[]][];
+  /** Earliest date among matched transactions (ISO date string) */
+  periodFrom?: string;
+  /** Latest date among matched transactions (ISO date string) */
+  periodTo?: string;
+  /** Remaining unmatched transactions after this run */
+  remainingOpen: number;
+  /** Total transactions (matched + remaining) for the client */
+  totalItems: number;
 }
 
 /**
@@ -206,6 +214,8 @@ export async function runAutoMatch(
     loadRules(clientId),
   ]);
 
+  const totalUnmatched = set1.length + set2.length;
+
   if (rules.length === 0) {
     return {
       totalMatches: 0,
@@ -213,6 +223,8 @@ export async function runAutoMatch(
       byRule: [],
       durationMs: 0,
       matchGroups: [],
+      remainingOpen: totalUnmatched,
+      totalItems: totalUnmatched,
     };
   }
 
@@ -224,10 +236,13 @@ export async function runAutoMatch(
       ...result.stats,
       durationMs: result.durationMs,
       matchGroups: [],
+      remainingOpen: totalUnmatched,
+      totalItems: totalUnmatched,
     };
   }
 
   const matchGroups: [string[], string[]][] = [];
+  const matchedTxIdSet = new Set<string>();
   await db.transaction(async (tx) => {
     const matchValues = candidates.map((c) => ({
       clientId,
@@ -247,8 +262,8 @@ export async function runAutoMatch(
       const c = candidates[i];
       const mId = matchRows[i].id;
       matchGroups.push([c.set1Ids, c.set2Ids]);
-      for (const id of c.set1Ids) pairs.push({ txId: id, matchId: mId });
-      for (const id of c.set2Ids) pairs.push({ txId: id, matchId: mId });
+      for (const id of c.set1Ids) { pairs.push({ txId: id, matchId: mId }); matchedTxIdSet.add(id); }
+      for (const id of c.set2Ids) { pairs.push({ txId: id, matchId: mId }); matchedTxIdSet.add(id); }
     }
 
     if (pairs.length > 0) {
@@ -262,11 +277,31 @@ export async function runAutoMatch(
     }
   });
 
+  // Compute date range from matched transactions
+  const allTx = [...set1, ...set2];
+  const matchedTx = allTx.filter((t) => matchedTxIdSet.has(t.id));
+  let periodFrom: string | undefined;
+  let periodTo: string | undefined;
+  if (matchedTx.length > 0) {
+    let minDay = Infinity;
+    let maxDay = -Infinity;
+    for (const t of matchedTx) {
+      if (t.date < minDay) minDay = t.date;
+      if (t.date > maxDay) maxDay = t.date;
+    }
+    periodFrom = fromEpochDay(minDay);
+    periodTo = fromEpochDay(maxDay);
+  }
+
   return {
     totalMatches: result.stats.totalMatches,
     totalTransactions: result.stats.totalTransactions,
     byRule: result.stats.byRule,
     durationMs: result.durationMs,
     matchGroups,
+    periodFrom,
+    periodTo,
+    remainingOpen: totalUnmatched - matchedTxIdSet.size,
+    totalItems: totalUnmatched,
   };
 }

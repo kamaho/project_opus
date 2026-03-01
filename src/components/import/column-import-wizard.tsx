@@ -586,7 +586,7 @@ export function ColumnImportWizard({
             <div
               className={cn(
                 "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium transition-colors",
-                i < stepIndex && "bg-green-500 text-white",
+                i < stepIndex && "bg-violet-500 text-white",
                 i === stepIndex && "bg-primary text-primary-foreground",
                 i > stepIndex && "bg-muted text-muted-foreground"
               )}
@@ -666,7 +666,7 @@ export function ColumnImportWizard({
                 <span className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
                   hasCreditMapped
-                    ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300"
+                    ? "border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300"
                     : "border-primary/30 bg-primary/5 text-primary"
                 )}>
                   {hasCreditMapped ? <Check className="h-3 w-3" /> : "1."}
@@ -676,7 +676,7 @@ export function ColumnImportWizard({
                 <span className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium",
                   hasDebitMapped
-                    ? "border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300"
+                    ? "border-violet-300 dark:border-violet-700 bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300"
                     : hasCreditMapped
                       ? "border-primary/30 bg-primary/5 text-primary"
                       : "border-muted text-muted-foreground"
@@ -705,9 +705,9 @@ export function ColumnImportWizard({
                   className={cn(
                     "h-full rounded-full transition-all",
                     extraCount >= 5
-                      ? "bg-green-500"
+                      ? "bg-violet-500"
                       : extraCount >= 3
-                        ? "bg-green-400"
+                        ? "bg-violet-400"
                         : "bg-amber-400"
                   )}
                   style={{ width: `${progressPct}%` }}
@@ -793,9 +793,9 @@ export function ColumnImportWizard({
           : validationIssues.slice(0, 5);
         return (
           <div className="shrink-0 space-y-2">
-            <div className="flex items-start gap-2 rounded-md border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 p-3">
-              <CircleCheck className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-              <p className="text-sm text-green-800 dark:text-green-200">
+            <div className="flex items-start gap-2 rounded-md border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/30 p-3">
+              <CircleCheck className="h-4 w-4 text-violet-600 mt-0.5 shrink-0" />
+              <p className="text-sm text-violet-800 dark:text-violet-200">
                 <strong>{validRowCount}</strong> rader er klare for import.
               </p>
             </div>
@@ -945,9 +945,9 @@ export function ColumnImportWizard({
                       key={c}
                       className={cn(
                         "p-2 font-medium text-left border-b truncate",
-                        "bg-green-50 dark:bg-green-950/30 text-green-800 dark:text-green-200",
+                        "bg-violet-50 dark:bg-violet-950/30 text-violet-800 dark:text-violet-200",
                         isSeparator &&
-                          "border-r-2 border-r-green-400 dark:border-r-green-600"
+                          "border-r-2 border-r-violet-400 dark:border-r-violet-600"
                       )}
                       style={{
                         width: COL_W,
@@ -956,7 +956,7 @@ export function ColumnImportWizard({
                       }}
                     >
                       <div className="flex items-center gap-1">
-                        <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                        <Check className="h-3.5 w-3.5 text-violet-500 shrink-0" />
                         <span className="truncate">
                           {DISPLAY_LABELS[field!] ?? field}
                         </span>
@@ -1095,9 +1095,9 @@ export function ColumnImportWizard({
                       className={cn(
                         "px-2 py-1.5 truncate align-top text-xs",
                         isSelected &&
-                          "bg-green-50/50 dark:bg-green-950/10",
+                          "bg-violet-50/50 dark:bg-violet-950/10",
                         isSeparator &&
-                          "border-r-2 border-r-green-400 dark:border-r-green-600",
+                          "border-r-2 border-r-violet-400 dark:border-r-violet-600",
                         isColumnClickStep &&
                           !isSelected &&
                           "cursor-pointer hover:bg-primary/5"
@@ -1156,7 +1156,7 @@ export function ColumnImportWizard({
               <col key={m.colIndex} style={{ width: 180 }} />
             ))}
           </colgroup>
-          <thead className={cn("bg-green-50 dark:bg-green-950/30 sticky top-0 z-10", tableAppearance.theadClass)}>
+          <thead className={cn("bg-violet-50 dark:bg-violet-950/30 sticky top-0 z-10", tableAppearance.theadClass)}>
             <tr>
               <th
                 className="p-2 font-medium text-left border-b text-muted-foreground"
@@ -1167,7 +1167,7 @@ export function ColumnImportWizard({
               {selected.map((m) => (
                 <th
                   key={m.colIndex}
-                  className="p-2 font-medium text-left border-b text-green-800 dark:text-green-200"
+                  className="p-2 font-medium text-left border-b text-violet-800 dark:text-violet-200"
                   style={{ width: 180, minWidth: 180, maxWidth: 180 }}
                 >
                   <div>{DISPLAY_LABELS[m.field] ?? m.field}</div>

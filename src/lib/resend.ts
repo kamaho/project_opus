@@ -139,27 +139,89 @@ export async function sendSmartMatchEmail(params: {
   toEmail: string;
   userName: string;
   clientName: string;
-  matchCount: number;
   transactionCount: number;
+  periodFrom?: string;
+  periodTo?: string;
+  remainingOpen: number;
+  totalItems: number;
   link: string;
 }) {
   if (!resend) return;
 
-  const { toEmail, userName, clientName, matchCount, transactionCount, link } = params;
+  const {
+    toEmail, userName, clientName, transactionCount,
+    periodFrom, periodTo, remainingOpen, totalItems, link,
+  } = params;
+
+  const totalMatched = totalItems - remainingOpen;
+  const pct = totalItems > 0 ? Math.round((totalMatched / totalItems) * 100) : 100;
+  const allDone = remainingOpen === 0;
+
+  const fmtDate = (iso?: string) => {
+    if (!iso) return "–";
+    const [y, m, d] = iso.split("-");
+    return `${d}.${m}.${y}`;
+  };
+
+  const periodStr = periodFrom && periodTo
+    ? periodFrom === periodTo
+      ? fmtDate(periodFrom)
+      : `${fmtDate(periodFrom)} – ${fmtDate(periodTo)}`
+    : null;
+
+  const firstName = userName.split(" ")[0] || userName;
+
+  const intro = periodStr
+    ? allDone
+      ? `Hei på deg, ${firstName}! Nå er jeg ferdig med å avstemme <strong>${clientName}</strong> for perioden ${periodStr}. Alt er i boks — <strong>${pct}%</strong> avstemt.`
+      : `Hei på deg, ${firstName}! Nå er jeg ferdig med å avstemme <strong>${clientName}</strong> for perioden ${periodStr}. Jeg fikk til <strong>${pct}%</strong>, men det gjenstår <strong>${remainingOpen}</strong> poster som jeg trenger din hjelp med.`
+    : allDone
+      ? `Hei på deg, ${firstName}! Nå er jeg ferdig med å avstemme <strong>${clientName}</strong>. Alt er i boks — <strong>${pct}%</strong> avstemt.`
+      : `Hei på deg, ${firstName}! Nå er jeg ferdig med å avstemme <strong>${clientName}</strong>. Jeg fikk til <strong>${pct}%</strong>, men det gjenstår <strong>${remainingOpen}</strong> poster som jeg trenger din hjelp med.`;
+
+  const signoff = allDone
+    ? "Ta deg en velfortjent kaffe — dette var en ren jobb."
+    : "Ta en titt når du får tid, så fikser vi resten sammen.";
+
+  const progressBarWidth = `${Math.max(pct, 4)}%`;
+  const progressBar = `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 6px;">
+      <tr>
+        <td style="background:${T.subtle};border-radius:4px;height:8px;padding:0;">
+          <div style="width:${progressBarWidth};max-width:100%;height:8px;border-radius:4px;background:${allDone ? T.brand : T.btnBg};"></div>
+        </td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+      <tr>
+        <td style="font-size:12px;color:${T.muted};">${pct}% avstemt${!allDone ? ` — ${remainingOpen} poster gjenstår` : ""}</td>
+      </tr>
+    </table>`;
 
   const result = await resend.emails.send({
     from: FROM_ADDRESS,
     to: toEmail,
-    subject: `Smart Match fullført — ${matchCount} grupper matchet for ${clientName}`,
+    subject: allDone
+      ? `${clientName} — ferdig avstemt ✓`
+      : `${clientName} — ${pct}% avstemt, ${remainingOpen} poster gjenstår`,
     html: emailLayout(`
-      ${heading("Smart Match fullført")}
-      ${paragraph(`Hei ${userName}, Smart Match er fullført for <strong>${clientName}</strong>.`)}
+      ${heading(allDone ? "Avstemmingen er klar" : "Avstemming utført")}
+      ${paragraph(intro)}
+      ${progressBar}
       ${statRow([
-        { label: "Matchgrupper", value: String(matchCount) },
-        { label: "Transaksjoner", value: String(transactionCount) },
+        { label: "Poster matchet", value: String(transactionCount) },
+        ...(periodStr ? [{ label: "Periode", value: periodStr }] : []),
       ])}
-      ${mutedText("Alle poster ble automatisk avstemt basert på dine konfigurerte regler.")}
-      ${cta("Se resultatet", link)}
+      ${divider()}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;">
+        <tr>
+          <td style="padding:14px 16px;background:${T.subtle};border-radius:6px;border-left:3px solid ${T.brand};">
+            <div style="font-size:14px;color:${T.fg};line-height:1.6;">${signoff}</div>
+            <div style="font-size:13px;color:${T.muted};margin-top:8px;">— Revizo</div>
+          </td>
+        </tr>
+      </table>
+      ${cta(allDone ? "Se resultatet" : "Se åpne poster", link)}
     `),
   });
   logSendResult("smart-match", result);

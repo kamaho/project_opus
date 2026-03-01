@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ContactsTab } from "@/components/settings/contacts-tab";
 
 const TEXT_SIZE_OPTIONS: { value: TextSizePreference; label: string }[] = [
   { value: "normal", label: "Normal" },
@@ -59,229 +61,246 @@ export default function SettingsPage() {
   const isEn = preferences.locale === "en";
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">
           {isEn ? "Settings" : "Innstillinger"}
         </h1>
         <p className="text-muted-foreground">
           {isEn
-            ? "Tenant settings and parser configuration. More coming soon."
-            : "Tenant-innstillinger og parser-konfigurasjon. Kommer snart."}
+            ? "Manage your workspace preferences and contacts."
+            : "Administrer innstillinger og kontakter for arbeidsområdet."}
         </p>
       </div>
 
-      <section className="space-y-4">
-        <h2 className="text-lg font-medium">
-          {isEn ? "Language" : "Språk"}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {isEn
-            ? "Choose the language for menus, labels, and messages in the app."
-            : "Velg språk for menyer, etiketter og meldinger i appen."}
-        </p>
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {isEn ? "Interface language" : "Grensesnittspråk"}
-            </CardTitle>
-            <CardDescription>
-              {isEn
-                ? "Norwegian (bokmål) or English."
-                : "Norsk (bokmål) eller engelsk."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Select
-              value={preferences.locale}
-              onValueChange={(value) =>
-                updateLocalePreference(value as LocalePreference)
-              }
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LOCALE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {isEn ? opt.labelEn : opt.labelNb}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </CardContent>
-        </Card>
-      </section>
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList>
+          <TabsTrigger value="general">
+            {isEn ? "General" : "Generelt"}
+          </TabsTrigger>
+          <TabsTrigger value="contacts">
+            {isEn ? "Contact list" : "Kontaktliste"}
+          </TabsTrigger>
+        </TabsList>
 
-      <section className="space-y-4">
-        <h2 className="text-lg font-medium">
-          {isEn ? "Appearance" : "Utseende"}
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          {isEn
-            ? "Customise how the app looks. Changes apply to all tables and components."
-            : "Tilpass hvordan programmet ser ut. Endringene gjelder alle tabeller og komponenter i appen."}
-        </p>
-        <Card>
-          <CardHeader>
-            <CardTitle>{isEn ? "Tables" : "Tabeller"}</CardTitle>
-            <CardDescription>
+        <TabsContent value="general" className="space-y-8 mt-6">
+          <section className="space-y-4">
+            <h2 className="text-lg font-medium">
+              {isEn ? "Language" : "Språk"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
               {isEn
-                ? "Show or hide dividers between rows and columns in all tables."
-                : "Styr linjer mellom rader og kolonner i alle tabeller."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="table-dividers" className="text-base">
-                {isEn
-                  ? "Visible table dividers"
-                  : "Synlige skillelinjer i tabeller"}
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                {isEn
-                  ? "Show clear lines between rows and columns to separate data."
-                  : "Vis tydelige linjer mellom rader og kolonner for enklere å skille data."}
-              </p>
-            </div>
-            <Switch
-              id="table-dividers"
-              checked={preferences.table.visibleDividers}
-              onCheckedChange={(checked) =>
-                updateTablePreferences({ visibleDividers: checked })
-              }
-            />
-          </CardContent>
-        </Card>
+                ? "Choose the language for menus, labels, and messages in the app."
+                : "Velg språk for menyer, etiketter og meldinger i appen."}
+            </p>
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {isEn ? "Interface language" : "Grensesnittspråk"}
+                </CardTitle>
+                <CardDescription>
+                  {isEn
+                    ? "Norwegian (bokmål) or English."
+                    : "Norsk (bokmål) eller engelsk."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select
+                  value={preferences.locale}
+                  onValueChange={(value) =>
+                    updateLocalePreference(value as LocalePreference)
+                  }
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOCALE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {isEn ? opt.labelEn : opt.labelNb}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{isEn ? "Typography" : "Typografi"}</CardTitle>
-            <CardDescription>
+          <section className="space-y-4">
+            <h2 className="text-lg font-medium">
+              {isEn ? "Appearance" : "Utseende"}
+            </h2>
+            <p className="text-sm text-muted-foreground">
               {isEn
-                ? "Adjust text size and weight for readability. Applies to the whole app."
-                : "Juster tekststørrelse og fetthet for bedre lesbarhet. Gjelder hele appen."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label>{isEn ? "Text size" : "Tekststørrelse"}</Label>
-              <p className="text-sm text-muted-foreground">
-                {isEn
-                  ? "Base text size (e.g. for low vision)."
-                  : "Basisstørrelse på tekst (for eksempel ved svaksynthet)."}
-              </p>
-              <Select
-                value={preferences.typography.textSize}
-                onValueChange={(value) =>
-                  updateTypographyPreferences({ textSize: value as TextSizePreference })
-                }
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TEXT_SIZE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{isEn ? "Text weight" : "Fetthet på tekst"}</Label>
-              <p className="text-sm text-muted-foreground">
-                {isEn
-                  ? "Make body text more prominent without affecting headings too much."
-                  : "Gjør brødtekst tydeligere uten å påvirke overskrifter for mye."}
-              </p>
-              <Select
-                value={preferences.typography.textWeight}
-                onValueChange={(value) =>
-                  updateTypographyPreferences({ textWeight: value as TextWeightPreference })
-                }
-              >
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TEXT_WEIGHT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+                ? "Customise how the app looks. Changes apply to all tables and components."
+                : "Tilpass hvordan programmet ser ut. Endringene gjelder alle tabeller og komponenter i appen."}
+            </p>
+            <Card>
+              <CardHeader>
+                <CardTitle>{isEn ? "Tables" : "Tabeller"}</CardTitle>
+                <CardDescription>
+                  {isEn
+                    ? "Show or hide dividers between rows and columns in all tables."
+                    : "Styr linjer mellom rader og kolonner i alle tabeller."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="table-dividers" className="text-base">
+                    {isEn
+                      ? "Visible table dividers"
+                      : "Synlige skillelinjer i tabeller"}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? "Show clear lines between rows and columns to separate data."
+                      : "Vis tydelige linjer mellom rader og kolonner for enklere å skille data."}
+                  </p>
+                </div>
+                <Switch
+                  id="table-dividers"
+                  checked={preferences.table.visibleDividers}
+                  onCheckedChange={(checked) =>
+                    updateTablePreferences({ visibleDividers: checked })
+                  }
+                />
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{isEn ? "Formatting" : "Formatering"}</CardTitle>
-            <CardDescription>
-              {isEn
-                ? "Choose how numbers and dates are displayed in the app."
-                : "Velg hvordan tall og datoer vises i appen."}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label>{isEn ? "Number format" : "Tallformat"}</Label>
-              <p className="text-sm text-muted-foreground">
-                {isEn
-                  ? "Thousands and decimal separators for all amounts."
-                  : "Bestemmer tusenskilletegn og desimaltegn for alle beløp."}
-              </p>
-              <Select
-                value={preferences.formatting.numberFormat}
-                onValueChange={(value) =>
-                  updateFormattingPreferences({ numberFormat: value as NumberFormatPreference })
-                }
-              >
-                <SelectTrigger className="w-[240px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {NUMBER_FORMAT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      <span>{opt.label}</span>
-                      <span className="ml-2 text-muted-foreground font-mono text-xs">{opt.example}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{isEn ? "Date format" : "Datoformat"}</Label>
-              <p className="text-sm text-muted-foreground">
-                {isEn
-                  ? "Order and separators for dates."
-                  : "Bestemmer rekkefølge og skilletegn for datoer."}
-              </p>
-              <Select
-                value={preferences.formatting.dateFormat}
-                onValueChange={(value) =>
-                  updateFormattingPreferences({ dateFormat: value as DateFormatPreference })
-                }
-              >
-                <SelectTrigger className="w-[240px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DATE_FORMAT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      <span>{opt.label}</span>
-                      <span className="ml-2 text-muted-foreground font-mono text-xs">{opt.example}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
+            <Card>
+              <CardHeader>
+                <CardTitle>{isEn ? "Typography" : "Typografi"}</CardTitle>
+                <CardDescription>
+                  {isEn
+                    ? "Adjust text size and weight for readability. Applies to the whole app."
+                    : "Juster tekststørrelse og fetthet for bedre lesbarhet. Gjelder hele appen."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label>{isEn ? "Text size" : "Tekststørrelse"}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? "Base text size (e.g. for low vision)."
+                      : "Basisstørrelse på tekst (for eksempel ved svaksynthet)."}
+                  </p>
+                  <Select
+                    value={preferences.typography.textSize}
+                    onValueChange={(value) =>
+                      updateTypographyPreferences({ textSize: value as TextSizePreference })
+                    }
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TEXT_SIZE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{isEn ? "Text weight" : "Fetthet på tekst"}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? "Make body text more prominent without affecting headings too much."
+                      : "Gjør brødtekst tydeligere uten å påvirke overskrifter for mye."}
+                  </p>
+                  <Select
+                    value={preferences.typography.textWeight}
+                    onValueChange={(value) =>
+                      updateTypographyPreferences({ textWeight: value as TextWeightPreference })
+                    }
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TEXT_WEIGHT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>{isEn ? "Formatting" : "Formatering"}</CardTitle>
+                <CardDescription>
+                  {isEn
+                    ? "Choose how numbers and dates are displayed in the app."
+                    : "Velg hvordan tall og datoer vises i appen."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label>{isEn ? "Number format" : "Tallformat"}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? "Thousands and decimal separators for all amounts."
+                      : "Bestemmer tusenskilletegn og desimaltegn for alle beløp."}
+                  </p>
+                  <Select
+                    value={preferences.formatting.numberFormat}
+                    onValueChange={(value) =>
+                      updateFormattingPreferences({ numberFormat: value as NumberFormatPreference })
+                    }
+                  >
+                    <SelectTrigger className="w-[240px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NUMBER_FORMAT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          <span>{opt.label}</span>
+                          <span className="ml-2 text-muted-foreground font-mono text-xs">{opt.example}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{isEn ? "Date format" : "Datoformat"}</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {isEn
+                      ? "Order and separators for dates."
+                      : "Bestemmer rekkefølge og skilletegn for datoer."}
+                  </p>
+                  <Select
+                    value={preferences.formatting.dateFormat}
+                    onValueChange={(value) =>
+                      updateFormattingPreferences({ dateFormat: value as DateFormatPreference })
+                    }
+                  >
+                    <SelectTrigger className="w-[240px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {DATE_FORMAT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          <span>{opt.label}</span>
+                          <span className="ml-2 text-muted-foreground font-mono text-xs">{opt.example}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="contacts" className="mt-6">
+          <ContactsTab isEn={isEn} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

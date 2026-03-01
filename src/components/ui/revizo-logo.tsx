@@ -12,7 +12,7 @@ export function RevizoLogo({
   width = 120,
   height = 30,
 }: RevizoLogoProps) {
-  const src = "/revizo-logo.png";
+  const src = "/logo-revizo.svg";
 
   return (
     <Image

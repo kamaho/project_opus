@@ -619,6 +619,29 @@ While we're moving fast for MVP, write code that IS testable:
 
 ---
 
+## 11. Documentation — Work in Parallel
+
+**Dokumentasjon skal alltid jobbes parallelt med funksjonalitet.** Dette er krav for både **internt** (ansatte) og **eksternt** (kunder). Dokumentasjon er ikke et etterslep eller «vi fikser det senere».
+
+### Regler
+
+- **Ny funksjon, endring eller integrasjon** → Oppdater eller legg til dokumentasjon i samme arbeid (samme task/PR).
+- **Internt:** Kilde er `docs/` og `docs/integrations/`. Ved bruk av Docusaurus: hold `docs-site/docs/internt/` i sync (integrasjoner, arkitektur, driftsetup).
+- **Eksternt (kunder):** Oppdater `docs-site/docs/` — Kom i gang, Guider, FAQ eller Utviklere — slik at brukere og partnere har det de trenger.
+- **Ny API-endepunkt eller breaking change** → API-dokumentasjon og eventuelt OpenAPI/side i docs-site må oppdateres.
+- **Ny integrasjon (tjeneste/API)** → Egen fil i `docs/integrations/` med oversikt, miljøvariabler, feilsøking og lenker til dashboard. Se `docs/integrations/README.md`.
+
+### Unntak
+
+Unntak («dokumenterer i neste sprint») må **begrunnes** og være unntak, ikke vanen.
+
+### Referanse
+
+- Cursor-regel: `.cursor/rules/documentation.mdc`
+- Docusaurus-strategi: `docs/DOCUSAURUS_STRATEGY.md`
+
+---
+
 ## Quick Checklist Before Every Feature
 
 - [ ] Auth check on every server action / API route?
@@ -631,6 +654,7 @@ While we're moving fast for MVP, write code that IS testable:
 - [ ] Norwegian UI text, English code?
 - [ ] Works with keyboard navigation?
 - [ ] Build passes (`npm run build`)?
+- [ ] Dokumentasjon oppdatert/lagt til parallelt (internt og/eller eksternt)? Se §11.
 
 ### Additional Checks for Public API Endpoints
 
@@ -647,4 +671,5 @@ While we're moving fast for MVP, write code that IS testable:
 
 ## Project documentation
 
+- **Dokumentasjon parallelt:** Se **§11. Documentation — Work in Parallel** over. All ny funksjonalitet skal dokumenteres i samme arbeid (internt i `docs/` og `docs/integrations/`, eksternt i `docs-site/docs/`).
 - **Endringshistorikk:** Endringer underveis dokumenteres i `docs/endringer/` som .md-filer (én per tema/dato). Se `docs/endringer/README.md` for bruk.

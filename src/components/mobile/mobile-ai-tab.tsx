@@ -45,8 +45,8 @@ export function MobileAiTab() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
         {!hasMessages ? (
           <div className="flex flex-col items-center justify-center h-full gap-6 px-2">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[oklch(0.95_0.04_155)]">
-              <Sparkles className="h-7 w-7 text-[oklch(0.55_0.18_155)]" />
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[oklch(0.95_0.04_280)]">
+              <Sparkles className="h-7 w-7 text-[oklch(0.48_0.20_280)]" />
             </div>
             <div className="text-center">
               <h2 className="text-lg font-semibold">Revizo AI</h2>

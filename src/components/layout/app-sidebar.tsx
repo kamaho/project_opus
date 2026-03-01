@@ -1,108 +1,179 @@
 "use client";
 
+import { useState, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Wallet, Receipt, Settings, ChevronDown, SlidersHorizontal, GraduationCap } from "lucide-react";
+import { Lock, Settings } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { UserButton, useUser, useOrganization } from "@clerk/nextjs";
-import { NotificationBell } from "@/components/layout/notification-bell";
-import { RevizoLogo } from "@/components/ui/revizo-logo";
-import { useTutorialMode } from "@/contexts/tutorial-mode-context";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import dynamic from "next/dynamic";
 
-const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, smartInfo: "Dashboard — oversikt over avstemminger, status og snarveier." },
-  { label: "Avstemminger", href: "/dashboard/clients", icon: Wallet, smartInfo: "Avstemminger — administrer avstemminger og deres matching-oppsett." },
-  { label: "Matching-regler", href: "/dashboard/matching-rules", icon: SlidersHorizontal, smartInfo: "Matching-regler — konfigurer regler for automatisk Smart Match." },
-  { label: "MVA-avstemming", href: "/dashboard/mva-avstemming", icon: Receipt, smartInfo: "MVA-avstemming — avstem MVA i regnskapet mot MVA-melding fra Altinn." },
-  { label: "Innstillinger", href: "/dashboard/settings", icon: Settings, smartInfo: "Innstillinger — konfigurer profil, organisasjon og systemvalg." },
-];
+const SidebarUserBlock = dynamic(
+  () => import("@/components/layout/sidebar-user-block").then((m) => m.SidebarUserBlock),
+  { ssr: false }
+);
+
+import { PlanBadge } from "@/components/layout/plan-badge";
+import { UpgradeModal } from "@/components/layout/upgrade-modal";
+import {
+  NAVIGATION,
+  SETTINGS_ITEM,
+  TIER_LABELS,
+  type NavItem,
+  type NavItemTier,
+} from "@/lib/constants/navigation";
+
+const CURRENT_TIER: NavItemTier = "STARTER";
+
+function isActivePath(href: string, pathname: string) {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname.startsWith(href);
+}
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { user } = useUser();
-  const { organization } = useOrganization();
-  const { enabled: tutorialEnabled, setEnabled: setTutorialEnabled } = useTutorialMode();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeFeature, setUpgradeFeature] = useState("");
+  const [upgradeTier, setUpgradeTier] = useState<NavItemTier>("PRO");
+
+  const openUpgrade = useCallback((feature: string, tier: NavItemTier) => {
+    setUpgradeFeature(feature);
+    setUpgradeTier(tier);
+    setUpgradeOpen(true);
+  }, []);
+
+  function renderItem(item: NavItem) {
+    const active = isActivePath(item.href, pathname);
+
+    if (item.status === "LOCKED") {
+      return (
+        <SidebarMenuItem key={item.id}>
+          <SidebarMenuButton
+            tooltip={item.label}
+            className="opacity-50 cursor-pointer"
+            onClick={() => openUpgrade(item.label, item.tier)}
+          >
+            <item.icon />
+            <span>{item.label}</span>
+          </SidebarMenuButton>
+          <SidebarMenuBadge className="gap-0.5 text-[10px] font-medium opacity-70">
+            <Lock className="size-2.5" />
+            {TIER_LABELS[item.tier]}
+          </SidebarMenuBadge>
+        </SidebarMenuItem>
+      );
+    }
+
+    if (item.status === "COMING_SOON") {
+      return (
+        <SidebarMenuItem key={item.id}>
+          <SidebarMenuButton
+            asChild
+            isActive={active}
+            tooltip={item.label}
+            className="opacity-60"
+          >
+            <Link href={item.href} data-smart-info={item.smartInfo}>
+              <item.icon />
+              <span>{item.label}</span>
+            </Link>
+          </SidebarMenuButton>
+          <SidebarMenuBadge className="text-[10px] font-medium text-blue-500 dark:text-blue-400">
+            Snart
+          </SidebarMenuBadge>
+        </SidebarMenuItem>
+      );
+    }
+
+    return (
+      <SidebarMenuItem key={item.id}>
+        <SidebarMenuButton
+          asChild
+          isActive={active}
+          tooltip={item.label}
+        >
+          <Link href={item.href} data-smart-info={item.smartInfo}>
+            <item.icon />
+            <span>{item.label}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  }
 
   return (
-    <Sidebar>
-      <SidebarHeader className="border-b border-sidebar-border p-3">
-        <div className="flex items-center gap-2">
-          <UserButton
-            afterSignOutUrl="/sign-in"
-            appearance={{
-              elements: { avatarBox: "h-9 w-9" },
-            }}
-          />
-          <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-sidebar-foreground font-medium truncate text-sm">
-              {user?.firstName ?? user?.emailAddresses[0]?.emailAddress ?? "Bruker"}
-            </span>
-            <span className="text-sidebar-foreground/70 text-xs truncate flex items-center gap-0.5">
-              {organization?.name ?? "Velg org"}
-              <ChevronDown className="h-3 w-3 shrink-0" />
-            </span>
-          </div>
-          <NotificationBell />
-        </div>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.label}>
+    <>
+      <Sidebar>
+        <SidebarHeader className="border-b border-sidebar-border p-3">
+          <SidebarUserBlock />
+        </SidebarHeader>
+
+        <SidebarContent>
+          {NAVIGATION.map((group, i) => (
+            <div key={group.label}>
+              {i > 0 && <SidebarSeparator />}
+              <SidebarGroup>
+                <SidebarGroupLabel className="text-[10px] text-sidebar-foreground/50 uppercase tracking-wider">
+                  {group.label}
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {group.items.map(renderItem)}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </div>
+          ))}
+
+          <SidebarSeparator />
+
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
-                    isActive={
-                      item.href === "/dashboard"
-                        ? pathname === "/dashboard"
-                        : pathname.startsWith(item.href)
-                    }
-                    tooltip={item.label}
+                    isActive={isActivePath(SETTINGS_ITEM.href, pathname)}
+                    tooltip={SETTINGS_ITEM.label}
                   >
-                    <Link href={item.href} data-smart-info={item.smartInfo}>
-                      <item.icon />
-                      <span>{item.label}</span>
+                    <Link href={SETTINGS_ITEM.href} data-smart-info={SETTINGS_ITEM.smartInfo}>
+                      <Settings />
+                      <span>{SETTINGS_ITEM.label}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border p-3 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <Label
-            htmlFor="tutorial-mode"
-            className="text-xs text-sidebar-foreground/80 font-normal cursor-pointer flex items-center gap-1.5"
-          >
-            <GraduationCap className="h-3.5 w-3.5 text-sidebar-foreground/70" />
-            Tutorial-modus
-          </Label>
-          <Switch
-            id="tutorial-mode"
-            checked={tutorialEnabled}
-            onCheckedChange={setTutorialEnabled}
-            aria-label="Slå tutorial-modus av eller på"
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+
+        <SidebarFooter className="border-t border-sidebar-border p-3">
+          <PlanBadge
+            tier={CURRENT_TIER}
+            clientCount={3}
+            clientLimit={CURRENT_TIER === "STARTER" ? 10 : null}
           />
-        </div>
-        <Link href="/dashboard" className="flex items-center">
-          <RevizoLogo width={100} height={25} />
-        </Link>
-      </SidebarFooter>
-    </Sidebar>
+        </SidebarFooter>
+      </Sidebar>
+
+      <UpgradeModal
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        featureName={upgradeFeature}
+        requiredTier={upgradeTier}
+      />
+    </>
   );
 }

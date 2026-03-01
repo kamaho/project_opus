@@ -16,8 +16,8 @@ export default async function DashboardPage() {
       <div>
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         <p className="text-muted-foreground">
-          Velkommen til Account Control. Her kan du administrere avstemminger
-          for din organisasjon.
+          Velkommen til Account Control. Her kan du administrere klienter
+          og deres avstemming for din organisasjon.
         </p>
       </div>
       {orgId ? (

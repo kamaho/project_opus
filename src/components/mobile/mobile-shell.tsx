@@ -66,12 +66,12 @@ export function MobileShell({ onRequestDesktop }: MobileShellProps) {
               className={cn(
                 "flex flex-1 flex-col items-center justify-center gap-0.5 transition-colors relative",
                 isActive
-                  ? "text-[oklch(0.72_0.20_155)]"
+                  ? "text-[oklch(0.62_0.22_280)]"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
               {isActive && (
-                <span className="absolute top-0 left-3 right-3 h-0.5 rounded-full bg-[oklch(0.72_0.20_155)]" />
+                <span className="absolute top-0 left-3 right-3 h-0.5 rounded-full bg-[oklch(0.62_0.22_280)]" />
               )}
               <tab.icon className="h-5 w-5" />
               <span className="text-[10px] font-medium leading-none">{tab.label}</span>

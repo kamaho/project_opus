@@ -95,6 +95,7 @@ export async function POST(request: Request) {
     let finalText = "";
     const toolsUsed: string[] = [];
     let totalTokens = 0;
+    let smartMatchGroups: [string[], string[]][] | undefined;
 
     let currentMessages = [...anthropicMessages];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -129,12 +130,20 @@ export async function POST(request: Request) {
         const result = await executeAction(
           toolUse.name,
           toolUse.input as Record<string, unknown>,
-          orgId
+          orgId,
+          userId
         );
+        const resultObj = result as Record<string, unknown>;
+
+        if (toolUse.name === "run_smart_match" && resultObj._matchGroups) {
+          smartMatchGroups = resultObj._matchGroups as [string[], string[]][];
+          delete resultObj._matchGroups;
+        }
+
         toolResults.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
-          content: JSON.stringify(result),
+          content: JSON.stringify(resultObj),
         });
       }
 
@@ -148,6 +157,14 @@ export async function POST(request: Request) {
     const guardrail = validateResponse(finalText, classification.category);
     const responseText = guardrail.filteredResponse;
 
+    const actions: Array<{ type: string; matchGroups?: [string[], string[]][] }> = [];
+    if (toolsUsed.includes("run_smart_match") && smartMatchGroups) {
+      actions.push({ type: "smart_match_completed", matchGroups: smartMatchGroups });
+    }
+    if (toolsUsed.includes("send_report_email")) {
+      actions.push({ type: "report_sent" });
+    }
+
     const convId = await saveConversation(
       conversationId ?? null,
       userId,
@@ -160,7 +177,7 @@ export async function POST(request: Request) {
       totalTokens
     );
 
-    return streamTextResponse(responseText, convId);
+    return streamTextResponse(responseText, convId, actions);
   } catch (err) {
     console.error("[AI Chat] Error:", err);
     return NextResponse.json(
@@ -170,10 +187,15 @@ export async function POST(request: Request) {
   }
 }
 
-function streamTextResponse(text: string, conversationId?: string | null) {
+function streamTextResponse(
+  text: string,
+  conversationId?: string | null,
+  actions?: Array<{ type: string }>
+) {
   const payload = JSON.stringify({
     content: text,
     conversationId: conversationId ?? null,
+    ...(actions && actions.length > 0 ? { actions } : {}),
   });
 
   return new Response(payload, {

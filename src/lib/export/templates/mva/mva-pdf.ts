@@ -1,7 +1,8 @@
-import type { TDocumentDefinitions } from "pdfmake/interfaces";
+import type { TDocumentDefinitions, Content } from "pdfmake/interfaces";
 import type { MvaExportViewModel } from "../../types";
 import { renderPdf } from "../../pdf/pdf-renderer";
 import {
+  coverPage,
   brandedReportHeader,
   reportFooter,
   reportMetaBlock,
@@ -9,9 +10,17 @@ import {
   summaryBlock,
   formatNok,
   formatDateTime,
+  getRevizoLogoDataUrl,
 } from "../../pdf/pdf-components";
 
 export async function renderMvaPdf(vm: MvaExportViewModel): Promise<Buffer> {
+  const logoDataUrl = getRevizoLogoDataUrl();
+  const logoKey = logoDataUrl ? "revizoLogo" : undefined;
+
+  const images: Record<string, string> = {};
+  if (logoDataUrl && logoKey) images[logoKey] = logoDataUrl;
+  if (vm.companyLogoDataUrl) images.brandLogo = vm.companyLogoDataUrl;
+
   const columns = [
     { header: "MVA-kode", width: 55, alignment: "left" as const },
     { header: "Beskrivelse", width: "*", alignment: "left" as const },
@@ -53,42 +62,51 @@ export async function renderMvaPdf(vm: MvaExportViewModel): Promise<Buffer> {
   ];
   if (vm.generatedBy) metaRows.splice(1, 0, { label: "Skrevet ut av", value: vm.generatedBy });
 
+  const content: Content[] = [
+    coverPage({
+      reportTitle: "MVA-avstemming",
+      companyName: vm.companyName,
+      klientNavn: `Termin ${vm.termin}`,
+      generatedBy: vm.generatedBy,
+      generatedAt: vm.genererTidspunkt,
+      logoImageKey: logoKey,
+    }),
+    brandedReportHeader("MVA-avstemming", {
+      companyName: vm.companyName,
+      logoImageKey: vm.companyLogoDataUrl ? "brandLogo" : undefined,
+      period: `Termin ${vm.termin}`,
+    }),
+    reportMetaBlock(metaRows),
+    dataTable(columns, rows, { zebraStripe: true }),
+    summaryBlock([
+      { label: "Sum beregnet", value: formatNok(vm.totalBeregnet) },
+      { label: "Sum bokført", value: formatNok(vm.totalBokfort) },
+      {
+        label: "Differanse",
+        value: formatNok(vm.totalDifferanse),
+        bold: true,
+        color: vm.totalDifferanse !== 0 ? "#cc0000" : "#000000",
+      },
+    ]),
+  ];
+
+  if (comments.length > 0) {
+    content.push({
+      text: "Kommentarer",
+      fontSize: 11,
+      bold: true,
+      margin: [0, 12, 0, 4] as [number, number, number, number],
+    } as Content);
+    content.push(...comments);
+  }
+
   const docDefinition: TDocumentDefinitions = {
     pageSize: "A4",
     pageMargins: [40, 40, 40, 50],
     defaultStyle: { font: "Roboto", fontSize: 10 },
-    images: vm.companyLogoDataUrl ? { brandLogo: vm.companyLogoDataUrl } : undefined,
+    images: Object.keys(images).length > 0 ? images : undefined,
     footer: reportFooter(vm.generatedBy ?? "System", vm.genererTidspunkt),
-    content: [
-      brandedReportHeader("MVA-avstemming", {
-        companyName: vm.companyName,
-        logoImageKey: vm.companyLogoDataUrl ? "brandLogo" : undefined,
-        period: `Termin ${vm.termin}`,
-      }),
-      reportMetaBlock(metaRows),
-      dataTable(columns, rows, { zebraStripe: true }),
-      summaryBlock([
-        { label: "Sum beregnet", value: formatNok(vm.totalBeregnet) },
-        { label: "Sum bokført", value: formatNok(vm.totalBokfort) },
-        {
-          label: "Differanse",
-          value: formatNok(vm.totalDifferanse),
-          bold: true,
-          color: vm.totalDifferanse !== 0 ? "#cc0000" : "#000000",
-        },
-      ]),
-      ...(comments.length > 0
-        ? [
-            {
-              text: "Kommentarer",
-              fontSize: 11,
-              bold: true,
-              margin: [0, 12, 0, 4] as [number, number, number, number],
-            },
-            ...comments,
-          ]
-        : []),
-    ],
+    content,
   };
 
   return renderPdf(docDefinition);

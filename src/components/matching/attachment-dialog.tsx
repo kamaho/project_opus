@@ -95,7 +95,7 @@ export function AttachmentDialog({
 
         {done ? (
           <div className="flex flex-col items-center py-8 gap-2">
-            <CheckCircle2 className="h-10 w-10 text-green-600" />
+            <CheckCircle2 className="h-10 w-10 text-violet-600" />
             <p className="text-sm font-medium">Vedlegg lastet opp</p>
             <p className="text-xs text-muted-foreground">
               {transactionIds.length} transaksjoner oppdatert

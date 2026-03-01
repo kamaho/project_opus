@@ -7,7 +7,7 @@ import {
   companies,
   accounts,
 } from "@/lib/db/schema";
-import { eq, and, sql, gte, lte } from "drizzle-orm";
+import { eq, and, sql, gte, lte, count } from "drizzle-orm";
 import type {
   MatchingExportPayload,
   MatchingExportViewModel,
@@ -145,6 +145,45 @@ async function buildOpenReport(
     querySet(2),
   ]);
 
+  const querySaldo = async (setNum: 1 | 2) => {
+    const conditions = [
+      eq(transactions.clientId, clientId),
+      eq(transactions.setNumber, setNum),
+    ];
+    if (dateFrom) conditions.push(gte(transactions.date1, dateFrom));
+    if (dateTo) conditions.push(lte(transactions.date1, dateTo));
+
+    const [row] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${transactions.amount}::numeric), 0)`,
+        cnt: count(),
+      })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(and(...conditions, sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`));
+
+    return { saldo: parseFloat(row?.total ?? "0"), poster: Number(row?.cnt ?? 0) };
+  };
+
+  const [saldo1, saldo2] = await Promise.all([querySaldo(1), querySaldo(2)]);
+
+  const [matchCountRow] = await db
+    .select({ cnt: count() })
+    .from(matches)
+    .where(eq(matches.clientId, clientId));
+  const matchCountVal = Number(matchCountRow?.cnt ?? 0);
+
+  const [matchedTxRow] = await db
+    .select({ cnt: count() })
+    .from(transactions)
+    .where(and(eq(transactions.clientId, clientId), eq(transactions.matchStatus, "matched")));
+  const matchedTxCount = Number(matchedTxRow?.cnt ?? 0);
+
+  const totalPoster = saldo1.poster + saldo2.poster;
+  const matchProsent = totalPoster > 0
+    ? Math.round(((totalPoster - aapneSet1.length - aapneSet2.length) / totalPoster) * 100)
+    : 0;
+
   return {
     klientNavn,
     set1Label,
@@ -157,6 +196,13 @@ async function buildOpenReport(
     antallSet2: aapneSet2.length,
     totalSet1: aapneSet1.reduce((s, t) => s + t.belop, 0),
     totalSet2: aapneSet2.reduce((s, t) => s + t.belop, 0),
+    saldoSet1: saldo1.saldo,
+    saldoSet2: saldo2.saldo,
+    totalPosterSet1: saldo1.poster,
+    totalPosterSet2: saldo2.poster,
+    matchCount: matchCountVal,
+    matchedTransactionCount: matchedTxCount,
+    matchProsent,
     genererTidspunkt: genererTidspunkt ?? new Date().toISOString(),
     companyName,
     generatedBy,

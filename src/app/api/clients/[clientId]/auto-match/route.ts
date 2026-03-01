@@ -52,6 +52,10 @@ export async function POST(
           clientName: clientRow.name,
           matchCount: result.totalMatches,
           transactionCount: result.totalTransactions,
+          periodFrom: result.periodFrom,
+          periodTo: result.periodTo,
+          remainingOpen: result.remainingOpen,
+          totalItems: result.totalItems,
         }).catch((e) => console.error("[auto-match] notification failed:", e));
       }
 

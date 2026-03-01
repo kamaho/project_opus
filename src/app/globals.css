@@ -86,11 +86,11 @@
   --sidebar-border: oklch(0.92 0 0);
   --sidebar-ring: oklch(0.5 0 0);
 
-  /* Brand green — Supabase-inspired neon green, used sparingly */
-  --brand: oklch(0.72 0.20 155);
-  --brand-emphasis: oklch(0.55 0.18 155);
-  --brand-subtle: oklch(0.95 0.04 155);
-  --brand-muted: oklch(0.85 0.10 155);
+  /* Brand violet — used sparingly for accents */
+  --brand: oklch(0.62 0.22 280);
+  --brand-emphasis: oklch(0.50 0.20 280);
+  --brand-subtle: oklch(0.95 0.04 280);
+  --brand-muted: oklch(0.80 0.12 280);
 }
 
 .dark {
@@ -112,25 +112,25 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.72 0.20 155);
-  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-1: oklch(0.62 0.22 280);
+  --chart-2: oklch(0.696 0.17 290);
   --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.62 0.20 155);
+  --chart-4: oklch(0.55 0.20 280);
   --chart-5: oklch(0.645 0.246 16.439);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.72 0.20 155);
+  --sidebar-primary: oklch(0.62 0.22 280);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 
-  /* Brand green — brighter on dark backgrounds for contrast */
-  --brand: oklch(0.78 0.20 155);
-  --brand-emphasis: oklch(0.82 0.18 155);
-  --brand-subtle: oklch(0.20 0.04 155);
-  --brand-muted: oklch(0.35 0.10 155);
+  /* Brand violet — brighter on dark backgrounds for contrast */
+  --brand: oklch(0.72 0.22 280);
+  --brand-emphasis: oklch(0.78 0.20 280);
+  --brand-subtle: oklch(0.20 0.04 280);
+  --brand-muted: oklch(0.35 0.12 280);
 }
 
 @layer base {
@@ -158,14 +158,96 @@ html[data-input="keyboard"] .row-action-bar {
   pointer-events: none !important;
 }
 
+/* ── Smart Panel aura ────────────────────────────────────────────────
+   Rotating thin outline border + static blurred glow behind.
+   NOTE: Do NOT set `position` here — panels use Tailwind `fixed`. */
+
+@property --sp-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes sp-rotate {
+  to { --sp-angle: 360deg; }
+}
+
+.smart-panel-aura {
+  border-color: transparent !important;
+  box-shadow: 0 0 20px 2px oklch(0.55 0.22 295 / 0.20);
+}
+
+.dark .smart-panel-aura {
+  box-shadow: 0 0 20px 2px oklch(0.55 0.22 295 / 0.30);
+}
+
+/* Rotating thin conic outline — inset -1px to cover the transparent border area */
+.smart-panel-aura::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--sp-angle),
+    transparent 0deg,
+    oklch(0.68 0.20 295) 60deg,
+    transparent 120deg,
+    oklch(0.68 0.20 295) 240deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: sp-rotate 24s linear infinite;
+  z-index: 1;
+}
+
+/* Glow div no longer used — glow is a box-shadow on .smart-panel-aura */
+.smart-panel-aura-glow {
+  display: none;
+}
+
+/* ── Smart Panel morph animation ─────────────────────────────────────
+   Plays when panel mounts after a mode switch (mini ↔ normal). */
+
+@keyframes smart-panel-morph-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+.smart-panel-morph {
+  animation: smart-panel-morph-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ── Panel size toggle icon bounce ──────────────────────────────── */
+
+@keyframes panel-toggle-pop {
+  0%   { transform: scale(0); opacity: 0; }
+  50%  { transform: scale(1.18); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.panel-toggle-icon {
+  animation: panel-toggle-pop 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 /* ── Match animation ─────────────────────────────────────────────────
    Only animate opacity + transform (GPU-composited, zero layout cost).
    will-change promotes the row to its own layer for 60 fps. */
 
 @keyframes match-glow {
   0%   { opacity: 1; transform: scale(1);     background-color: transparent; }
-  35%  { opacity: 1; transform: scale(1.006);  background-color: oklch(0.85 0.12 155 / 0.35); }
-  100% { opacity: 1; transform: scale(1);      background-color: oklch(0.85 0.12 155 / 0.35); }
+  35%  { opacity: 1; transform: scale(1.006);  background-color: oklch(0.85 0.12 280 / 0.35); }
+  100% { opacity: 1; transform: scale(1);      background-color: oklch(0.85 0.12 280 / 0.35); }
 }
 
 @keyframes match-fly-out {
@@ -194,7 +276,27 @@ html[data-input="keyboard"] .row-action-bar {
 
 .dark .match-animating:not(.match-exit) {
   animation: none;
-  background-color: oklch(0.35 0.12 155 / 0.3);
+  background-color: oklch(0.35 0.12 280 / 0.3);
+}
+
+/* ── Slow spin for AI working indicator ──────────────────────────── */
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+/* ── Dialog shake on Smart Match confirm ─────────────────────────── */
+@keyframes dialog-shake {
+  0%   { transform: translate(0, 0); }
+  15%  { transform: translate(-3px, 0); }
+  30%  { transform: translate(3px, 0); }
+  45%  { transform: translate(-2px, 0); }
+  60%  { transform: translate(2px, 0); }
+  75%  { transform: translate(-1px, 0); }
+  100% { transform: translate(0, 0); }
+}
+
+.sm-dialog-shake {
+  animation: dialog-shake 400ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
 /* ── "Lukkede" button pulse when matches land ────────────────────── */
@@ -284,8 +386,8 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   outline: none;
   padding: 5px 14px;
   background:
-    radial-gradient(65% 65% at 50% 100%, oklch(0.72 0.22 160 / 0.8) 0%, oklch(0.72 0.22 160 / 0) 100%),
-    linear-gradient(0deg, oklch(0.62 0.20 155), oklch(0.62 0.20 155));
+    radial-gradient(65% 65% at 50% 100%, oklch(0.62 0.24 285 / 0.8) 0%, oklch(0.62 0.24 285 / 0) 100%),
+    linear-gradient(0deg, oklch(0.55 0.22 280), oklch(0.55 0.22 280));
   border-radius: var(--_r);
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
@@ -305,8 +407,8 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 .sm-btn::after {
   --_inset: 2px;
   background:
-    radial-gradient(65% 65% at 50% 100%, oklch(0.72 0.22 160 / 0.8) 0%, oklch(0.72 0.22 160 / 0) 100%),
-    linear-gradient(0deg, oklch(0.62 0.20 155), oklch(0.62 0.20 155));
+    radial-gradient(65% 65% at 50% 100%, oklch(0.62 0.24 285 / 0.8) 0%, oklch(0.62 0.24 285 / 0) 100%),
+    linear-gradient(0deg, oklch(0.55 0.22 280), oklch(0.55 0.22 280));
 }
 .sm-btn:active:not(:disabled) { transform: scale(0.95); }
 .sm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -321,7 +423,7 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   height: 0.65rem;
   width: 0.65rem;
   transition: margin 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-  background: radial-gradient(100% 75% at 55%, oklch(0.72 0.22 160 / 0.8) 0%, oklch(0.72 0.22 160 / 0) 100%);
+  background: radial-gradient(100% 75% at 55%, oklch(0.62 0.24 285 / 0.8) 0%, oklch(0.62 0.24 285 / 0) 100%);
   box-shadow: 0 0 2px oklch(0 0 0 / 0.3);
   border-bottom-left-radius: 0.3rem;
   border-top-right-radius: var(--_r);
@@ -406,17 +508,17 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   to { fill: white; }
 }
 
-/* Smart Match theme utilities — green accent across dialogs */
-.sm-text { color: oklch(0.62 0.20 155); }
-.dark .sm-text { color: oklch(0.78 0.20 155); }
-.sm-bg-subtle { background-color: oklch(0.95 0.06 155); }
-.dark .sm-bg-subtle { background-color: oklch(0.25 0.08 155); }
-.sm-border { border-color: oklch(0.62 0.20 155); }
-.dark .sm-border { border-color: oklch(0.78 0.20 155); }
+/* Smart Match theme utilities — violet accent across dialogs */
+.sm-text { color: oklch(0.55 0.22 280); }
+.dark .sm-text { color: oklch(0.72 0.22 280); }
+.sm-bg-subtle { background-color: oklch(0.95 0.06 280); }
+.dark .sm-bg-subtle { background-color: oklch(0.25 0.08 280); }
+.sm-border { border-color: oklch(0.55 0.22 280); }
+.dark .sm-border { border-color: oklch(0.72 0.22 280); }
 .sm-btn-solid {
   background:
-    radial-gradient(65% 65% at 50% 100%, oklch(0.72 0.22 160 / 0.8) 0%, oklch(0.72 0.22 160 / 0) 100%),
-    linear-gradient(0deg, oklch(0.62 0.20 155), oklch(0.62 0.20 155)) !important;
+    radial-gradient(65% 65% at 50% 100%, oklch(0.62 0.24 285 / 0.8) 0%, oklch(0.62 0.24 285 / 0) 100%),
+    linear-gradient(0deg, oklch(0.55 0.22 280), oklch(0.55 0.22 280)) !important;
   color: white !important;
   border: none !important;
 }
@@ -427,10 +529,10 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   width: 48px;
   height: 48px;
   position: relative;
-  color: oklch(0.62 0.20 155);
-  filter: drop-shadow(0 0 6px oklch(0.62 0.20 155 / 0.3));
+  color: oklch(0.55 0.22 280);
+  filter: drop-shadow(0 0 6px oklch(0.55 0.22 280 / 0.3));
 }
-.dark .sm-loader { color: oklch(0.78 0.20 155); filter: drop-shadow(0 0 6px oklch(0.78 0.20 155 / 0.3)); }
+.dark .sm-loader { color: oklch(0.72 0.22 280); filter: drop-shadow(0 0 6px oklch(0.72 0.22 280 / 0.3)); }
 .sm-loader__one,
 .sm-loader__two,
 .sm-loader__three {
@@ -520,12 +622,12 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   transition: stroke-dashoffset 0.3s ease 0.15s, stroke 0.1s;
 }
 .cbx-wrap input:checked {
-  background: oklch(0.65 0.20 155);
-  border-color: oklch(0.65 0.20 155);
+  background: oklch(0.58 0.22 280);
+  border-color: oklch(0.58 0.22 280);
 }
 .dark .cbx-wrap input:checked {
-  background: oklch(0.78 0.20 155);
-  border-color: oklch(0.78 0.20 155);
+  background: oklch(0.72 0.22 280);
+  border-color: oklch(0.72 0.22 280);
 }
 .cbx-wrap input:checked + .cbx-splash {
   animation: cbx-splash 0.5s ease forwards;
@@ -535,12 +637,12 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   stroke-dashoffset: 0;
 }
 .cbx-wrap input:indeterminate {
-  background: oklch(0.65 0.20 155);
-  border-color: oklch(0.65 0.20 155);
+  background: oklch(0.58 0.22 280);
+  border-color: oklch(0.58 0.22 280);
 }
 .dark .cbx-wrap input:indeterminate {
-  background: oklch(0.78 0.20 155);
-  border-color: oklch(0.78 0.20 155);
+  background: oklch(0.72 0.22 280);
+  border-color: oklch(0.72 0.22 280);
 }
 .cbx-wrap:has(input:indeterminate)::after {
   content: "";
@@ -557,17 +659,17 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 }
 @keyframes cbx-splash {
   40% {
-    background: oklch(0.65 0.20 155);
+    background: oklch(0.58 0.22 280);
     box-shadow:
-      0 -10px 0 -4px oklch(0.65 0.20 155),
-      9px -4px 0 -4px oklch(0.65 0.20 155),
-      9px 4px 0 -4px oklch(0.65 0.20 155),
-      0 10px 0 -4px oklch(0.65 0.20 155),
-      -9px 4px 0 -4px oklch(0.65 0.20 155),
-      -9px -4px 0 -4px oklch(0.65 0.20 155);
+      0 -10px 0 -4px oklch(0.58 0.22 280),
+      9px -4px 0 -4px oklch(0.58 0.22 280),
+      9px 4px 0 -4px oklch(0.58 0.22 280),
+      0 10px 0 -4px oklch(0.58 0.22 280),
+      -9px 4px 0 -4px oklch(0.58 0.22 280),
+      -9px -4px 0 -4px oklch(0.58 0.22 280);
   }
   100% {
-    background: oklch(0.65 0.20 155);
+    background: oklch(0.58 0.22 280);
     box-shadow:
       0 -18px 0 -6px transparent,
       16px -8px 0 -6px transparent,
@@ -748,7 +850,7 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   box-shadow:
     inset 0 0.5px oklch(1 0 0 / 0.06),
     0 2px 6px -2px oklch(0 0 0 / 0.3),
-    0 0 0 calc(var(--rpt-active) * 0.25rem) oklch(0.62 0.20 155 / 0.5);
+    0 0 0 calc(var(--rpt-active) * 0.25rem) oklch(0.55 0.22 280 / 0.5);
   transition: all var(--rpt-transition);
   z-index: 0;
 }
@@ -757,8 +859,8 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(65% 65% at 50% 100%, oklch(0.72 0.22 160 / 0.8) 0%, oklch(0.72 0.22 160 / 0) 100%),
-    linear-gradient(0deg, oklch(0.62 0.20 155), oklch(0.62 0.20 155));
+    radial-gradient(65% 65% at 50% 100%, oklch(0.62 0.24 285 / 0.8) 0%, oklch(0.62 0.24 285 / 0) 100%),
+    linear-gradient(0deg, oklch(0.55 0.22 280), oklch(0.55 0.22 280));
   opacity: var(--rpt-active);
   border-radius: inherit;
   transition: opacity var(--rpt-transition);
@@ -834,12 +936,12 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   box-shadow:
     inset 0 0.5px oklch(1 0 0 / 0.04),
     0 2px 6px -2px oklch(0 0 0 / 0.5),
-    0 0 0 calc(var(--rpt-active) * 0.25rem) oklch(0.62 0.20 155 / 0.45);
+    0 0 0 calc(var(--rpt-active) * 0.25rem) oklch(0.55 0.22 280 / 0.45);
 }
 
 /* ── Toggle switch (SVG goo) ────────────────────────────────────── */
 .tgl {
-  --tgl-active: oklch(0.62 0.20 155);
+  --tgl-active: oklch(0.55 0.22 280);
   --tgl-inactive: oklch(0.82 0 0);
   position: relative;
   aspect-ratio: 292 / 142;
@@ -942,11 +1044,11 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 
 /* Sparkle button */
 .sparkle-btn-wrap {
-  --sb-bg: oklch(0.45 0.18 155);
-  --sb-glow: oklch(0.72 0.20 155);
+  --sb-bg: oklch(0.42 0.20 280);
+  --sb-glow: oklch(0.62 0.22 280);
 }
 .sparkle-btn-wrap:hover {
-  --sb-bg: oklch(0.50 0.20 155);
+  --sb-bg: oklch(0.48 0.22 280);
 }
 .sparkle-btn-core {
   background: var(--sb-bg);
@@ -954,15 +1056,15 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 }
 .sparkle-btn-core:hover {
   box-shadow:
-    0 0 1.5em 0.5em oklch(0.72 0.20 155 / 0.3),
-    0 0 0 0 oklch(0.55 0.18 155) inset;
+    0 0 1.5em 0.5em oklch(0.62 0.22 280 / 0.3),
+    0 0 0 0 oklch(0.48 0.20 280) inset;
 }
 .sparkle-btn-core::before {
   content: "";
   position: absolute;
   inset: -3px;
   z-index: -1;
-  border: 2px solid oklch(0.72 0.20 155 / 0.4);
+  border: 2px solid oklch(0.62 0.22 280 / 0.4);
   border-radius: 9999px;
   opacity: 0;
   transition: opacity 0.3s;
@@ -993,4 +1095,96 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 }
 @keyframes sparkle-bounce {
   35%, 65% { scale: 0.6; }
+}
+
+/* Nav arrow button — animated circular arrow for table navigation */
+.nav-arrow-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.nav-arrow-btn__ring {
+  position: absolute;
+  border-radius: 50%;
+  inset: 3px;
+}
+
+.nav-arrow-btn__ring--default {
+  border: 1.5px solid oklch(0.55 0 0);
+  transition:
+    opacity 0.4s cubic-bezier(0.77, 0, 0.175, 1) 80ms,
+    transform 0.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) 80ms;
+}
+
+:is(.dark) .nav-arrow-btn__ring--default {
+  border-color: oklch(0.7 0 0);
+}
+
+.nav-arrow-btn__ring--hover {
+  border: 2px solid oklch(0.65 0.25 310);
+  transform: scale(1.3);
+  opacity: 0;
+  transition:
+    opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1),
+    transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.nav-arrow-btn:hover .nav-arrow-btn__ring--default,
+.nav-arrow-btn:focus-visible .nav-arrow-btn__ring--default,
+.data-table-row-with-nav-pill:hover .nav-arrow-btn .nav-arrow-btn__ring--default {
+  opacity: 0;
+  transform: scale(0.7);
+  transition:
+    opacity 0.4s cubic-bezier(0.165, 0.84, 0.44, 1),
+    transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.nav-arrow-btn:hover .nav-arrow-btn__ring--hover,
+.nav-arrow-btn:focus-visible .nav-arrow-btn__ring--hover,
+.data-table-row-with-nav-pill:hover .nav-arrow-btn .nav-arrow-btn__ring--hover {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 0.4s cubic-bezier(0.77, 0, 0.175, 1) 80ms,
+    transform 0.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) 80ms;
+}
+
+.nav-arrow-btn__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: oklch(0.35 0 0);
+}
+
+:is(.dark) .nav-arrow-btn__icon {
+  color: oklch(0.8 0 0);
+}
+
+.nav-arrow-btn__track {
+  display: flex;
+  position: absolute;
+  top: 0;
+  left: -30px;
+}
+
+.nav-arrow-btn:hover .nav-arrow-btn__track,
+.nav-arrow-btn:focus-visible .nav-arrow-btn__track,
+.data-table-row-with-nav-pill:hover .nav-arrow-btn .nav-arrow-btn__track {
+  transition: transform 0.4s cubic-bezier(0.455, 0.03, 0.515, 0.955);
+  transform: translateX(30px);
+}
+
+.nav-arrow-btn:hover .nav-arrow-btn__icon,
+.nav-arrow-btn:focus-visible .nav-arrow-btn__icon,
+.data-table-row-with-nav-pill:hover .nav-arrow-btn .nav-arrow-btn__icon {
+  color: oklch(0.55 0.25 310);
 }

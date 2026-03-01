@@ -16,8 +16,13 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { userId } = await auth();
-  if (userId && !(await hasCompletedOnboarding(userId))) {
-    redirect("/onboarding");
+  if (userId) {
+    try {
+      const completed = await hasCompletedOnboarding(userId);
+      if (!completed) redirect("/onboarding");
+    } catch {
+      // DB unavailable; show dashboard anyway instead of redirect-looping to onboarding
+    }
   }
   return (
     <UiPreferencesProvider>

@@ -603,8 +603,8 @@ A real-time overview for controllers, CFOs, and team leads. Shows the health of 
 - [x] File upload and parsing (comprehensive format support)
 - [x] Manual matching (1:1, many:1, many:many, internal)
 - [x] Balance tracking (opening balance, running saldo)
-- [ ] Automatic matching with standard rule set
-- [ ] Rule configuration UI
+- [x] Automatic matching with standard rule set
+- [x] Rule configuration UI
 
 ### Phase 2 — Balance reconciliation
 - [ ] Accounting system integration (start with one system, e.g., Tripletex)
@@ -618,11 +618,11 @@ A real-time overview for controllers, CFOs, and team leads. Shows the health of 
 - [ ] Accruals report
 
 ### Phase 3 — Task management & workflow
-- [ ] Task data model and CRUD
-- [ ] Norwegian accounting calendar with recurring deadlines
+- [x] Task data model and CRUD
+- [x] Norwegian accounting calendar with recurring deadlines
 - [ ] Automatic task creation rules (threshold, time, overdue)
-- [ ] Task assignment and escalation
-- [ ] Task views (list, calendar, dashboard)
+- [x] Task assignment and escalation
+- [x] Task views (list, calendar, dashboard)
 - [ ] Comments and activity log
 
 ### Phase 4 — Annual reporting & audit
@@ -647,9 +647,9 @@ A real-time overview for controllers, CFOs, and team leads. Shows the health of 
 
 ### Foundation requirements (build from day 1)
 - [x] Multi-tenant architecture
-- [ ] Feature toggle system (to activate/deactivate modules per tenant)
+- [x] Feature toggle system (to activate/deactivate modules per tenant)
 - [x] Extensible parser engine (easy to add new formats)
-- [ ] Configurable rule engine (rules stored as data, not code)
+- [x] Configurable rule engine (rules stored as data, not code)
 - [x] Clean API design (ready for future integrations)
 - [x] Proper data model that supports both transaction matching and balance reconciliation
 

@@ -272,7 +272,7 @@ export function FileManagerPanel({
                       </Button>
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                      <CheckCircle2 className="h-3 w-3 text-violet-600" />
                       <span>Importert {formatDate(imp.createdAt)}</span>
                     </div>
                   </div>

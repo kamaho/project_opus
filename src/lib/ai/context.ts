@@ -6,9 +6,10 @@ import {
   matches,
   userOnboarding,
   aiUserMemory,
+  contacts,
 } from "@/lib/db/schema";
 import { eq, and, sql, count } from "drizzle-orm";
-import type { UserContext, PageContext } from "./types";
+import type { UserContext, PageContext, OrgContact } from "./types";
 
 export async function getUserContext(
   userId: string,
@@ -28,6 +29,8 @@ export async function getUserContext(
     .where(eq(userOnboarding.userId, userId))
     .limit(1);
 
+  const orgContacts = await getOrgContacts(orgId);
+
   return {
     userId,
     orgId,
@@ -35,6 +38,7 @@ export async function getUserContext(
     userName,
     clientCount: Number(clientCountResult?.count ?? 0),
     onboardingCompleted: onboarding[0]?.completedAt != null,
+    contacts: orgContacts,
   };
 }
 
@@ -58,8 +62,18 @@ export function getPageContext(currentPath: string): PageContext {
     section = "kontoer";
   } else if (segments.includes("settings")) {
     section = "innstillinger";
-  } else if (segments.includes("mva-avstemming")) {
-    section = "mva-avstemming";
+  } else if (segments.includes("mva-avstemming") || segments.includes("mva-melding")) {
+    section = "mva-melding";
+  } else if (segments.includes("manedlig-avslutning")) {
+    section = "manedlig-avslutning";
+  } else if (segments.includes("lonn-a-melding")) {
+    section = "lonn-og-a-melding";
+  } else if (segments.includes("arsoppgjor")) {
+    section = "arsoppgjor";
+  } else if (segments.includes("skattemelding-naering")) {
+    section = "skattemelding-naering";
+  } else if (segments.includes("aksjonaerregister")) {
+    section = "aksjonaerregisteroppgave";
   }
 
   return { path: currentPath, section, clientId };
@@ -185,4 +199,19 @@ export async function getUnmatchedSummary(
     clientName: r.clientName,
     unmatched: Number(r.unmatched),
   }));
+}
+
+export async function getOrgContacts(orgId: string): Promise<OrgContact[]> {
+  const rows = await db
+    .select({
+      id: contacts.id,
+      name: contacts.name,
+      email: contacts.email,
+      role: contacts.role,
+      company: contacts.company,
+    })
+    .from(contacts)
+    .where(eq(contacts.tenantId, orgId));
+
+  return rows;
 }

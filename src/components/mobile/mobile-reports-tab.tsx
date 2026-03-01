@@ -32,7 +32,7 @@ const JOB_TYPE_LABEL: Record<string, string> = {
 };
 
 const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; className: string; label: string }> = {
-  success: { icon: CheckCircle2, className: "text-emerald-500", label: "Fullfort" },
+  success: { icon: CheckCircle2, className: "text-violet-500", label: "Fullfort" },
   failed: { icon: XCircle, className: "text-red-500", label: "Feilet" },
   partial: { icon: AlertTriangle, className: "text-amber-500", label: "Delvis" },
 };

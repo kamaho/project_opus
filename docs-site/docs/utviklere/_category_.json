@@ -1,0 +1,8 @@
+{
+  "label": "For utviklere",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "description": "API, autentisering og integrasjoner."
+  }
+}

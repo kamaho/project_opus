@@ -35,17 +35,53 @@ const matchingParamsSchema = z.object({
   dateTo: z.string().optional(),
 });
 
+const comparisonDataSchema = z.object({
+  clients: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      companyName: z.string(),
+      set1AccountNumber: z.string(),
+      set2AccountNumber: z.string(),
+      openingBalanceSet1: z.number(),
+      openingBalanceSet2: z.number(),
+      balanceSet1: z.number(),
+      balanceSet2: z.number(),
+      unmatchedSumSet1: z.number(),
+      unmatchedSumSet2: z.number(),
+      unmatchedCountSet1: z.number(),
+      unmatchedCountSet2: z.number(),
+    })
+  ),
+  totals: z.object({
+    nettoSet1: z.number(),
+    nettoSet2: z.number(),
+    totalUnmatchedCount: z.number(),
+  }),
+});
+
+const groupMatchingDataSchema = z.object({
+  groupId: z.string().uuid(),
+  groupName: z.string(),
+  clientIds: z.array(z.string().uuid()).min(1),
+  reportType: z.enum(["open"]),
+});
+
 const exportRequestSchema = z
   .object({
-    module: z.enum(["mva", "matching"]),
+    module: z.enum(["mva", "matching", "comparison", "group-matching"]),
     format: z.enum(["pdf", "xlsx"]),
     mvaData: mvaDataSchema.optional(),
     matchingParams: matchingParamsSchema.optional(),
+    comparisonData: comparisonDataSchema.optional(),
+    groupMatchingData: groupMatchingDataSchema.optional(),
   })
   .refine(
     (data) => {
       if (data.module === "mva") return !!data.mvaData;
       if (data.module === "matching") return !!data.matchingParams;
+      if (data.module === "comparison") return !!data.comparisonData;
+      if (data.module === "group-matching") return !!data.groupMatchingData;
       return false;
     },
     { message: "Mangler data for valgt modul" }

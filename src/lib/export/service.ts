@@ -4,6 +4,8 @@ import { getTemplate } from "./registry";
 // Ensure templates are registered on first import
 import "./templates/mva/mva-register";
 import "./templates/matching/matching-register";
+import "./templates/comparison/comparison-register";
+import "./templates/group-matching/group-matching-register";
 
 export async function generateExport(
   request: ExportRequest,
@@ -16,7 +18,14 @@ export async function generateExport(
     throw new Error(`Ingen template registrert for ${module}/${format}`);
   }
 
-  const payload = module === "mva" ? request.mvaData : request.matchingParams;
+  const payload =
+    module === "mva"
+      ? request.mvaData
+      : module === "comparison"
+        ? request.comparisonData
+        : module === "group-matching"
+          ? request.groupMatchingData
+          : request.matchingParams;
   const viewModel = await template.buildViewModel(payload, context);
 
   let buffer: Buffer;
