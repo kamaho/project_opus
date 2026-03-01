@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { clients, companies, matchingRules } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { clients, companies } from "@/lib/db/schema";
+import { eq, sql } from "drizzle-orm";
 import Link from "next/link";
 import { ChevronRight, SlidersHorizontal } from "lucide-react";
 

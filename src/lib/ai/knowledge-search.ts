@@ -5,7 +5,7 @@ import {
   knowledgeFaq,
   productGuides,
 } from "@/lib/db/schema";
-import { sql, ilike, or, eq } from "drizzle-orm";
+import { sql, or, eq } from "drizzle-orm";
 import { generateEmbedding } from "./embeddings";
 import type { SearchResult } from "./types";
 

@@ -185,7 +185,6 @@ export async function executeAction(
     }
 
     case "get_upcoming_deadlines": {
-      const daysAhead = (input.days_ahead as number) ?? 30;
       const deadlines = await db
         .select({
           obligation: regulatoryDeadlines.obligation,

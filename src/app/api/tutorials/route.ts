@@ -48,7 +48,7 @@ export const GET = withTenant(async (req, { userId }) => {
   return NextResponse.json(result);
 });
 
-export const POST = withTenant(async (req, { userId: _userId }) => {
+export const POST = withTenant(async (req) => {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

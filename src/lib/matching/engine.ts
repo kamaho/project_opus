@@ -1,13 +1,10 @@
 import { db } from "@/lib/db";
 import { matches, transactions, matchingRules, imports } from "@/lib/db/schema";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { toOre, toEpochDay, fromEpochDay } from "./indexer";
 import { runPipeline } from "./pipeline";
 import type {
   IndexedTransaction,
-  MatchCandidate,
-  CandidateTransactionSummary,
-  MatchingResult,
   MatchingRule,
   FieldCondition,
 } from "./types";

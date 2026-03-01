@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { tasks, companies, clients } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { TasksClient } from "./tasks-client";
 
 export default async function OppgaverPage() {

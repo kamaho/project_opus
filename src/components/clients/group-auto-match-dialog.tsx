@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Zap, CheckCircle2, FileText, PartyPopper } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import type { ClientGroup } from "@/app/dashboard/clients/accounts-table";
 
 interface GroupAutoMatchClientResult {

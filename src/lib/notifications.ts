@@ -151,7 +151,7 @@ export interface SmartMatchNotificationParams {
 
 export async function notifySmartMatchCompleted(params: SmartMatchNotificationParams) {
   const {
-    tenantId, userId, clientId, clientName, matchCount, transactionCount,
+    tenantId, userId, clientId, clientName, transactionCount,
     periodFrom, periodTo, remainingOpen, totalItems,
   } = params;
 

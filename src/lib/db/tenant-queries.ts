@@ -18,6 +18,7 @@ type TableWithTenantId = PgTableWithColumns<
 export function tenantScope(tenantId: string) {
   return {
     async findMany<T extends TableWithTenantId>(table: T, where?: SQL) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle's table generics require casting for dynamic column access
       const tenantFilter = eq((table as any).tenantId, tenantId);
       const fullFilter = where ? and(tenantFilter, where) : tenantFilter;
       return db.select().from(table).where(fullFilter);
@@ -29,6 +30,7 @@ export function tenantScope(tenantId: string) {
     ) {
       return db
         .insert(table)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic values require cast
         .values({ ...data, tenantId } as any)
         .returning();
     },
@@ -40,7 +42,9 @@ export function tenantScope(tenantId: string) {
     ) {
       return db
         .update(table)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic values require cast
         .set(data as any)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle table generic
         .where(and(eq((table as any).tenantId, tenantId), where))
         .returning();
     },
@@ -48,6 +52,7 @@ export function tenantScope(tenantId: string) {
     async delete<T extends TableWithTenantId>(table: T, where: SQL) {
       return db
         .delete(table)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Drizzle table generic
         .where(and(eq((table as any).tenantId, tenantId), where))
         .returning();
     },

@@ -53,7 +53,9 @@ export function useVoiceInput(
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const onResultRef = useRef(onResult);
-  onResultRef.current = onResult;
+  useEffect(() => {
+    onResultRef.current = onResult;
+  });
 
   useEffect(() => {
     setIsSupported(getSpeechRecognition() !== null);

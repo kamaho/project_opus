@@ -4,9 +4,7 @@ import {
   UserCog,
   Users,
   AlertCircle,
-  CheckCircle2,
   Briefcase,
-  Timer,
   Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";

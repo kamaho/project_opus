@@ -196,11 +196,12 @@ function buildNthPath(el: Element): string {
     }
 
     let segment = current.tagName.toLowerCase();
-    const parent = current.parentElement;
+    const parentEl: Element | null = current.parentElement;
 
-    if (parent) {
-      const siblings = Array.from(parent.children).filter(
-        (c) => c.tagName === current!.tagName
+    if (parentEl) {
+      const currentTag = current.tagName;
+      const siblings = Array.from(parentEl.children).filter(
+        (c: Element) => c.tagName === currentTag
       );
       if (siblings.length > 1) {
         const idx = siblings.indexOf(current) + 1;
@@ -209,7 +210,7 @@ function buildNthPath(el: Element): string {
     }
 
     parts.unshift(segment);
-    current = parent;
+    current = parentEl;
   }
 
   return parts.join(" > ");
