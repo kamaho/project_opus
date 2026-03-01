@@ -56,8 +56,8 @@ export const GET = withTenant(async (req, { tenantId, userId }) => {
     const priorities = priority.split(",") as TaskPriority[];
     conditions.push(inArray(tasks.priority, priorities));
   }
-  if (category) {
-    conditions.push(eq(tasks.category, category));
+  if (category && (TASK_CATEGORIES as readonly string[]).includes(category)) {
+    conditions.push(eq(tasks.category, category as (typeof TASK_CATEGORIES)[number]));
   }
   if (search) {
     conditions.push(
