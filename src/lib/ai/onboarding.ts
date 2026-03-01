@@ -60,16 +60,27 @@ export async function hasCompletedOnboarding(userId: string): Promise<boolean> {
   return row[0]?.completedAt != null;
 }
 
-/** Mark the welcome onboarding as completed (sets completedAt, optional revizoEnabled). Uses orgId or userId as placeholder if no org. */
+export interface OnboardingCompleteOptions {
+  revizoEnabled?: boolean;
+  firstClientCreated?: boolean;
+  erpConnected?: boolean;
+}
+
+/** Mark the welcome onboarding as completed. Sets completedAt and optional status flags. */
 export async function markOnboardingComplete(
   userId: string,
   orgId: string | null,
-  revizoEnabled: boolean = false
+  options: OnboardingCompleteOptions = {}
 ): Promise<void> {
   await getOrCreateOnboarding(userId, orgId ?? userId);
   await db
     .update(userOnboarding)
-    .set({ completedAt: new Date(), revizoEnabled })
+    .set({
+      completedAt: new Date(),
+      revizoEnabled: options.revizoEnabled ?? false,
+      firstClientCreated: options.firstClientCreated ?? false,
+      profileCompleted: true,
+    })
     .where(eq(userOnboarding.userId, userId));
 }
 

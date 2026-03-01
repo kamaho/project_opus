@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
@@ -7,24 +7,14 @@ import { getCompaniesByTenant } from "@/lib/db/tenant";
 import { revalidateCompanies } from "@/lib/revalidate";
 
 /** GET: Liste selskap for nåværende organisasjon (tenant). */
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const list = await getCompaniesByTenant(orgId);
+export const GET = withTenant(async (_req, { tenantId }) => {
+  const list = await getCompaniesByTenant(tenantId);
   return NextResponse.json(list);
-}
+});
 
 /** POST: Opprett selskap eller konsern. */
-export async function POST(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const POST = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const { name, orgNumber, type, parentCompanyId } = body as {
     name?: string;
     orgNumber?: string;
@@ -42,7 +32,7 @@ export async function POST(request: Request) {
     const [parent] = await db
       .select({ id: companies.id })
       .from(companies)
-      .where(and(eq(companies.id, parentCompanyId), eq(companies.tenantId, orgId)));
+      .where(and(eq(companies.id, parentCompanyId), eq(companies.tenantId, tenantId)));
     if (!parent) {
       return NextResponse.json({ error: "Konsern ikke funnet" }, { status: 404 });
     }
@@ -51,7 +41,7 @@ export async function POST(request: Request) {
   const [created] = await db
     .insert(companies)
     .values({
-      tenantId: orgId,
+      tenantId,
       name: name.trim(),
       orgNumber: orgNumber?.trim() || null,
       type: companyType,
@@ -62,4 +52,4 @@ export async function POST(request: Request) {
   revalidateCompanies();
 
   return NextResponse.json(created, { status: 201 });
-}
+});

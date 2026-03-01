@@ -43,8 +43,8 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 
 const TYPE_COLOR: Record<string, string> = {
   note_mention: "text-blue-500 bg-blue-500/10",
-  match_completed: "text-emerald-500 bg-emerald-500/10",
-  import_completed: "text-emerald-500 bg-emerald-500/10",
+  match_completed: "text-violet-500 bg-violet-500/10",
+  import_completed: "text-violet-500 bg-violet-500/10",
   assignment: "text-amber-500 bg-amber-500/10",
   deadline_reminder: "text-red-500 bg-red-500/10",
   system: "text-muted-foreground bg-muted",
@@ -110,6 +110,8 @@ export function NotificationBell() {
       }
 
       prevIdsRef.current = new Set(data.map((n) => n.id));
+    } catch {
+      // Network error, API down, etc. — keep previous state, don't throw
     } finally {
       setLoading(false);
     }

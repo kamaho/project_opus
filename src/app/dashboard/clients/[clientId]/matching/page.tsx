@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { transactions, imports, matches, clients, transactionAttachments } from "@/lib/db/schema";
+import { transactions, imports, matches, clients, transactionAttachments, tripletexSyncConfigs } from "@/lib/db/schema";
 import { eq, and, sql, exists } from "drizzle-orm";
 import { MatchingViewClient } from "@/components/matching/matching-view-client";
 import type { TransactionRow } from "@/components/matching/transaction-panel";
@@ -56,7 +56,7 @@ export default async function MatchingPage({
       )
       .orderBy(transactions.date1);
 
-  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows] = await Promise.all([
+  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows, syncConfig] = await Promise.all([
     getCachedAccount(clientRow.set1AccountId, orgId),
     getCachedAccount(clientRow.set2AccountId, orgId),
     db
@@ -100,10 +100,23 @@ export default async function MatchingPage({
       .from(matches)
       .where(eq(matches.clientId, clientId))
       .orderBy(sql`${matches.matchedAt} DESC`),
+    db
+      .select({
+        isActive: tripletexSyncConfigs.isActive,
+        set1Ids: tripletexSyncConfigs.set1TripletexAccountIds,
+        set2Ids: tripletexSyncConfigs.set2TripletexAccountIds,
+      })
+      .from(tripletexSyncConfigs)
+      .where(eq(tripletexSyncConfigs.clientId, clientId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
   ]);
 
   const set1Label = set1Account?.name ?? "Mengde 1";
   const set2Label = set2Account?.name ?? "Mengde 2";
+
+  const set1Source = syncConfig?.isActive && (syncConfig.set1Ids?.length ?? 0) > 0 ? "tripletex" : null;
+  const set2Source = syncConfig?.isActive && (syncConfig.set2Ids?.length ?? 0) > 0 ? "tripletex" : null;
 
   const toRow = (
     t: {
@@ -135,8 +148,18 @@ export default async function MatchingPage({
   const rows1: TransactionRow[] = txSet1.map(toRow);
   const rows2: TransactionRow[] = txSet2.map(toRow);
 
-  const balance1 = rows1.reduce((s, r) => s + r.amount, 0);
-  const balance2 = rows2.reduce((s, r) => s + r.amount, 0);
+  const unmatchedBalance1 = rows1.reduce((s, r) => s + r.amount, 0);
+  const unmatchedBalance2 = rows2.reduce((s, r) => s + r.amount, 0);
+
+  const matchedBalance1 = matchedTxRows
+    .filter((t) => t.setNumber === 1)
+    .reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0);
+  const matchedBalance2 = matchedTxRows
+    .filter((t) => t.setNumber === 2)
+    .reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0);
+
+  const balance1 = unmatchedBalance1 + matchedBalance1;
+  const balance2 = unmatchedBalance2 + matchedBalance2;
 
   // Build matched groups
   const txByMatchId = new Map<string, MatchGroupTransaction[]>();
@@ -181,6 +204,8 @@ export default async function MatchingPage({
         openingBalanceSet1={clientData?.openingBalanceSet1 ?? "0"}
         openingBalanceSet2={clientData?.openingBalanceSet2 ?? "0"}
         openingBalanceDate={clientData?.openingBalanceDate ?? null}
+        set1Source={set1Source}
+        set2Source={set2Source}
       />
     </Suspense>
   );

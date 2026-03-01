@@ -41,9 +41,9 @@ export default async function MatchingRulesOverviewPage() {
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
             <SlidersHorizontal className="h-6 w-6 text-muted-foreground" />
           </div>
-          <h3 className="text-lg font-medium">Ingen avstemminger ennå</h3>
+          <h3 className="text-lg font-medium">Ingen klienter ennå</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            Opprett en avstemming først, så kan du konfigurere matching-regler
+            Opprett en klient først, så kan du konfigurere matching-regler
             for Smart Match.
           </p>
         </div>
@@ -57,7 +57,7 @@ export default async function MatchingRulesOverviewPage() {
         <div>
           <h1 className="text-2xl font-semibold">Matching-regler</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Konfigurer regler for automatisk Smart Match per avstemming.
+            Konfigurer regler for automatisk Smart Match per klient.
           </p>
         </div>
       </div>
@@ -66,7 +66,7 @@ export default async function MatchingRulesOverviewPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="p-3 text-left font-medium">Avstemming</th>
+              <th className="p-3 text-left font-medium">Klient</th>
               <th className="p-3 text-left font-medium">Selskap</th>
               <th className="p-3 text-right font-medium">Aktive regler</th>
               <th className="p-3 w-10" />

@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { matches, transactions, clients } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { logAuditTx } from "@/lib/audit";
 import { z } from "zod";
 
@@ -16,22 +16,11 @@ const createMatchSchema = z.object({
  * Validates sum = 0 (or within tolerance), then atomically
  * creates a match record and updates all transactions.
  */
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const parsed = createMatchSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -121,7 +110,7 @@ export async function POST(
       );
 
     await logAuditTx(tx, {
-      tenantId: orgId,
+      tenantId,
       userId,
       action: "match.created",
       entityType: "match",
@@ -140,7 +129,7 @@ export async function POST(
     matchId: result.id,
     transactionCount: transactionIds.length,
   });
-}
+});
 
 /**
  * DELETE: Unmatch — reverse a match, moving transactions back to unmatched.
@@ -149,22 +138,11 @@ export async function POST(
  *   ?all=true              — unmatch ALL matches for this client
  *   ?transactionId=uuid    — remove a single transaction from its match group
  */
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const DELETE = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
-
-  const url = new URL(request.url);
+  const url = new URL(req.url);
   const matchId = url.searchParams.get("matchId");
   const all = url.searchParams.get("all") === "true";
   const transactionId = url.searchParams.get("transactionId");
@@ -188,7 +166,7 @@ export async function DELETE(
         .returning({ id: matches.id });
 
       await logAuditTx(tx, {
-        tenantId: orgId,
+        tenantId,
         userId,
         action: "match.deleted",
         entityType: "match",
@@ -246,7 +224,7 @@ export async function DELETE(
       }
 
       await logAuditTx(tx, {
-        tenantId: orgId,
+        tenantId,
         userId,
         action: "match.deleted",
         entityType: "match",
@@ -283,7 +261,7 @@ export async function DELETE(
     await tx.delete(matches).where(eq(matches.id, matchId));
 
     await logAuditTx(tx, {
-      tenantId: orgId,
+      tenantId,
       userId,
       action: "match.deleted",
       entityType: "match",
@@ -295,4 +273,4 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true, transactionCount: result.count });
-}
+});

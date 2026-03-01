@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
@@ -16,7 +17,6 @@ import {
   ListChecks,
   SlidersHorizontal,
   FileText,
-  Link2,
   Zap,
   Building2,
   Paintbrush,
@@ -42,59 +42,122 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SetupWizard, type SetupResult } from "@/components/setup/setup-wizard";
+import { StepChoosePath } from "@/components/onboarding/step-choose-path";
+import { StepSelectERP } from "@/components/onboarding/step-select-erp";
+import { StepConfigureERP, type ERPSetupResult } from "@/components/onboarding/step-configure-erp";
+import { StepConnectBank } from "@/components/onboarding/step-connect-bank";
 
-// Minimal onboarding: velkommen → Kom i gang (mark complete, redirect til dashboard).
-// Brukeren setter opp selskap/klienter/avstemming fra dashboard når de er inne.
-const STEPS = [{ id: "welcome", label: "Velkommen" }] as const;
+// ---------------------------------------------------------------------------
+// Step definitions per path
+// ---------------------------------------------------------------------------
+
+type OnboardingPath = "integration" | "manual" | null;
+
+interface StepDef {
+  id: string;
+  label: string;
+}
+
+function getSteps(path: OnboardingPath): StepDef[] {
+  const base: StepDef[] = [
+    { id: "welcome", label: "Velkommen" },
+    { id: "choose-path", label: "Velg vei" },
+  ];
+
+  if (path === "integration") {
+    return [
+      ...base,
+      { id: "select-erp", label: "System" },
+      { id: "configure-erp", label: "Tilkobling" },
+      { id: "connect-bank", label: "Bank" },
+      { id: "preferences", label: "Preferanser" },
+      { id: "services", label: "Tjenester" },
+      { id: "ready", label: "Klar" },
+    ];
+  }
+
+  if (path === "manual") {
+    return [
+      ...base,
+      { id: "manual-setup", label: "Oppsett" },
+      { id: "preferences", label: "Preferanser" },
+      { id: "services", label: "Tjenester" },
+      { id: "ready", label: "Klar" },
+    ];
+  }
+
+  return base;
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export default function OnboardingPage() {
   const [showIntro, setShowIntro] = useState(true);
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
+  const [path, setPath] = useState<OnboardingPath>(null);
+  const [selectedErpId, setSelectedErpId] = useState<string | null>(null);
+
+  const [setupResult, setSetupResult] = useState<SetupResult | null>(null);
+  const [erpResult, setErpResult] = useState<ERPSetupResult | null>(null);
   const [enabledServices, setEnabledServices] = useState<Set<string>>(
     () => new Set(["dashboard", "avstemming"])
   );
-  const [finishError, setFinishError] = useState<string | null>(null);
-  const [finishing, setFinishing] = useState(false);
   const { user, isLoaded: userLoaded } = useUser();
   const router = useRouter();
+
+  const steps = useMemo(() => getSteps(path), [path]);
+  const currentStepId = steps[step]?.id ?? "welcome";
 
   function goTo(nextStep: number) {
     setDirection(nextStep > step ? "forward" : "back");
     setStep(nextStep);
   }
 
+  function goToStepId(id: string) {
+    const idx = steps.findIndex((s) => s.id === id);
+    if (idx >= 0) goTo(idx);
+  }
+
+  function handleBack() {
+    if (currentStepId === "select-erp" || currentStepId === "manual-setup") {
+      setPath(null);
+      setStep(1);
+      return;
+    }
+    goTo(step - 1);
+  }
+
+  function handleChoosePath(chosen: "integration" | "manual") {
+    setPath(chosen);
+    setStep(2);
+  }
+
   function toggleService(id: string) {
     setEnabledServices((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
   async function handleFinish() {
-    setFinishError(null);
-    setFinishing(true);
     try {
-      const res = await fetch("/api/onboarding/complete", {
+      await fetch("/api/onboarding/complete", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revizoEnabled: enabledServices.has("revizo-ai") }),
+        body: JSON.stringify({
+          services: Array.from(enabledServices),
+          path,
+          erpConnected: !!erpResult,
+        }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data?.error ?? "Kunne ikke fullføre");
-      }
-      router.push("/dashboard");
-    } catch (e) {
-      setFinishError(e instanceof Error ? e.message : "Noe gikk galt");
     } finally {
-      setFinishing(false);
+      router.push("/dashboard");
     }
   }
 
@@ -112,16 +175,16 @@ export default function OnboardingPage() {
 
   const firstName = user?.firstName || "der";
 
+  const wideSteps = ["services", "configure-erp", "select-erp", "connect-bank"];
+  const maxWidth = wideSteps.includes(currentStepId) ? "max-w-3xl" : "max-w-xl";
+
   return (
-    <div className={cn(
-      "w-full mx-auto",
-      step === 3 ? "max-w-3xl" : "max-w-xl"
-    )}>
+    <div className={cn("w-full mx-auto", maxWidth)}>
       {/* Progress indicator with back button */}
       <div className="relative flex items-center justify-center mb-12">
         {step > 0 && (
           <button
-            onClick={() => goTo(step - 1)}
+            onClick={handleBack}
             className="absolute left-0 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -129,7 +192,7 @@ export default function OnboardingPage() {
           </button>
         )}
         <div className="flex items-center gap-2">
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <div
               key={s.id}
               className={cn(
@@ -147,7 +210,7 @@ export default function OnboardingPage() {
 
       {/* Step content */}
       <div
-        key={step}
+        key={currentStepId}
         className={cn(
           "animate-in fade-in duration-300",
           direction === "forward"
@@ -155,13 +218,77 @@ export default function OnboardingPage() {
             : "slide-in-from-left-4"
         )}
       >
-        {step === 0 && (
-          <StepWelcome
-            firstName={firstName}
-            onNext={handleFinish}
-            loading={finishing}
-            error={finishError}
+        {currentStepId === "welcome" && (
+          <StepWelcome firstName={firstName} onNext={() => goTo(1)} />
+        )}
+
+        {currentStepId === "choose-path" && (
+          <StepChoosePath onChoose={handleChoosePath} />
+        )}
+
+        {/* Integration path */}
+        {currentStepId === "select-erp" && (
+          <StepSelectERP
+            onSelect={(erpId) => {
+              setSelectedErpId(erpId);
+              goToStepId("configure-erp");
+            }}
           />
+        )}
+
+        {currentStepId === "configure-erp" && selectedErpId && (
+          <StepConfigureERP
+            erpId={selectedErpId}
+            onComplete={(result) => {
+              setErpResult(result);
+              goToStepId("connect-bank");
+            }}
+          />
+        )}
+
+        {currentStepId === "connect-bank" && (
+          <StepConnectBank
+            onContinue={() => goToStepId("preferences")}
+          />
+        )}
+
+        {/* Manual path */}
+        {currentStepId === "manual-setup" && (
+          <div className="space-y-4">
+            <SetupWizard
+              mode="fullscreen"
+              hideProgress
+              onComplete={(result) => {
+                setSetupResult(result);
+                goToStepId("preferences");
+              }}
+            />
+            <div className="text-center">
+              <button
+                onClick={() => goToStepId("preferences")}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Hopp over — jeg setter opp avstemming senere
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Shared steps */}
+        {currentStepId === "preferences" && (
+          <StepPreferences onNext={() => goToStepId("services")} />
+        )}
+
+        {currentStepId === "services" && (
+          <StepServices
+            enabledServices={enabledServices}
+            onToggle={toggleService}
+            onNext={() => goToStepId("ready")}
+          />
+        )}
+
+        {currentStepId === "ready" && (
+          <StepReady onFinish={handleFinish} />
         )}
       </div>
     </div>
@@ -268,15 +395,16 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
       {/* Brand reveal */}
       {showBrand && (
         <div
-          className="intro-brand-active absolute left-1/2 top-1/2"
-          style={{
-            fontSize: "clamp(3rem, 12vw, 10rem)",
-            fontWeight: 800,
-            letterSpacing: "-0.06em",
-            transform: "translate(-50%, -50%)",
-          }}
+          className="intro-brand-active absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         >
-          revizo<span className="text-[oklch(0.72_0.20_155)]">.</span>
+          <Image
+            src="/logo-revizo.svg"
+            alt="Revizo"
+            width={400}
+            height={100}
+            className="h-16 sm:h-20 md:h-24 w-auto"
+            priority
+          />
         </div>
       )}
     </div>
@@ -290,13 +418,9 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
 function StepWelcome({
   firstName,
   onNext,
-  loading,
-  error,
 }: {
   firstName: string;
   onNext: () => void;
-  loading?: boolean;
-  error?: string | null;
 }) {
   return (
     <div className="text-center space-y-6">
@@ -305,27 +429,13 @@ function StepWelcome({
           Velkommen, {firstName}
         </h1>
         <p className="text-muted-foreground max-w-md mx-auto mt-3">
-          Revizo er et moderne avstemmingsverktøy. Du kan opprette selskap og
-          klienter fra dashboard når du er inne.
+          Revizo er et moderne avstemmingsverktøy som gjør regnskapsarbeidet
+          enklere, raskere og mer nøyaktig.
         </p>
       </div>
-      {error && (
-        <p className="text-sm text-destructive">{error}</p>
-      )}
-      <Button
-        size="lg"
-        onClick={onNext}
-        disabled={loading}
-        className="gap-2"
-      >
-        {loading ? (
-          <>Venter …</>
-        ) : (
-          <>
-            Kom i gang
-            <ArrowRight className="h-4 w-4" />
-          </>
-        )}
+      <Button size="lg" onClick={onNext} className="gap-2">
+        Kom i gang
+        <ArrowRight className="h-4 w-4" />
       </Button>
     </div>
   );
@@ -401,7 +511,7 @@ const SERVICES: ServiceItem[] = [
   {
     id: "revizo-ai-agent",
     name: "Revizo AI Agent",
-    description: "AI-assistent som svarer på spørsmål, analyserer data og gir anbefalinger basert på dine avstemminger.",
+    description: "Din AI-baserte revisor som svarer på spørsmål, analyserer data og gir anbefalinger basert på dine avstemminger.",
     price: 299,
     icon: Bot,
     category: "ai",
@@ -519,11 +629,11 @@ function StepServices({
                     >
                       <div className={cn(
                         "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg mt-0.5",
-                        isOn ? "bg-[oklch(0.95_0.04_155)]" : "bg-muted"
+                        isOn ? "bg-[oklch(0.95_0.04_280)]" : "bg-muted"
                       )}>
                         <Icon className={cn(
                           "h-4.5 w-4.5",
-                          isOn ? "text-[oklch(0.55_0.18_155)]" : "text-muted-foreground"
+                          isOn ? "text-[oklch(0.48_0.20_280)]" : "text-muted-foreground"
                         )} />
                       </div>
                       <div className="flex-1 min-w-0">
@@ -540,7 +650,7 @@ function StepServices({
                             </span>
                           )}
                           {service.included && (
-                            <span className="inline-flex items-center gap-0.5 rounded-full bg-[oklch(0.95_0.04_155)] px-1.5 py-0.5 text-[10px] font-medium text-[oklch(0.45_0.15_155)]">
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-[oklch(0.95_0.04_280)] px-1.5 py-0.5 text-[10px] font-medium text-[oklch(0.42_0.18_280)]">
                               <Check className="h-2.5 w-2.5" />
                               Inkludert
                             </span>
@@ -791,15 +901,15 @@ function StepReady({ onFinish }: { onFinish: () => void }) {
   return (
     <div className="text-center space-y-6">
       <div className="flex justify-center">
-        <div className="h-16 w-16 rounded-full bg-green-50 dark:bg-green-950/30 flex items-center justify-center">
-          <CheckCircle2 className="h-8 w-8 text-green-600" />
+        <div className="h-16 w-16 rounded-full bg-violet-50 dark:bg-violet-950/30 flex items-center justify-center">
+          <CheckCircle2 className="h-8 w-8 text-violet-600" />
         </div>
       </div>
       <div className="space-y-1">
         <h2 className="text-2xl font-semibold tracking-tight">Du er klar!</h2>
         <p className="text-muted-foreground max-w-sm mx-auto">
-          Alt er satt opp. Revizo er klar for deg — last opp dine første filer
-          og start avstemmingen.
+          Alt er satt opp. Revizo er klar for deg — start avstemmingen og la
+          dataene flyte automatisk.
         </p>
       </div>
       <Button size="lg" onClick={onFinish} className="gap-2">

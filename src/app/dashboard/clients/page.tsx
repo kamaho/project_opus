@@ -1,38 +1,19 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { clients, companies, accounts, transactions } from "@/lib/db/schema";
+import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
-import { AccountsTable } from "./accounts-table";
+import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
 
 export default async function ClientsPage() {
   const { orgId } = await auth();
   if (!orgId) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-semibold">Avstemminger</h1>
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 p-12 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted mb-4">
-            <svg
-              className="h-6 w-6 text-muted-foreground"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={1.5}
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15"
-              />
-            </svg>
-          </div>
-          <h3 className="text-lg font-medium">Opprett en organisasjon</h3>
-          <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            For å se og opprette avstemminger trenger du en organisasjon.
-            Bruk organisasjonsvelgeren øverst til venstre for å opprette en ny.
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold">Klient avstemming</h1>
+        <p className="text-muted-foreground">
+          Velg en organisasjon for å se klienter.
+        </p>
       </div>
     );
   }
@@ -40,15 +21,16 @@ export default async function ClientsPage() {
   const list = await db
     .select({
       id: clients.id,
-      name: clients.name,
       status: clients.status,
       companyName: companies.name,
       set1AccountNumber: accounts.accountNumber,
-      set1AccountName: accounts.name,
+      assignedUserId: clients.assignedUserId,
+      txSyncActive: tripletexSyncConfigs.isActive,
     })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
     .innerJoin(accounts, eq(clients.set1AccountId, accounts.id))
+    .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
     .where(eq(companies.tenantId, orgId));
 
   const clientIds = list.map((c) => c.id);
@@ -56,7 +38,7 @@ export default async function ClientsPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Avstemminger</h1>
+          <h1 className="text-2xl font-semibold">Klient avstemming</h1>
           <CreateReconciliationDialog />
         </div>
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 p-12 text-center">
@@ -75,9 +57,9 @@ export default async function ClientsPage() {
               />
             </svg>
           </div>
-          <h3 className="text-lg font-medium">Ingen avstemminger ennå</h3>
+          <h3 className="text-lg font-medium">Ingen klienter ennå</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            Opprett din første avstemming for å begynne med matching av
+            Opprett din første klient for å begynne med avstemming av
             transaksjoner mellom hovedbok og bank.
           </p>
           <div className="mt-6">
@@ -129,7 +111,7 @@ export default async function ClientsPage() {
     const agg = byClient.get(c.id)!;
     return {
       id: c.id,
-      matchGroup: c.name,
+      matchGroup: c.set1AccountNumber ?? "—",
       company: c.companyName,
       ledgerAccountGroup: c.set1AccountNumber
         ? c.set1AccountNumber.slice(0, 2) + "xx"
@@ -138,21 +120,68 @@ export default async function ClientsPage() {
       leftBalance: agg.leftBalance,
       rightBalance: agg.rightBalance,
       hasDoc: false,
-      lastTrans: null as string | null,
       lastRecon: null as string | null,
+      assignedUserId: c.assignedUserId,
+      integrationSource: c.txSyncActive ? "tripletex" as const : null,
     };
   });
 
-  return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Avstemminger</h1>
-      <div className="flex flex-wrap items-center gap-2">
-        <CreateReconciliationDialog />
-      </div>
-      <AccountsTable rows={rows} />
-      <p className="text-muted-foreground text-sm">
-        {rows.length} {rows.length === 1 ? "avstemming" : "avstemminger"} totalt
-      </p>
-    </div>
-  );
+  // Fetch client groups
+  const groupRows = await db
+    .select({
+      id: clientGroups.id,
+      name: clientGroups.name,
+      color: clientGroups.color,
+      icon: clientGroups.icon,
+      assignedUserId: clientGroups.assignedUserId,
+    })
+    .from(clientGroups)
+    .where(eq(clientGroups.tenantId, orgId))
+    .orderBy(clientGroups.name);
+
+  let groups: {
+    id: string;
+    name: string;
+    color: string | null;
+    icon: string | null;
+    assignedUserId: string | null;
+    members: { clientId: string; clientName: string; companyName: string }[];
+  }[] = [];
+
+  if (groupRows.length > 0) {
+    const groupIds = groupRows.map((g) => g.id);
+    const memberRows = await db
+      .select({
+        groupId: clientGroupMembers.groupId,
+        clientId: clientGroupMembers.clientId,
+        clientName: clients.name,
+        companyName: companies.name,
+      })
+      .from(clientGroupMembers)
+      .innerJoin(clients, eq(clientGroupMembers.clientId, clients.id))
+      .innerJoin(companies, eq(clients.companyId, companies.id))
+      .where(inArray(clientGroupMembers.groupId, groupIds));
+
+    const membersByGroup = new Map<string, typeof memberRows>();
+    for (const m of memberRows) {
+      const arr = membersByGroup.get(m.groupId) ?? [];
+      arr.push(m);
+      membersByGroup.set(m.groupId, arr);
+    }
+
+    groups = groupRows.map((g) => ({
+      id: g.id,
+      name: g.name,
+      color: g.color,
+      icon: g.icon,
+      assignedUserId: g.assignedUserId,
+      members: (membersByGroup.get(g.id) ?? []).map((m) => ({
+        clientId: m.clientId,
+        clientName: m.clientName,
+        companyName: m.companyName,
+      })),
+    }));
+  }
+
+  return <ClientsPageClient rows={rows} groups={groups} />;
 }

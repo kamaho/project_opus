@@ -158,16 +158,16 @@ export function ExportIntroOverlay({
         <div className="flex flex-col items-center gap-4">
           <div
             className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-full border-2 border-emerald-500/50 bg-emerald-500/10 transition-all duration-500",
+              "flex h-11 w-11 items-center justify-center rounded-full border-2 border-violet-500/50 bg-violet-500/10 transition-all duration-500",
               checkVisible
-                ? "scale-100 opacity-100 shadow-[0_0_20px_rgba(16,185,129,0.5)] ring-4 ring-emerald-400/30"
+                ? "scale-100 opacity-100 shadow-[0_0_20px_rgba(139,92,246,0.5)] ring-4 ring-violet-400/30"
                 : "scale-75 opacity-0"
             )}
             aria-hidden
           >
             <Check
               className={cn(
-                "h-6 w-6 text-emerald-600 dark:text-emerald-400 transition-all duration-300",
+                "h-6 w-6 text-violet-600 dark:text-violet-400 transition-all duration-300",
                 checkVisible ? "scale-100 opacity-100" : "scale-50 opacity-0"
               )}
               strokeWidth={2.5}

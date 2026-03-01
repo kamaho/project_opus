@@ -1,27 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CircleOff, Columns3, Focus, FolderOpen, Link2, MessageSquarePlus, MoreHorizontal, Paperclip, PenLine, Pencil, Search, SortAsc, SortDesc, Trash2, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCheck, CheckSquare, ChevronLeft, ChevronRight, CircleOff, Columns3, Focus, FolderOpen, Link2, MessageSquarePlus, Paperclip, PenLine, Pencil, Search, SortAsc, SortDesc, Trash2, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTableAppearance, useFormatting } from "@/contexts/ui-preferences-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SmartPanel, type SmartPanelOption } from "@/components/smart-panel/smart-panel";
-import {
-  DesignPanelContent,
-  SmartPanelInnstillingerSection,
-  SmartPanelTipsSection,
-} from "@/components/smart-panel/smart-panel-standard";
+
 
 const ATTACH_COL_WIDTH = 28;
-const DEFAULT_COLUMN_WIDTHS = { date: 100, amount: 120, voucher: 80, notat: 100, text: 180 };
+const DEFAULT_COLUMN_WIDTHS = { date: 100, amount: 120, voucher: 80, notat: 100, status: 90, text: 180 };
 const MIN_COLUMN_WIDTH = 50;
 const MAX_COLUMN_WIDTH = 600;
 const CELL_PADDING_X = 16;
 const ROW_HEIGHT = 32;
 const OVERSCAN = 20;
-const DEFAULT_COLUMN_ORDER: ColumnKey[] = ["date", "amount", "voucher", "notat", "text"];
+const DEFAULT_COLUMN_ORDER: ColumnKey[] = ["date", "amount", "voucher", "notat", "status", "text"];
+const EMPTY_SET = new Set<string>() as ReadonlySet<string>;
 
 export interface TransactionRow {
   id: string;
@@ -37,7 +34,7 @@ export interface TransactionRow {
   isManual?: boolean;
 }
 
-export type CellField = "date" | "amount" | "voucher" | "notat" | "text";
+export type CellField = "date" | "amount" | "voucher" | "notat" | "status" | "text";
 
 export interface CellContextAction {
   txId: string;
@@ -46,7 +43,7 @@ export interface CellContextAction {
   numericValue?: number;
 }
 
-type SortKey = "date" | "amount" | "voucher" | "notat" | "text";
+type SortKey = "date" | "amount" | "voucher" | "notat" | "status" | "text";
 type SortDir = "asc" | "desc";
 
 interface TransactionPanelProps {
@@ -109,12 +106,12 @@ function matchesAmount(amount: number, query: string): boolean {
   );
 }
 
-export function TransactionPanel({
+export const TransactionPanel = memo(function TransactionPanel({
   title,
   transactions,
   onSelect,
   onSelectAll,
-  selectedIds = new Set(),
+  selectedIds = EMPTY_SET as Set<string>,
   counterpartHintIds,
   counterpartSumHintIds,
   matchAnimatingIds,
@@ -158,6 +155,7 @@ export function TransactionPanel({
   const [showAllInSettings, setShowAllInSettings] = useState(true);
   const [inlineSearchCol, setInlineSearchCol] = useState<ColumnKey | null>(null);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [toolbarSecondaryRowId, setToolbarSecondaryRowId] = useState<string | null>(null);
   const [searchExpanded, setSearchExpanded] = useState(false);
   const inlineSearchRef = useRef<HTMLInputElement>(null);
   const startX = useRef(0);
@@ -223,13 +221,19 @@ export function TransactionPanel({
 
   useEffect(() => {
     const STEP = Math.max(8, Math.floor(ROW_HEIGHT / 2));
+    let rafId = 0;
+    let pendingX = 0;
+    let pendingY = 0;
+    let hasPending = false;
 
-    const onMouseMove = (e: MouseEvent) => {
-      lastMousePos.current = { x: e.clientX, y: e.clientY };
+    const processDragMove = () => {
+      rafId = 0;
+      hasPending = false;
       if (!isDragging.current || !scrollRef.current) return;
+
       const { x: x0, y: y0 } = lastMouse.current;
-      const x1 = e.clientX;
-      const y1 = e.clientY;
+      const x1 = pendingX;
+      const y1 = pendingY;
       lastMouse.current = { x: x1, y: y1 };
 
       const dx = x1 - x0;
@@ -254,10 +258,26 @@ export function TransactionPanel({
       }
     };
 
+    const onMouseMove = (e: MouseEvent) => {
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+      if (!isDragging.current) return;
+      pendingX = e.clientX;
+      pendingY = e.clientY;
+      if (!hasPending) {
+        hasPending = true;
+        rafId = requestAnimationFrame(processDragMove);
+      }
+    };
+
     const onMouseUp = () => {
       if (isDragging.current) {
         isDragging.current = false;
         dragVisited.current.clear();
+      }
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+        hasPending = false;
       }
     };
 
@@ -266,6 +286,7 @@ export function TransactionPanel({
     return () => {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("mouseup", onMouseUp);
+      if (rafId) cancelAnimationFrame(rafId);
     };
   }, [applyDragToRow]);
 
@@ -342,6 +363,7 @@ export function TransactionPanel({
       const dir = sortDir === "asc" ? 1 : -1;
       rows = [...rows].sort((a, b) => {
         if (sortKey === "amount") return (a.amount - b.amount) * dir;
+        if (sortKey === "status") return ((a.isManual ? 1 : 0) - (b.isManual ? 1 : 0)) * dir;
         const av = sortKey === "voucher" ? (a.voucher ?? "") : sortKey === "notat" ? (a.notat ?? "") : a[sortKey];
         const bv = sortKey === "voucher" ? (b.voucher ?? "") : sortKey === "notat" ? (b.notat ?? "") : b[sortKey];
         return av.localeCompare(bv, "nb-NO") * dir;
@@ -508,7 +530,7 @@ export function TransactionPanel({
     setDragOverCol(null);
   }, []);
 
-  const defaultLabels: Record<ColumnKey, string> = useMemo(() => ({ date: "Dato", amount: "Beløp", voucher: "Bilag", notat: "Notat", text: "Tekst" }), []);
+  const defaultLabels: Record<ColumnKey, string> = useMemo(() => ({ date: "Dato", amount: "Beløp", voucher: "Bilag", notat: "Notat", status: "Status", text: "Tekst" }), []);
   const columnLabels: Record<ColumnKey, string> = useMemo(() => {
     const labels = { ...defaultLabels };
     for (const [key, alias] of Object.entries(colAliases)) {
@@ -542,7 +564,9 @@ export function TransactionPanel({
                 ? tx.voucher ?? "—"
                 : col === "notat"
                   ? tx.notat ?? "—"
-                  : tx.text;
+                  : col === "status"
+                    ? tx.isManual ? "Åpningspost" : ""
+                    : tx.text;
         maxW = Math.max(maxW, measureText(s, col === "amount"));
       }
       const width = Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.ceil(maxW) + CELL_PADDING_X));
@@ -622,10 +646,6 @@ export function TransactionPanel({
     }
     setHeaderSmartPanelActiveOption(optionId);
   }, [headerSmartPanel]);
-
-  const handleHeaderPanelDesignToggle = useCallback(() => {
-    setHeaderSmartPanelActiveOption((prev) => (prev === "design" ? null : "design"));
-  }, []);
 
   const handleInlineSearchClose = useCallback((col: ColumnKey) => {
     setInlineSearchCol(null);
@@ -812,7 +832,7 @@ export function TransactionPanel({
                 title={onlyWithAttachment ? "Kun med vedlegg – klikk for å fjerne filter" : "Klikk for kun å vise poster med vedlegg"}
                 onClick={() => setOnlyWithAttachment((prev) => !prev)}
               >
-                <Paperclip className={cn("h-3 w-3 mx-auto", onlyWithAttachment ? "text-green-600" : "text-muted-foreground/50")} />
+                <Paperclip className={cn("h-3 w-3 mx-auto", onlyWithAttachment ? "text-violet-600" : "text-muted-foreground/50")} />
               </th>
               {colOrder.map((col) => {
                 const isSearching = inlineSearchCol === col;
@@ -942,7 +962,7 @@ export function TransactionPanel({
                         isKbFocused && "outline outline-2 -outline-offset-2 outline-primary z-[1] kb-focused",
                         isHighlighted && "notification-highlight",
                         selectedIds.has(tx.id)
-                          ? "bg-emerald-100 dark:bg-emerald-950/40 hover:bg-emerald-200/70 dark:hover:bg-emerald-950/60"
+                          ? "bg-violet-100 dark:bg-violet-950/40 hover:bg-violet-200/70 dark:hover:bg-violet-950/60"
                           : counterpartHintIds?.has(tx.id)
                             ? "bg-violet-50 dark:bg-violet-950/30 hover:bg-violet-100 dark:hover:bg-violet-950/50 ring-1 ring-inset ring-violet-300 dark:ring-violet-700"
                             : counterpartSumHintIds?.has(tx.id)
@@ -965,6 +985,7 @@ export function TransactionPanel({
                             const { x, y } = lastMousePos.current;
                             const el = document.elementFromPoint(x, y);
                             if (el?.closest(`tr[data-tx-id="${rowId}"]`) || el?.closest(`[data-row-toolbar="${rowId}"]`)) return current;
+                            setToolbarSecondaryRowId((sec) => sec === rowId ? null : sec);
                             return null;
                           });
                         });
@@ -986,168 +1007,205 @@ export function TransactionPanel({
                           <svg viewBox="0 0 15 14" width={10} height={9}><path d="M2 8.36364L6.23077 12L13 2" /></svg>
                         </span>
                       </td>
-                      <td className="p-0 text-center" style={{ width: ATTACH_COL_WIDTH }}>
+                      <td
+                        className="p-0 text-center"
+                        style={{ width: ATTACH_COL_WIDTH }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (tx.hasAttachment) onRowAction?.(tx.id, "attachment");
+                        }}
+                      >
                         {tx.hasAttachment && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center justify-center w-full h-full"
-                            onClick={(e) => { e.stopPropagation(); onRowAction?.(tx.id, "attachment"); }}
-                          >
-                            <Paperclip className="h-3 w-3 text-green-600" />
-                          </button>
+                          <Paperclip className="h-3 w-3 text-violet-600 mx-auto cursor-pointer" />
                         )}
                       </td>
                       {(() => {
                         const rowToolbarVisible = hoveredRowId === tx.id || isKbFocused;
+                        const showSecondary = toolbarSecondaryRowId === tx.id;
                         const hoverToolbar = rowToolbarVisible ? (
                           <TooltipProvider>
                             <div
-                              className="row-action-bar absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-px rounded-md border bg-background shadow-sm z-20"
+                              className="row-action-bar absolute right-2 top-1/2 -translate-y-1/2 overflow-hidden rounded-md border bg-background shadow-sm z-20"
                               data-row-toolbar={tx.id}
                               title=""
                               onClick={(e) => e.stopPropagation()}
                               onMouseDown={(e) => e.stopPropagation()}
                             >
-                              {onMatch && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className={cn(
-                                        "p-1.5 rounded-sm transition-colors",
-                                        canMatch
-                                          ? "text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30"
-                                          : "text-muted-foreground/40 cursor-default"
-                                      )}
-                                      onClick={canMatch ? onMatch : undefined}
-                                    >
-                                      <Link2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">
-                                    {canMatch ? "Match (M)" : "Match"}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              {hintCount > 0 && !counterpartsSelected && onSelectCounterparts && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="p-1.5 rounded-sm transition-colors text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
-                                      onClick={onSelectCounterparts}
-                                    >
-                                      <CheckCheck className="h-3.5 w-3.5" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">Motposter (C)</TooltipContent>
-                                </Tooltip>
-                              )}
-                              {hasSelection && onClearSelection && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="p-1.5 rounded-sm transition-colors text-destructive hover:bg-destructive/10"
-                                      onClick={onClearSelection}
-                                    >
-                                      <CircleOff className="h-3.5 w-3.5" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">Fjern (X)</TooltipContent>
-                                </Tooltip>
-                              )}
-                              {onToggleFocus && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className={cn(
-                                        "p-1.5 rounded-sm transition-colors",
-                                        hintCount === 0
-                                          ? "text-muted-foreground/40 cursor-default"
-                                          : focusMode
-                                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                                            : "hover:bg-muted"
-                                      )}
-                                      onClick={hintCount > 0 ? onToggleFocus : undefined}
-                                    >
-                                      <Focus className="h-3.5 w-3.5" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">Fokus (F)</TooltipContent>
-                                </Tooltip>
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "p-1.5 rounded-sm hover:bg-muted transition-colors",
-                                      tx.notat ? "text-green-600" : ""
-                                    )}
-                                    onClick={() => onRowAction?.(tx.id, "note")}
-                                  >
-                                    <MessageSquarePlus className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Notat</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "p-1.5 rounded-sm hover:bg-muted transition-colors",
-                                      tx.hasAttachment ? "text-green-600" : ""
-                                    )}
-                                    onClick={() => onRowAction?.(tx.id, "attachment")}
-                                  >
-                                    <Paperclip className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Vedlegg</TooltipContent>
-                              </Tooltip>
-                              {tx.isManual && (
-                                <>
+                              <div
+                                className="relative transition-transform duration-200 ease-in-out"
+                                style={{ transform: showSecondary ? "translateX(-100%)" : "translateX(0)" }}
+                              >
+                                {/* Primary page — in flow, determines container width */}
+                                <div className="flex items-center gap-px">
+                                  {onMatch && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className={cn(
+                                            "p-1.5 rounded-sm transition-colors",
+                                            canMatch
+                                              ? "text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                                              : "text-muted-foreground/40 cursor-default"
+                                          )}
+                                          onClick={canMatch ? onMatch : undefined}
+                                        >
+                                          <Link2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">
+                                        {canMatch ? "Match (M)" : "Match"}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  {hintCount > 0 && !counterpartsSelected && onSelectCounterparts && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="p-1.5 rounded-sm transition-colors text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                                          onClick={onSelectCounterparts}
+                                        >
+                                          <CheckCheck className="h-3.5 w-3.5" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">Motposter (C)</TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  {hasSelection && onClearSelection && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="p-1.5 rounded-sm transition-colors text-destructive hover:bg-destructive/10"
+                                          onClick={onClearSelection}
+                                        >
+                                          <CircleOff className="h-3.5 w-3.5" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">Fjern (X)</TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  {onToggleFocus && (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className={cn(
+                                            "p-1.5 rounded-sm transition-colors",
+                                            hintCount === 0
+                                              ? "text-muted-foreground/40 cursor-default"
+                                              : focusMode
+                                                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                                                : "hover:bg-muted"
+                                          )}
+                                          onClick={hintCount > 0 ? onToggleFocus : undefined}
+                                        >
+                                          <Focus className="h-3.5 w-3.5" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">Fokus (F)</TooltipContent>
+                                    </Tooltip>
+                                  )}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          "p-1.5 rounded-sm hover:bg-muted transition-colors",
+                                          tx.notat ? "text-violet-600" : ""
+                                        )}
+                                        onClick={() => onRowAction?.(tx.id, "note")}
+                                      >
+                                        <MessageSquarePlus className="h-3.5 w-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">Notat</TooltipContent>
+                                  </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <button
                                         type="button"
                                         className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                                        onClick={() => onRowAction?.(tx.id, "edit")}
+                                        onClick={() => onRowAction?.(tx.id, "task")}
                                       >
-                                        <Pencil className="h-3.5 w-3.5" />
+                                        <CheckSquare className="h-3.5 w-3.5" />
                                       </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="top">Rediger åpningspost</TooltipContent>
+                                    <TooltipContent side="top">Følg opp</TooltipContent>
                                   </Tooltip>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <button
                                         type="button"
-                                        className="p-1.5 rounded-sm hover:bg-muted transition-colors text-destructive hover:bg-destructive/10"
-                                        onClick={() => onRowAction?.(tx.id, "delete")}
+                                        className="p-1.5 rounded-sm hover:bg-muted transition-colors"
+                                        onClick={() => setToolbarSecondaryRowId(tx.id)}
                                       >
-                                        <Trash2 className="h-3.5 w-3.5" />
+                                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                                       </button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="top">Slett åpningspost</TooltipContent>
+                                    <TooltipContent side="top">Mer</TooltipContent>
                                   </Tooltip>
-                                </>
-                              )}
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="p-1.5 rounded-sm hover:bg-muted transition-colors"
-                                    onClick={() => onRowAction?.(tx.id, "more")}
-                                  >
-                                    <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">Mer</TooltipContent>
-                              </Tooltip>
+                                </div>
+                                {/* Secondary page — absolute, sits off-screen to the right */}
+                                <div className="flex items-center gap-px absolute left-full top-0 h-full">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="p-1.5 rounded-sm hover:bg-muted transition-colors"
+                                        onClick={() => setToolbarSecondaryRowId(null)}
+                                      >
+                                        <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">Tilbake</TooltipContent>
+                                  </Tooltip>
+                                  {tx.isManual && (
+                                    <>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="p-1.5 rounded-sm hover:bg-muted transition-colors"
+                                            onClick={() => { onRowAction?.(tx.id, "edit"); setToolbarSecondaryRowId(null); }}
+                                          >
+                                            <Pencil className="h-3.5 w-3.5" />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">Rediger åpningspost</TooltipContent>
+                                      </Tooltip>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="p-1.5 rounded-sm hover:bg-muted transition-colors text-destructive hover:bg-destructive/10"
+                                            onClick={() => { onRowAction?.(tx.id, "delete"); setToolbarSecondaryRowId(null); }}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">Slett åpningspost</TooltipContent>
+                                      </Tooltip>
+                                    </>
+                                  )}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className={cn(
+                                          "p-1.5 rounded-sm hover:bg-muted transition-colors",
+                                          tx.hasAttachment ? "text-violet-600" : ""
+                                        )}
+                                        onClick={() => { onRowAction?.(tx.id, "attachment"); setToolbarSecondaryRowId(null); }}
+                                      >
+                                        <Paperclip className="h-3.5 w-3.5" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">Vedlegg</TooltipContent>
+                                  </Tooltip>
+                                </div>
+                              </div>
                             </div>
                           </TooltipProvider>
                         ) : null;
@@ -1155,6 +1213,21 @@ export function TransactionPanel({
                           <>
                             {colOrder.map((col) => {
                               const isLastCol = col === colOrder[colOrder.length - 1];
+                              if (col === "status") {
+                                return (
+                                  <td
+                                    key={col}
+                                    className="p-2"
+                                    style={{ width: colWidths.status }}
+                                  >
+                                    {tx.isManual && (
+                                      <span className="inline-block rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-800">
+                                        Åpningspost
+                                      </span>
+                                    )}
+                                  </td>
+                                );
+                              }
                               if (col === "text") {
                                 return (
                                   <td
@@ -1168,13 +1241,8 @@ export function TransactionPanel({
                                       onCellContextMenu(makeAction("text"), { x: e.clientX, y: e.clientY });
                                     }}
                                   >
-                                    <span className={cn("block p-2 truncate flex items-center gap-1.5", isLastCol && "pr-8")}>
-                                      {tx.isManual && (
-                                        <span className="shrink-0 rounded bg-amber-100 dark:bg-amber-900/40 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-300 ring-1 ring-inset ring-amber-200 dark:ring-amber-800" title="Åpningspost">
-                                          Åpningspost
-                                        </span>
-                                      )}
-                                      <span className="min-w-0 truncate">{tx.text}</span>
+                                    <span className={cn("block p-2 truncate", isLastCol && "pr-8")}>
+                                      {tx.text}
                                     </span>
                                   </td>
                                 );
@@ -1259,20 +1327,8 @@ export function TransactionPanel({
         onOptionSelect={handleHeaderSmartPanelOption}
         activeOptionId={headerSmartPanelActiveOption}
         contentSectionLabel={headerSmartPanel ? `Kolonne: ${columnLabels[headerSmartPanel.col]}` : undefined}
-        sectionAboveFooter={
-          headerSmartPanel ? (
-            <SmartPanelInnstillingerSection
-              isActive={headerSmartPanelActiveOption === "design"}
-              onToggle={handleHeaderPanelDesignToggle}
-            />
-          ) : undefined
-        }
-        footerContent={<SmartPanelTipsSection />}
-        useStandardLayout
         resultContent={
-          headerSmartPanelActiveOption === "design" ? (
-            <DesignPanelContent />
-          ) : headerSmartPanelActiveOption === "col-settings" ? (
+          headerSmartPanelActiveOption === "col-settings" ? (
             <div className="p-3 space-y-4">
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -1332,4 +1388,4 @@ export function TransactionPanel({
       />
     </div>
   );
-}
+});

@@ -194,7 +194,7 @@ export function ImportPageClient({ clientId }: { clientId: string }) {
           className={
             result.errors.length > 0
               ? "rounded-md border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 p-4"
-              : "rounded-md border border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 p-4"
+              : "rounded-md border border-violet-200 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/30 p-4"
           }
         >
           <p className="font-medium">

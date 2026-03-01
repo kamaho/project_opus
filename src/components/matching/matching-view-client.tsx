@@ -27,11 +27,9 @@ import { cn } from "@/lib/utils";
 import { formatAmountLive, countSignificantChars, findCursorPosition } from "@/lib/ui-preferences";
 import { useTableAppearance, useFormatting } from "@/contexts/ui-preferences-context";
 import { SmartPanel } from "@/components/smart-panel/smart-panel";
-import {
-  DesignPanelContent,
-  SmartPanelInnstillingerSection,
-  SmartPanelTipsSection,
-} from "@/components/smart-panel/smart-panel-standard";
+import { SMART_PANEL_ACTION_EVENT } from "@/components/smart-panel/smart-panel-mini";
+
+import { FollowUpTaskDialog } from "@/components/tasks/follow-up-task-dialog";
 import { NotePopover } from "@/components/matching/note-popover";
 import { NoteDialog } from "@/components/matching/note-dialog";
 import { AttachmentPopover } from "@/components/matching/attachment-popover";
@@ -41,6 +39,7 @@ import { AgentReportSettings } from "@/components/matching/agent-report-settings
 import { ExportIntroOverlay } from "@/components/export/export-intro-overlay";
 import { ReportButton } from "@/components/export/report-button";
 import { AutoMatchPreview } from "@/components/matching/auto-match-preview";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AutoMatchStats } from "@/lib/matching/engine";
 import confetti from "canvas-confetti";
 
@@ -199,6 +198,25 @@ export interface MatchingViewClientProps {
   openingBalanceSet1: string;
   openingBalanceSet2: string;
   openingBalanceDate: string | null;
+  set1Source?: string | null;
+  set2Source?: string | null;
+}
+
+function IntegrationSourceBadge({ source }: { source?: string | null }) {
+  if (!source) return null;
+  if (source === "tripletex") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 cursor-default">
+            Tx
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">Tripletex</TooltipContent>
+      </Tooltip>
+    );
+  }
+  return null;
 }
 
 function EditableAccountBadge({
@@ -308,6 +326,8 @@ export function MatchingViewClient({
   openingBalanceSet1,
   openingBalanceSet2,
   openingBalanceDate,
+  set1Source,
+  set2Source,
 }: MatchingViewClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -317,6 +337,80 @@ export function MatchingViewClient({
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => router.refresh(), 80);
   }, [router]);
+
+  const aiAnimRef = useRef(false);
+  useEffect(() => {
+    const onAiMatch = async (e: Event) => {
+      const { matchGroups = [] } = (e as CustomEvent).detail ?? {};
+      const allTxIds: string[] = matchGroups.flatMap(
+        ([s1, s2]: [string[], string[]]) => [...s1, ...s2]
+      );
+
+      if (allTxIds.length === 0) {
+        refreshData();
+        window.dispatchEvent(new CustomEvent("ai-smart-match-anim-done"));
+        return;
+      }
+
+      if (aiAnimRef.current) return;
+      aiAnimRef.current = true;
+
+      toast("AI-agenten kjørte Smart Match", { icon: "✨" });
+
+      const maxAnim = Math.min(allTxIds.length, 30);
+      const txToAnimate = allTxIds.slice(0, maxAnim);
+      const perTxMs = Math.max(120, Math.min(300, 4000 / txToAnimate.length));
+      const glowMs = Math.round(perTxMs * 0.55);
+      const exitMs = Math.round(perTxMs * 0.45);
+
+      for (let i = 0; i < txToAnimate.length; i++) {
+        const txId = txToAnimate[i];
+        setMatchAnimatingIds(new Set([txId]));
+        setMatchAnimationPhase("glow");
+        await new Promise((r) => setTimeout(r, glowMs));
+
+        setMatchAnimationPhase("exit");
+        await new Promise((r) => setTimeout(r, exitMs));
+
+        setLocallyMatchedIds((prev) => {
+          const next = new Set(prev);
+          next.add(txId);
+          return next;
+        });
+        setMatchAnimatingIds(undefined);
+        setMatchAnimationPhase("glow");
+      }
+
+      if (allTxIds.length > maxAnim) {
+        setLocallyMatchedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of allTxIds) next.add(id);
+          return next;
+        });
+      }
+
+      refreshData();
+
+      confetti({
+        particleCount: 120,
+        spread: 80,
+        origin: { x: 0.5, y: 0.5 },
+        colors: ["#7a5af8", "#9b7afb", "#c4b5fd", "#a78bfa", "#6d28d9"],
+        gravity: 0.8,
+        ticks: 200,
+      });
+
+      setClosedBtnPulse(true);
+      setTimeout(() => setClosedBtnPulse(false), 1200);
+
+      await new Promise((r) => setTimeout(r, 600));
+      window.dispatchEvent(new CustomEvent("ai-smart-match-anim-done"));
+
+      aiAnimRef.current = false;
+    };
+    window.addEventListener("ai-smart-match-done", onAiMatch);
+    return () => window.removeEventListener("ai-smart-match-done", onAiMatch);
+  }, [refreshData]);
 
   const [set1Label, setSet1Label] = useState(initialSet1Label);
   const [set2Label, setSet2Label] = useState(initialSet2Label);
@@ -363,6 +457,8 @@ export function MatchingViewClient({
   const [autoMatchAnimCount, setAutoMatchAnimCount] = useState(0);
   const [autoMatchCompleted, setAutoMatchCompleted] = useState(false);
   const [autoMatchTxCount, setAutoMatchTxCount] = useState(0);
+  const [autoMatchFastComplete, setAutoMatchFastComplete] = useState(false);
+  const [autoMatchShaking, setAutoMatchShaking] = useState(false);
 
   const handleAutoMatch = useCallback(async () => {
     setAutoMatchLoading(true);
@@ -372,6 +468,7 @@ export function MatchingViewClient({
     setAutoMatchBarDuration(0);
     setAutoMatchAnimCount(0);
     setAutoMatchCompleted(false);
+    setAutoMatchFastComplete(false);
     setAutoMatchTxCount(0);
     try {
       const res = await fetch(`/api/clients/${clientId}/auto-match`, {
@@ -400,8 +497,11 @@ export function MatchingViewClient({
     setAutoMatchAnimProgress(0);
     setAutoMatchAnimCount(0);
     setAutoMatchCompleted(false);
+    setAutoMatchFastComplete(false);
+    setAutoMatchShaking(true);
 
     try {
+      const apiStart = performance.now();
       const res = await fetch(`/api/clients/${clientId}/auto-match`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -414,6 +514,7 @@ export function MatchingViewClient({
         return;
       }
       const data = await res.json();
+      const apiMs = performance.now() - apiStart;
       const matchGroups: [string[], string[]][] = data.matchGroups ?? [];
 
       if (matchGroups.length === 0) {
@@ -426,89 +527,135 @@ export function MatchingViewClient({
       const allTxIds = matchGroups.flatMap(([s1, s2]) => [...s1, ...s2]);
       setAutoMatchTxCount(allTxIds.length);
 
-      const maxIndividual = Math.min(allTxIds.length, 20);
-      const txToAnimate = allTxIds.slice(0, maxIndividual);
+      const isFast = apiMs < 5000;
 
-      // Adaptive timing: total 2–7s depending on count
-      const totalAnimMs = Math.max(2000, Math.min(7000, txToAnimate.length * 350));
-      const perTxMs = totalAnimMs / txToAnimate.length;
-      const glowMs = Math.round(perTxMs * 0.55);
-      const exitMs = Math.round(perTxMs * 0.45);
+      if (isFast) {
+        // ── Fast flow: confetti + all rows glow at once ──
+        setAutoMatchShaking(false);
+        setAutoMatchFastComplete(true);
 
-      // 1. Kick off smooth progress bar: 0 → 95% over totalAnimMs
-      setAutoMatchAnimProgress(0);
-      setAutoMatchBarDuration(0);
-      await new Promise((r) => setTimeout(r, 50));
-      setAutoMatchBarDuration(totalAnimMs);
-      setAutoMatchAnimProgress(95);
+        confetti({
+          particleCount: 150,
+          spread: 90,
+          origin: { x: 0.5, y: 0.45 },
+          colors: ["#7a5af8", "#9b7afb", "#c4b5fd", "#a78bfa", "#6d28d9"],
+          gravity: 0.7,
+          ticks: 250,
+        });
 
-      // 2. Animate transactions one at a time
-      const animStart = performance.now();
-      for (let i = 0; i < txToAnimate.length; i++) {
-        const txId = txToAnimate[i];
-
-        setMatchAnimatingIds(new Set([txId]));
+        // Animate all rows simultaneously
+        setMatchAnimatingIds(new Set(allTxIds));
         setMatchAnimationPhase("glow");
-        await new Promise((r) => setTimeout(r, glowMs));
 
+        // Progress bar: instant fill
+        setAutoMatchBarDuration(0);
+        setAutoMatchAnimProgress(0);
+        await new Promise((r) => setTimeout(r, 30));
+        setAutoMatchBarDuration(600);
+        setAutoMatchAnimProgress(100);
+
+        // Hold glow so user can see it
+        await new Promise((r) => setTimeout(r, 600));
+
+        // Exit phase — all at once
         setMatchAnimationPhase("exit");
-        await new Promise((r) => setTimeout(r, exitMs));
+        await new Promise((r) => setTimeout(r, 350));
 
+        // Remove from view
         setLocallyMatchedIds((prev) => {
           const next = new Set(prev);
-          next.add(txId);
+          for (const id of allTxIds) next.add(id);
           return next;
         });
         setMatchAnimatingIds(undefined);
         setMatchAnimationPhase("glow");
+        setAutoMatchAnimCount(allTxIds.length);
 
-        setAutoMatchAnimCount(i + 1);
+        refreshData();
+
+        setAutoMatchCommitting(false);
+        setAutoMatchCompleted(true);
+        matchCountRef.current = allTxIds.length;
+      } else {
+        // ── Sequential flow for slow API responses ──
+        setAutoMatchShaking(false);
+
+        const maxIndividual = Math.min(allTxIds.length, 20);
+        const txToAnimate = allTxIds.slice(0, maxIndividual);
+
+        const totalAnimMs = Math.max(2000, Math.min(5000, txToAnimate.length * 250));
+        const perTxMs = totalAnimMs / txToAnimate.length;
+        const glowMs = Math.round(perTxMs * 0.55);
+        const exitMs = Math.round(perTxMs * 0.45);
+
+        setAutoMatchAnimProgress(0);
+        setAutoMatchBarDuration(0);
+        await new Promise((r) => setTimeout(r, 50));
+        setAutoMatchBarDuration(totalAnimMs);
+        setAutoMatchAnimProgress(95);
+
+        const animStart = performance.now();
+        for (let i = 0; i < txToAnimate.length; i++) {
+          const txId = txToAnimate[i];
+
+          setMatchAnimatingIds(new Set([txId]));
+          setMatchAnimationPhase("glow");
+          await new Promise((r) => setTimeout(r, glowMs));
+
+          setMatchAnimationPhase("exit");
+          await new Promise((r) => setTimeout(r, exitMs));
+
+          setLocallyMatchedIds((prev) => {
+            const next = new Set(prev);
+            next.add(txId);
+            return next;
+          });
+          setMatchAnimatingIds(undefined);
+          setMatchAnimationPhase("glow");
+
+          setAutoMatchAnimCount(i + 1);
+        }
+
+        setLocallyMatchedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of allTxIds) next.add(id);
+          return next;
+        });
+        setAutoMatchAnimCount(allTxIds.length);
+
+        const jsElapsed = performance.now() - animStart;
+        const remaining95 = totalAnimMs - jsElapsed;
+        if (remaining95 > 0) {
+          await new Promise((r) => setTimeout(r, remaining95 + 50));
+        }
+
+        setAutoMatchBarDuration(300);
+        await new Promise((r) => setTimeout(r, 50));
+        setAutoMatchAnimProgress(100);
+        await new Promise((r) => setTimeout(r, 350));
+
+        refreshData();
+
+        setAutoMatchCommitting(false);
+        setAutoMatchCompleted(true);
+        matchCountRef.current = allTxIds.length;
+
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { x: 0.5, y: 0.5 },
+          colors: ["#7a5af8", "#9b7afb", "#c4b5fd", "#a78bfa", "#6d28d9"],
+          gravity: 0.8,
+          ticks: 200,
+        });
       }
 
-      // 3. Bulk-remove everything remaining
-      setLocallyMatchedIds((prev) => {
-        const next = new Set(prev);
-        for (const id of allTxIds) next.add(id);
-        return next;
-      });
-      setAutoMatchAnimCount(allTxIds.length);
-
-      // 4. Wait for bar to visually reach 95% if JS loop was faster than CSS
-      const jsElapsed = performance.now() - animStart;
-      const remaining95 = totalAnimMs - jsElapsed;
-      if (remaining95 > 0) {
-        await new Promise((r) => setTimeout(r, remaining95 + 50));
-      }
-
-      // 5. Smooth transition 95% → 100%
-      setAutoMatchBarDuration(300);
-      await new Promise((r) => setTimeout(r, 50));
-      setAutoMatchAnimProgress(100);
-      await new Promise((r) => setTimeout(r, 350));
-
-      // Sync server data now that animation is done
-      refreshData();
-
-      setAutoMatchCommitting(false);
-      setAutoMatchCompleted(true);
-      matchCountRef.current = allTxIds.length;
-
-      // Confetti from center of screen
-      confetti({
-        particleCount: 120,
-        spread: 80,
-        origin: { x: 0.5, y: 0.5 },
-        colors: ["#7a5af8", "#9b7afb", "#c4b5fd", "#a78bfa", "#6d28d9"],
-        gravity: 0.8,
-        ticks: 200,
-      });
-
-      // Pulse the "Lukkede" button
       setClosedBtnPulse(true);
       setTimeout(() => setClosedBtnPulse(false), 1200);
     } catch {
       toast.error("Nettverksfeil under matching");
       setAutoMatchCommitting(false);
+      setAutoMatchShaking(false);
     }
   }, [clientId, refreshData]);
 
@@ -557,6 +704,16 @@ export function MatchingViewClient({
       focusPrimarySetRef.current = setNumber;
     }
   }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const actionId = (e as CustomEvent).detail?.id;
+      if (actionId === "smart-match") handleAutoMatch();
+      else if (actionId === "unmatched") setViewMode("open");
+    };
+    window.addEventListener(SMART_PANEL_ACTION_EVENT, handler);
+    return () => window.removeEventListener(SMART_PANEL_ACTION_EVENT, handler);
+  }, [handleAutoMatch]);
 
   // Context filter state — shows only matching rows
   const [contextFilter1, setContextFilter1] = useState<Set<string> | null>(null);
@@ -927,8 +1084,98 @@ export function MatchingViewClient({
       setManualTxOpen(true);
     } else if (action === "delete") {
       setDeleteTxTarget(txId);
+    } else if (action === "task") {
+      const allRows = [...rows1, ...rows2];
+      const tx = allRows.find((r) => r.id === txId);
+      if (tx) {
+        setTaskFromTx({
+          txId,
+          title: `Følg opp: ${tx.text}`,
+          amount: tx.amount,
+          date: tx.date,
+        });
+      }
     }
   }, [selectedCount, rows1, rows2, localNotes, patchedRows1, patchedRows2]);
+
+  // --- Task from transaction ---
+  const [taskFromTx, setTaskFromTx] = useState<{
+    txId: string;
+    title: string;
+    amount: number;
+    date: string;
+  } | null>(null);
+
+  const handleCreateTaskFromTx = useCallback(async (payload: {
+    title: string;
+    category: string | null;
+    assigneeId: string | null;
+    externalContactId: string | null;
+    notifyExternal: boolean;
+    requestDocument?: boolean;
+    documentMessage?: string;
+  }) => {
+    if (!taskFromTx) return false;
+    try {
+      const taskBody: Record<string, unknown> = {
+        title: payload.title,
+        type: "unmatched_items",
+        priority: "medium",
+        category: payload.category,
+        assigneeId: payload.assigneeId,
+        externalContactId: payload.externalContactId,
+        notifyExternal: payload.requestDocument ? false : payload.notifyExternal,
+        clientId,
+        metadata: {
+          transactionId: taskFromTx.txId,
+          amount: taskFromTx.amount,
+          date: taskFromTx.date,
+        },
+      };
+
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(taskBody),
+      });
+
+      if (!res.ok) {
+        toast.error("Kunne ikke opprette oppgave");
+        return false;
+      }
+
+      const task = await res.json();
+
+      if (payload.requestDocument && payload.externalContactId) {
+        const docRes = await fetch("/api/document-requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contactId: payload.externalContactId,
+            taskId: task.id,
+            clientId,
+            transactionId: taskFromTx.txId,
+            message: payload.documentMessage,
+            expiresInDays: 14,
+          }),
+        });
+
+        if (docRes.ok) {
+          toast.success("Oppgave opprettet og dokumentforespørsel sendt");
+        } else {
+          toast.error("Oppgave opprettet, men dokumentforespørsel feilet");
+        }
+      } else {
+        toast.success("Oppgave opprettet");
+      }
+
+      setTaskFromTx(null);
+      return true;
+    } catch {
+      toast.error("Kunne ikke opprette oppgave");
+      return false;
+    }
+  }, [taskFromTx, clientId]);
 
   // --- Matching action ---
   const [matching, setMatching] = useState(false);
@@ -1110,9 +1357,6 @@ export function MatchingViewClient({
     [pendingCellAction, visibleRows1, visibleRows2, patchedRows1, patchedRows2, closeSmartPanel, findMatchingIds, findCounterpartIds, handleMatch]
   );
 
-  const handleCellPanelDesignToggle = useCallback(() => {
-    setSmartPanelActiveOption((prev) => (prev === "design" ? null : "design"));
-  }, []);
 
   // --- Unmatch action ---
   const [unmatchingId, setUnmatchingId] = useState<string | null>(null);
@@ -1224,7 +1468,7 @@ export function MatchingViewClient({
     }
   }, [clientId, balanceDialogSet, editBalValue, editBalDate, router]);
 
-  // Live saldo = opening balance + sum of all unmatched transactions
+  // Live saldo = opening balance + sum of ALL transactions (matched + unmatched)
   const liveBalance1 = useMemo(() => {
     return parseFloat(openingBalanceSet1 || "0") + balance1;
   }, [openingBalanceSet1, balance1]);
@@ -1420,6 +1664,28 @@ export function MatchingViewClient({
     },
     []
   );
+
+  // --- Stable callbacks for TransactionPanel (avoids re-render on every parent state change) ---
+  const handleSelectSet1 = useCallback((id: string) => toggleSelect(1, id), [toggleSelect]);
+  const handleSelectSet2 = useCallback((id: string) => toggleSelect(2, id), [toggleSelect]);
+  const handleSelectAllSet1 = useCallback((ids: string[]) => setSelectedSet1(new Set(ids)), []);
+  const handleSelectAllSet2 = useCallback((ids: string[]) => setSelectedSet2(new Set(ids)), []);
+  const handleImportFileSet1 = useCallback((file: File) => openImportDialog(file, 1), [openImportDialog]);
+  const handleImportFileSet2 = useCallback((file: File) => openImportDialog(file, 2), [openImportDialog]);
+  const handleCellCtxSet1 = useCallback(
+    (a: CellContextAction, pos: { x: number; y: number }) => handleCellContextMenu(1, a, pos),
+    [handleCellContextMenu],
+  );
+  const handleCellCtxSet2 = useCallback(
+    (a: CellContextAction, pos: { x: number; y: number }) => handleCellContextMenu(2, a, pos),
+    [handleCellContextMenu],
+  );
+  const handleToggleFocus = useCallback(() => setFocusMode((f) => !f), []);
+  const handleDeactivateKeyboard = useCallback(() => setKbPanel(null), []);
+  const handleFileManagerSet1 = useCallback(() => setFileManagerSet(1), []);
+  const handleFileManagerSet2 = useCallback(() => setFileManagerSet(2), []);
+  const handleCreateTxSet1 = useCallback(() => openManualTxDialog(1), [openManualTxDialog]);
+  const handleCreateTxSet2 = useCallback(() => openManualTxDialog(2), [openManualTxDialog]);
 
   useEffect(() => {
     if (parserType !== "klink" || !fileContent || !importOpen) return;
@@ -1982,6 +2248,7 @@ export function MatchingViewClient({
                   variant="purple"
                   onRenamed={(name) => { setSet1Label(name); refreshData(); }}
                 />
+                <IntegrationSourceBadge source={set1Source} />
                 <span>
                   <span className="text-muted-foreground">Poster:</span>{" "}
                   <span className="font-medium">{visibleRows1.length}</span>
@@ -2004,19 +2271,19 @@ export function MatchingViewClient({
                 <TransactionPanel
                   transactions={patchedRows1}
                   setLabel={set1Label}
-                  onImportFile={(file) => openImportDialog(file, 1)}
-                  onSelect={(id) => toggleSelect(1, id)}
-                  onSelectAll={(ids) => setSelectedSet1(new Set(ids))}
+                  onImportFile={handleImportFileSet1}
+                  onSelect={handleSelectSet1}
+                  onSelectAll={handleSelectAllSet1}
                   selectedIds={selectedSet1}
                   counterpartHintIds={counterpartHints1}
                   counterpartSumHintIds={counterpartSumHints1}
                   matchAnimatingIds={matchAnimatingIds}
                   matchAnimationPhase={matchAnimationPhase}
-                  onCellContextMenu={(a, pos) => handleCellContextMenu(1, a, pos)}
+                  onCellContextMenu={handleCellCtxSet1}
                   contextFilterIds={focusFilter1}
                   onRowAction={handleRowAction}
                   focusMode={focusMode}
-                  onToggleFocus={() => setFocusMode((f) => !f)}
+                  onToggleFocus={handleToggleFocus}
                   hintCount={totalHintCount}
                   onMatch={handleMatch}
                   canMatch={canMatch}
@@ -2031,10 +2298,10 @@ export function MatchingViewClient({
                   panelActive={kbPanel === 1}
                   onRequestRowCount={handleRowCount1}
                   visibleIdsRef={visibleIds1Ref}
-                  onDeactivateKeyboard={() => setKbPanel(null)}
+                  onDeactivateKeyboard={handleDeactivateKeyboard}
                   highlightTxId={highlightTxId}
-                  onFileManager={() => setFileManagerSet(1)}
-                  onCreateTransaction={() => openManualTxDialog(1)}
+                  onFileManager={handleFileManagerSet1}
+                  onCreateTransaction={handleCreateTxSet1}
                   selectionVariant="purple"
                 />
               ) : (
@@ -2064,6 +2331,7 @@ export function MatchingViewClient({
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
+                  <IntegrationSourceBadge source={set2Source} />
                   <EditableAccountBadge
                     label={set2Label}
                     accountId={set2AccountId}
@@ -2077,19 +2345,19 @@ export function MatchingViewClient({
                 <TransactionPanel
                   transactions={patchedRows2}
                   setLabel={set2Label}
-                  onImportFile={(file) => openImportDialog(file, 2)}
-                  onSelect={(id) => toggleSelect(2, id)}
-                  onSelectAll={(ids) => setSelectedSet2(new Set(ids))}
+                  onImportFile={handleImportFileSet2}
+                  onSelect={handleSelectSet2}
+                  onSelectAll={handleSelectAllSet2}
                   selectedIds={selectedSet2}
                   counterpartHintIds={counterpartHints2}
                   counterpartSumHintIds={counterpartSumHints2}
                   matchAnimatingIds={matchAnimatingIds}
                   matchAnimationPhase={matchAnimationPhase}
-                  onCellContextMenu={(a, pos) => handleCellContextMenu(2, a, pos)}
+                  onCellContextMenu={handleCellCtxSet2}
                   contextFilterIds={focusFilter2}
                   onRowAction={handleRowAction}
                   focusMode={focusMode}
-                  onToggleFocus={() => setFocusMode((f) => !f)}
+                  onToggleFocus={handleToggleFocus}
                   hintCount={totalHintCount}
                   onMatch={handleMatch}
                   canMatch={canMatch}
@@ -2104,10 +2372,10 @@ export function MatchingViewClient({
                   panelActive={kbPanel === 2}
                   onRequestRowCount={handleRowCount2}
                   visibleIdsRef={visibleIds2Ref}
-                  onDeactivateKeyboard={() => setKbPanel(null)}
+                  onDeactivateKeyboard={handleDeactivateKeyboard}
                   highlightTxId={highlightTxId}
-                  onFileManager={() => setFileManagerSet(2)}
-                  onCreateTransaction={() => openManualTxDialog(2)}
+                  onFileManager={handleFileManagerSet2}
+                  onCreateTransaction={handleCreateTxSet2}
                   selectionVariant="blue"
                 />
               ) : (
@@ -2124,8 +2392,8 @@ export function MatchingViewClient({
                   "match-success-overlay flex flex-col items-center gap-2 rounded-xl bg-background/95 border shadow-lg px-6 py-4 backdrop-blur-sm",
                   matchSuccessExiting && "exiting"
                 )}>
-                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-green-100 dark:bg-green-900/30">
-                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  <div className="flex items-center justify-center h-10 w-10 rounded-full bg-violet-100 dark:bg-violet-900/30">
+                    <CheckCircle2 className="h-5 w-5 text-violet-600 dark:text-violet-400" />
                   </div>
                   <span className="text-sm font-medium">
                     {matchCountRef.current} poster matchet
@@ -2160,7 +2428,7 @@ export function MatchingViewClient({
                 <span className="text-muted-foreground">|</span>
                 <span className={cn(
                   "font-mono font-medium",
-                  selectedSum === 0 ? "text-green-600" : "text-amber-600"
+                  selectedSum === 0 ? "text-violet-600" : "text-amber-600"
                 )}>
                   Sum: {fmtNum(selectedSum)}
                 </span>
@@ -2245,8 +2513,9 @@ export function MatchingViewClient({
         open={autoMatchPreviewOpen}
         onOpenChange={(open) => {
           setAutoMatchPreviewOpen(open);
-          if (!open && autoMatchCompleted) {
+          if (!open && (autoMatchCompleted || autoMatchFastComplete)) {
             setAutoMatchCompleted(false);
+            setAutoMatchFastComplete(false);
             setAutoMatchStats(null);
           }
         }}
@@ -2259,6 +2528,8 @@ export function MatchingViewClient({
         animatedCount={autoMatchAnimCount}
         completed={autoMatchCompleted}
         matchedTransactionCount={autoMatchTxCount}
+        fastComplete={autoMatchFastComplete}
+        shaking={autoMatchShaking}
       />
 
       {/* Unmatch all confirmation dialog */}
@@ -2476,7 +2747,7 @@ export function MatchingViewClient({
                         <div className="text-xs text-muted-foreground font-sans mb-0.5">Bevegelse</div>
                         <div className={cn(
                           "text-base font-semibold tabular-nums",
-                          fileSum < 0 ? "text-destructive" : fileSum > 0 ? "text-green-600 dark:text-green-400" : ""
+                          fileSum < 0 ? "text-destructive" : fileSum > 0 ? "text-violet-600 dark:text-violet-400" : ""
                         )}>
                           {fileSum >= 0 ? "+" : ""}{fmt(fileSum)}
                         </div>
@@ -2709,11 +2980,11 @@ export function MatchingViewClient({
           {dupReport && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-lg border bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800/50 p-3 text-center">
-                  <div className="text-2xl font-bold text-green-700 dark:text-green-400">
+                <div className="rounded-lg border bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800/50 p-3 text-center">
+                  <div className="text-2xl font-bold text-violet-700 dark:text-violet-400">
                     {dupReport.newCount}
                   </div>
-                  <div className="text-xs text-green-600 dark:text-green-500 font-medium mt-0.5">
+                  <div className="text-xs text-violet-600 dark:text-violet-500 font-medium mt-0.5">
                     Nye transaksjoner
                   </div>
                 </div>
@@ -2874,18 +3145,8 @@ export function MatchingViewClient({
             onOptionSelect={handleSmartPanelOptionSelect}
             activeOptionId={smartPanelActiveOption}
             contentSectionLabel={cellPanelTitle}
-            sectionAboveFooter={
-              <SmartPanelInnstillingerSection
-                isActive={smartPanelActiveOption === "design"}
-                onToggle={handleCellPanelDesignToggle}
-              />
-            }
-            footerContent={<SmartPanelTipsSection />}
-            useStandardLayout
             resultContent={
-              smartPanelActiveOption === "design" ? (
-                <DesignPanelContent />
-              ) : smartPanelResult && pa ? (
+              smartPanelResult && pa ? (
                 <div className="p-3 space-y-3">
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <div className="text-xs text-muted-foreground">
@@ -3004,6 +3265,23 @@ export function MatchingViewClient({
           });
         }}
       />
+
+      {/* Task from transaction dialog */}
+      {taskFromTx && (
+        <FollowUpTaskDialog
+          open={!!taskFromTx}
+          onOpenChange={(open) => { if (!open) setTaskFromTx(null); }}
+          title={taskFromTx.title}
+          onTitleChange={(t) => setTaskFromTx({ ...taskFromTx, title: t })}
+          clientId={clientId}
+          clientName={clientName}
+          infoRows={[
+            { label: "Beløp", value: fmtNum(taskFromTx.amount) },
+            { label: "Dato", value: fmtD(taskFromTx.date) },
+          ]}
+          onSubmit={handleCreateTaskFromTx}
+        />
+      )}
     </>
   );
 }

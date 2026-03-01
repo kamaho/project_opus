@@ -1,18 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
-type RouteParams = { params: Promise<{ id: string }> };
-
-export async function PATCH(_request: Request, { params }: RouteParams) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id } = await params;
+export const PATCH = withTenant(async (_req, { tenantId, userId }, params) => {
+  const id = params!.id;
 
   const [row] = await db
     .select({ id: notifications.id })
@@ -21,7 +14,7 @@ export async function PATCH(_request: Request, { params }: RouteParams) {
       and(
         eq(notifications.id, id),
         eq(notifications.userId, userId),
-        eq(notifications.tenantId, orgId)
+        eq(notifications.tenantId, tenantId)
       )
     );
 
@@ -35,4 +28,4 @@ export async function PATCH(_request: Request, { params }: RouteParams) {
     .where(eq(notifications.id, id));
 
   return NextResponse.json({ ok: true });
-}
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, forwardRef, useImperativeHandle, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import {
@@ -10,12 +10,29 @@ import {
   DialogDescription,
   DialogHeader,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { SetupWizard, type SetupResult } from "./setup-wizard";
 
-export function CreateReconciliationDialog() {
+export interface CreateReconciliationDialogRef {
+  open: () => void;
+}
+
+interface CreateReconciliationDialogProps {
+  /** When true, no trigger button is rendered (use ref.open() or onOpenTrigger from parent) */
+  noTrigger?: boolean;
+}
+
+export const CreateReconciliationDialog = forwardRef<
+  CreateReconciliationDialogRef,
+  CreateReconciliationDialogProps
+>(function CreateReconciliationDialog({ noTrigger }, ref) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
+
+  useImperativeHandle(ref, () => ({
+    open: () => setOpen(true),
+  }), []);
 
   function handleComplete(result: SetupResult) {
     setOpen(false);
@@ -26,24 +43,28 @@ export function CreateReconciliationDialog() {
     }
   }
 
+  const trigger = (
+    <button
+      type="button"
+      className={cn("rpt-btn")}
+      onClick={() => setOpen(true)}
+      data-smart-info="Ny klient — opprett en ny klient (avstemmingsenhet)."
+    >
+      <div className="rpt-dots" />
+      <Plus className="rpt-icon" />
+      <span className="rpt-text">Ny klient</span>
+    </button>
+  );
+
   return (
     <>
-      <button
-        type="button"
-        className={cn("rpt-btn")}
-        onClick={() => setOpen(true)}
-        data-smart-info="Ny avstemming — opprett en ny bankavstemming."
-      >
-        <div className="rpt-dots" />
-        <Plus className="rpt-icon" />
-        <span className="rpt-text">Ny avstemming</span>
-      </button>
+      {!noTrigger && trigger}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Opprett avstemming</DialogTitle>
+            <DialogTitle>Opprett klient</DialogTitle>
             <DialogDescription>
-              Sett opp konsern, selskap og avstemming for å komme i gang.
+              Sett opp konsern, selskap og klient for å komme i gang.
             </DialogDescription>
           </DialogHeader>
           <SetupWizard
@@ -55,4 +76,4 @@ export function CreateReconciliationDialog() {
       </Dialog>
     </>
   );
-}
+});

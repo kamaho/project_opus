@@ -1,0 +1,8 @@
+{
+  "label": "Internt",
+  "position": 7,
+  "link": {
+    "type": "generated-index",
+    "description": "Teknisk dokumentasjon for ansatte: integrasjoner, arkitektur, driftsetup."
+  }
+}

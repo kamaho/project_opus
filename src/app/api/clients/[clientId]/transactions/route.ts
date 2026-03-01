@@ -1,9 +1,8 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { transactions, clients } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
+import { transactions } from "@/lib/db/schema";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 
@@ -15,22 +14,11 @@ const createSchema = z.object({
   voucher: z.string().optional(),
 });
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     const firstError = parsed.error.issues[0]?.message ?? "Ugyldig forespørsel";
@@ -53,7 +41,7 @@ export async function POST(
     .returning({ id: transactions.id });
 
   await logAudit({
-    tenantId: orgId,
+    tenantId,
     userId,
     action: "transaction.created",
     entityType: "transaction",
@@ -62,4 +50,4 @@ export async function POST(
   });
 
   return NextResponse.json({ ok: true, id: inserted.id });
-}
+});

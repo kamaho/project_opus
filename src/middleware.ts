@@ -7,6 +7,8 @@ const isPublicRoute = createRouteMatcher([
   "/sign-out",
   "/request-access",
   "/api/health",
+  "/d/(.*)",
+  "/api/document-requests/public/(.*)",
 ]);
 
 // When SIGNUP_MODE=invite-only: redirect /sign-up to request-access, and only allow

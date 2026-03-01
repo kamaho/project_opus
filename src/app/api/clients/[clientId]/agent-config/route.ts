@@ -1,25 +1,14 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { agentReportConfigs } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { effectiveNextRun } from "@/lib/agent-scheduler";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId } = await params;
-  const client = await validateClientTenant(clientId, orgId);
-  if (!client) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
   const [config] = await db
     .select()
@@ -57,24 +46,13 @@ export async function GET(
     lastReportRun: config.lastReportRun,
     lastMatchCount: config.lastMatchCount,
   });
-}
+});
 
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const PUT = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const client = await validateClientTenant(clientId, orgId);
-  if (!client) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const body = await request.json();
+  const body = await req.json();
   const {
     enabled,
     reportTypes,
@@ -100,7 +78,7 @@ export async function PUT(
       : null;
 
   const values = {
-    tenantId: orgId,
+    tenantId,
     clientId,
     createdBy: userId,
     enabled: enabled ?? false,
@@ -134,4 +112,4 @@ export async function PUT(
     nextMatchRun,
     nextReportRun,
   });
-}
+});

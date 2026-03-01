@@ -8,10 +8,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Zap, CheckCircle2, PartyPopper } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { AutoMatchStats } from "@/lib/matching/engine";
 
 const SM_GRADIENT =
-  "linear-gradient(90deg, oklch(0.62 0.20 155), oklch(0.68 0.20 160), oklch(0.62 0.20 155))";
+  "linear-gradient(90deg, oklch(0.55 0.22 280), oklch(0.60 0.22 285), oklch(0.55 0.22 280))";
 
 const PEGTOP_PATH =
   "M63,37c-6.7-4-4-27-13-27s-6.3,23-13,27-27,4-27,13,20.3,9,27,13,4,27,13,27,6.3-23,13-27,27-4,27-13-20.3-9-27-13Z";
@@ -91,6 +92,10 @@ interface AutoMatchPreviewProps {
   completed: boolean;
   /** Total matched transaction count */
   matchedTransactionCount: number;
+  /** True when the fast-flow was used (API < 5s) — skips the "matching..." loader */
+  fastComplete?: boolean;
+  /** True briefly after confirm click — triggers a short shake on the dialog */
+  shaking?: boolean;
 }
 
 export function AutoMatchPreview({
@@ -105,13 +110,15 @@ export function AutoMatchPreview({
   animatedCount,
   completed,
   matchedTransactionCount,
+  fastComplete,
+  shaking,
 }: AutoMatchPreviewProps) {
-  const isActive = committing || completed;
+  const isActive = (committing && !fastComplete) || completed;
 
   return (
     <Dialog open={open} onOpenChange={isActive ? undefined : onOpenChange}>
       <DialogContent
-        className="max-w-sm"
+        className={cn("max-w-sm", shaking && "sm-dialog-shake")}
         onPointerDownOutside={isActive ? (e) => e.preventDefault() : undefined}
         onEscapeKeyDown={completed ? () => onOpenChange(false) : isActive ? (e) => e.preventDefault() : undefined}
       >
@@ -126,7 +133,7 @@ export function AutoMatchPreview({
           </DialogTitle>
         </DialogHeader>
 
-        {completed ? (
+        {completed || (fastComplete && committing) ? (
           <div className="py-4 space-y-5">
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="flex items-center justify-center h-14 w-14 rounded-full sm-bg-subtle">
@@ -146,8 +153,12 @@ export function AutoMatchPreview({
 
             <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
               <div
-                className="h-full rounded-full w-full"
-                style={{ background: SM_GRADIENT }}
+                className="h-full rounded-full"
+                style={{
+                  width: `${animationProgress}%`,
+                  background: SM_GRADIENT,
+                  transition: `width ${barTransitionMs}ms cubic-bezier(0.22, 1, 0.36, 1)`,
+                }}
               />
             </div>
 

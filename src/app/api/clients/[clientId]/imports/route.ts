@@ -1,29 +1,17 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { imports } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 
 /**
  * GET: List all imports for a client, including soft-deleted.
  * Returns active imports + deleted imports with days remaining.
  */
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
   const allImports = await db
     .select({
@@ -69,4 +57,4 @@ export async function GET(
   });
 
   return NextResponse.json({ imports: result });
-}
+});

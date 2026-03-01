@@ -18,7 +18,12 @@ const POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL_MS ?? "30000", 1
 const LOCK_TIMEOUT = parseInt(process.env.LOCK_TIMEOUT_MS ?? "600000", 10);
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
-const client = postgres(DATABASE_URL, { max: CONCURRENCY + 1 });
+const client = postgres(DATABASE_URL, {
+  max: CONCURRENCY + 2,
+  idle_timeout: 20,
+  connect_timeout: 10,
+  prepare: false,
+});
 export const db = drizzle(client, { schema });
 
 let shuttingDown = false;

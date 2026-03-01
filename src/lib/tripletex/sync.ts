@@ -1,0 +1,397 @@
+import { db } from "@/lib/db";
+import {
+  companies,
+  accounts,
+  transactions,
+  tripletexSyncConfigs,
+  clients,
+} from "@/lib/db/schema";
+import { eq, and, sql } from "drizzle-orm";
+import { tripletexGet } from "@/lib/tripletex";
+import { fetchAllPages } from "./pagination";
+import {
+  mapCompany,
+  mapAccount,
+  mapPosting,
+  mapBankTransaction,
+  type MappedTransaction,
+  type EnabledFields,
+} from "./mappers";
+import type {
+  TxCompany,
+  TxAccount,
+  TxPosting,
+  TxBankTransaction,
+  TxBalance,
+} from "./types";
+
+// ---------------------------------------------------------------------------
+// syncCompany — upsert a Tripletex company into Revizo
+// ---------------------------------------------------------------------------
+
+export async function syncCompany(
+  tripletexCompanyId: number,
+  tenantId: string
+): Promise<string> {
+  const res = await tripletexGet<{ value: TxCompany }>(
+    `/company/${tripletexCompanyId}`,
+    { fields: "*" },
+    tenantId
+  );
+
+  const mapped = mapCompany(res.value);
+
+  const existing = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(
+      and(
+        eq(companies.tenantId, tenantId),
+        eq(companies.tripletexCompanyId, tripletexCompanyId)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    await db
+      .update(companies)
+      .set({ name: mapped.name, orgNumber: mapped.orgNumber, updatedAt: new Date() })
+      .where(eq(companies.id, existing[0].id));
+    return existing[0].id;
+  }
+
+  const [inserted] = await db
+    .insert(companies)
+    .values({
+      tenantId,
+      name: mapped.name,
+      orgNumber: mapped.orgNumber,
+      tripletexCompanyId,
+    })
+    .returning({ id: companies.id });
+
+  return inserted.id;
+}
+
+// ---------------------------------------------------------------------------
+// syncAccounts — pull full chart of accounts for a company
+// ---------------------------------------------------------------------------
+
+export async function syncAccounts(
+  tripletexCompanyId: number,
+  companyId: string,
+  tenantId?: string
+): Promise<number> {
+  const all = await fetchAllPages<TxAccount>("/ledger/account", {
+    fields: "id,number,name,isBankAccount,currency(*)",
+  }, tenantId);
+
+  if (all.length === 0) return 0;
+
+  // Fetch existing accounts in one query
+  const existing = await db
+    .select({
+      id: accounts.id,
+      tripletexAccountId: accounts.tripletexAccountId,
+    })
+    .from(accounts)
+    .where(eq(accounts.companyId, companyId));
+
+  const existingByTxId = new Map(
+    existing
+      .filter((e) => e.tripletexAccountId != null)
+      .map((e) => [e.tripletexAccountId!, e.id])
+  );
+
+  const toInsert: Array<{
+    companyId: string;
+    accountNumber: string;
+    name: string;
+    accountType: "ledger" | "bank";
+    tripletexAccountId: number;
+  }> = [];
+
+  for (const txAcc of all) {
+    const mapped = mapAccount(txAcc);
+
+    if (existingByTxId.has(txAcc.id)) {
+      // Update in batch below — skip for now, individual updates are rare
+    } else {
+      toInsert.push({
+        companyId,
+        accountNumber: mapped.accountNumber,
+        name: mapped.name,
+        accountType: mapped.accountType,
+        tripletexAccountId: txAcc.id,
+      });
+    }
+  }
+
+  // Batch insert new accounts (500 at a time)
+  for (let i = 0; i < toInsert.length; i += 500) {
+    await db.insert(accounts).values(toInsert.slice(i, i + 500));
+  }
+
+  return toInsert.length + existingByTxId.size;
+}
+
+// ---------------------------------------------------------------------------
+// syncPostings — incremental fetch of ledger postings (Set 1)
+// ---------------------------------------------------------------------------
+
+const BATCH_SIZE = 500;
+
+async function insertTransactionsBatch(
+  clientId: string,
+  rows: MappedTransaction[]
+) {
+  if (rows.length === 0) return 0;
+
+  // Pre-fetch existing external IDs to avoid conflicts with partial unique index
+  const existingRows = await db
+    .select({ externalId: transactions.externalId })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.clientId, clientId),
+        sql`${transactions.externalId} IS NOT NULL`
+      )
+    );
+
+  const existingIds = new Set(existingRows.map((r) => r.externalId));
+  const newRows = rows.filter((r) => !existingIds.has(r.externalId));
+
+  if (newRows.length === 0) return 0;
+
+  let inserted = 0;
+  for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
+    const batch = newRows.slice(i, i + BATCH_SIZE);
+    const result = await db
+      .insert(transactions)
+      .values(
+        batch.map((r) => ({
+          clientId,
+          setNumber: r.setNumber,
+          accountNumber: r.accountNumber,
+          amount: r.amount,
+          foreignAmount: r.foreignAmount,
+          currency: r.currency,
+          date1: r.date1,
+          description: r.description,
+          bilag: r.bilag,
+          faktura: r.faktura,
+          reference: r.reference,
+          sign: r.sign,
+          sourceType: r.sourceType,
+          externalId: r.externalId,
+          matchStatus: r.matchStatus,
+        }))
+      )
+      .returning({ id: transactions.id });
+
+    inserted += result.length;
+  }
+  return inserted;
+}
+
+export async function syncPostings(
+  config: typeof tripletexSyncConfigs.$inferSelect
+): Promise<{ fetched: number; inserted: number }> {
+  const accountIds: number[] = config.set1TripletexAccountIds?.length
+    ? config.set1TripletexAccountIds
+    : config.set1TripletexAccountId
+      ? [config.set1TripletexAccountId]
+      : [];
+
+  if (accountIds.length === 0) return { fetched: 0, inserted: 0 };
+
+  const enabledFields = (config.enabledFields as EnabledFields | null) ?? null;
+  const today = new Date().toISOString().split("T")[0];
+  let totalFetched = 0;
+  let totalInserted = 0;
+
+  for (const accountId of accountIds) {
+    const allPostings = await fetchAllPages<TxPosting>("/ledger/posting", {
+      dateFrom: config.dateFrom,
+      dateTo: today,
+      accountId,
+      fields: "*,account(*),voucher(*),currency(*)",
+    }, config.tenantId);
+
+    const mapped = allPostings.map((p) => mapPosting(p, enabledFields));
+    const inserted = await insertTransactionsBatch(config.clientId, mapped);
+    totalFetched += allPostings.length;
+    totalInserted += inserted;
+
+    const maxId = allPostings.reduce((max, p) => Math.max(max, p.id), config.lastSyncPostingId ?? 0);
+    if (maxId > (config.lastSyncPostingId ?? 0)) {
+      config = { ...config, lastSyncPostingId: maxId };
+    }
+  }
+
+  await db
+    .update(tripletexSyncConfigs)
+    .set({
+      lastSyncPostingId: config.lastSyncPostingId,
+      lastSyncAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(tripletexSyncConfigs.id, config.id));
+
+  return { fetched: totalFetched, inserted: totalInserted };
+}
+
+// ---------------------------------------------------------------------------
+// syncBankTransactions — incremental fetch of bank transactions (Set 2)
+// ---------------------------------------------------------------------------
+
+export async function syncBankTransactions(
+  config: typeof tripletexSyncConfigs.$inferSelect
+): Promise<{ fetched: number; inserted: number }> {
+  const accountIds: number[] = config.set2TripletexAccountIds?.length
+    ? config.set2TripletexAccountIds
+    : config.set2TripletexAccountId
+      ? [config.set2TripletexAccountId]
+      : [];
+
+  if (accountIds.length === 0) return { fetched: 0, inserted: 0 };
+
+  const enabledFields = (config.enabledFields as EnabledFields | null) ?? null;
+  const today = new Date().toISOString().split("T")[0];
+  let totalFetched = 0;
+  let totalInserted = 0;
+
+  for (const accountId of accountIds) {
+    const allTx = await fetchAllPages<TxBankTransaction>(
+      "/bank/statement/transaction",
+      {
+        transactionDateFrom: config.dateFrom,
+        transactionDateTo: today,
+        accountId,
+        fields: "*,account(*)",
+      },
+      config.tenantId
+    );
+
+    const mapped = allTx.map((bt) => mapBankTransaction(bt, enabledFields));
+    const inserted = await insertTransactionsBatch(config.clientId, mapped);
+    totalFetched += allTx.length;
+    totalInserted += inserted;
+
+    const maxId = allTx.reduce((max, t) => Math.max(max, t.id), config.lastSyncBankTxId ?? 0);
+    if (maxId > (config.lastSyncBankTxId ?? 0)) {
+      config = { ...config, lastSyncBankTxId: maxId };
+    }
+  }
+
+  await db
+    .update(tripletexSyncConfigs)
+    .set({
+      lastSyncBankTxId: config.lastSyncBankTxId,
+      lastSyncAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(tripletexSyncConfigs.id, config.id));
+
+  return { fetched: totalFetched, inserted: totalInserted };
+}
+
+// ---------------------------------------------------------------------------
+// syncBalances — fetch period balances and update client opening balance
+// ---------------------------------------------------------------------------
+
+export async function syncBalances(
+  config: typeof tripletexSyncConfigs.$inferSelect
+): Promise<void> {
+  const year = new Date(config.dateFrom).getFullYear();
+
+  const set1Ids: number[] = config.set1TripletexAccountIds?.length
+    ? config.set1TripletexAccountIds
+    : config.set1TripletexAccountId ? [config.set1TripletexAccountId] : [];
+
+  const set2Ids: number[] = config.set2TripletexAccountIds?.length
+    ? config.set2TripletexAccountIds
+    : config.set2TripletexAccountId ? [config.set2TripletexAccountId] : [];
+
+  // Use the first account in each set for opening balance
+  if (set1Ids.length > 0) {
+    try {
+      const balRes = await fetchAllPages<TxBalance>("/balance", {
+        accountId: set1Ids[0],
+        year,
+        fields: "*",
+      }, config.tenantId);
+
+      if (balRes.length > 0 && balRes[0].balanceIn != null) {
+        await db
+          .update(clients)
+          .set({
+            openingBalanceSet1: balRes[0].balanceIn.toFixed(2),
+            openingBalanceDate: config.dateFrom,
+          })
+          .where(eq(clients.id, config.clientId));
+      }
+    } catch {
+      // Balance endpoint may not be available for all account types
+    }
+  }
+
+  if (set2Ids.length > 0) {
+    try {
+      const balRes = await fetchAllPages<TxBalance>("/balance", {
+        accountId: set2Ids[0],
+        year,
+        fields: "*",
+      }, config.tenantId);
+
+      if (balRes.length > 0 && balRes[0].balanceIn != null) {
+        await db
+          .update(clients)
+          .set({
+            openingBalanceSet2: balRes[0].balanceIn.toFixed(2),
+            openingBalanceDate: config.dateFrom,
+          })
+          .where(eq(clients.id, config.clientId));
+      }
+    } catch {
+      // Balance endpoint may not be available for all account types
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// runFullSync — orchestrator for a single client sync config
+// ---------------------------------------------------------------------------
+
+export interface SyncResult {
+  postings: { fetched: number; inserted: number };
+  bankTransactions: { fetched: number; inserted: number };
+  balancesUpdated: boolean;
+}
+
+export async function runFullSync(
+  configId: string
+): Promise<SyncResult> {
+  const [config] = await db
+    .select()
+    .from(tripletexSyncConfigs)
+    .where(eq(tripletexSyncConfigs.id, configId))
+    .limit(1);
+
+  if (!config) {
+    throw new Error(`Sync config not found: ${configId}`);
+  }
+
+  const postings = await syncPostings(config);
+  const bankTransactions = await syncBankTransactions(config);
+
+  let balancesUpdated = false;
+  try {
+    await syncBalances(config);
+    balancesUpdated = true;
+  } catch {
+    // non-fatal
+  }
+
+  return { postings, bankTransactions, balancesUpdated };
+}

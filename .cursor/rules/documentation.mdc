@@ -1,0 +1,35 @@
+---
+description: Dokumentasjon skal alltid jobbes parallelt med funksjonalitet — internt og eksternt
+alwaysApply: true
+---
+
+# Dokumentasjon — Revizo
+
+> **Dokumentasjon er ikke et etterslep.** Når vi jobber videre med dette prosjektet, skal dokumentasjon alltid jobbes **parallelt** med kode, funksjoner og integrasjoner. Dette gjelder både for **internt** (ansatte) og **eksternt** (kunder).
+
+## Hva det betyr i praksis
+
+- **Ny funksjon eller endring** → Oppdater/legg til dokumentasjon i samme arbeid (samme PR eller task).
+- **Ny integrasjon eller tjeneste** → Egen dokumentasjon i `docs/integrations/` (internt) og eventuelt brukerguide i `docs-site/docs/` (kunder).
+- **Ny API-endepunkt eller breaking change** → Oppdater API-dokumentasjon og eventuelt `docs-site/docs/utviklere/`.
+- **Endring i oppsett, miljøvariabler eller driftsflyt** → Oppdater `docs/` (SETUP, VERCEL_SETUP, integrasjoner) og/eller `docs-site/docs/internt/drifts/`.
+
+## To lag med dokumentasjon
+
+| Lag | Målgruppe | Hovedkilde | Deploy |
+|-----|------------|------------|--------|
+| **Internt** | Ansatte (feilsøking, arkitektur, integrasjoner) | `docs/` og `docs/integrations/` → også speilet i `docs-site/docs/internt/` | internt.revizo.no |
+| **Eksternt** | Kunder (kom i gang, guider, FAQ, API) | `docs-site/docs/` (unntatt `internt/`) | docs.revizo.no |
+
+## Ved ny funksjonalitet
+
+1. **Internt:** Oppdater eller legg til i `docs/` (eller `docs/integrations/` for integrasjoner). Hvis Docusaurus brukes for internt: oppdater også `docs-site/docs/internt/` slik at det stemmer.
+2. **Eksternt:** Oppdater `docs-site/docs/` — kom-i-gang, guider, FAQ eller utviklerdokumentasjon — slik at kunder og partnere har det de trenger for å bruke eller integrere mot endringen.
+
+## Kilder
+
+- **Strategi og struktur:** `docs/DOCUSAURUS_STRATEGY.md`
+- **Integrasjoner (internt):** `docs/integrations/README.md`
+- **Utviklingsregler (dokumentasjonsseksjon):** `docs/DEVELOPMENT_RULES_NEW.md` §11
+
+Unntak (f.eks. «dokumenterer i neste sprint») må begrunnes og være unntak, ikke vanen.

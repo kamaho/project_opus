@@ -143,17 +143,28 @@ export interface SmartMatchNotificationParams {
   clientName: string;
   matchCount: number;
   transactionCount: number;
+  periodFrom?: string;
+  periodTo?: string;
+  remainingOpen: number;
+  totalItems: number;
 }
 
 export async function notifySmartMatchCompleted(params: SmartMatchNotificationParams) {
-  const { tenantId, userId, clientId, clientName, matchCount, transactionCount } = params;
+  const {
+    tenantId, userId, clientId, clientName, matchCount, transactionCount,
+    periodFrom, periodTo, remainingOpen, totalItems,
+  } = params;
+
+  const pct = totalItems > 0 ? Math.round(((totalItems - remainingOpen) / totalItems) * 100) : 100;
 
   await createNotification({
     tenantId,
     userId,
     type: "match_completed",
     title: `Smart Match fullført for ${clientName}`,
-    body: `${matchCount} grupper (${transactionCount} transaksjoner) ble automatisk matchet.`,
+    body: remainingOpen === 0
+      ? `${transactionCount} poster avstemt — alt er tatt! (${pct}%)`
+      : `${transactionCount} poster avstemt — ${remainingOpen} gjenstår (${pct}% ferdig)`,
     link: `/dashboard/clients/${clientId}/matching`,
     entityType: "match",
     entityId: clientId,
@@ -163,14 +174,17 @@ export async function notifySmartMatchCompleted(params: SmartMatchNotificationPa
     const clerk = await clerkClient();
     const user = await clerk.users.getUser(userId);
     const email = user.emailAddresses[0]?.emailAddress;
-    const userName = user.firstName ?? "bruker";
+    const fullName = user.fullName ?? user.firstName ?? "bruker";
     if (email) {
       await sendSmartMatchEmail({
         toEmail: email,
-        userName,
+        userName: fullName,
         clientName,
-        matchCount,
         transactionCount,
+        periodFrom,
+        periodTo,
+        remainingOpen,
+        totalItems,
         link: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/dashboard/clients/${clientId}/matching`,
       });
     }

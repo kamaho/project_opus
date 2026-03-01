@@ -1,4 +1,5 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { generateExport } from "@/lib/export/service";
@@ -35,29 +36,60 @@ const matchingParamsSchema = z.object({
   dateTo: z.string().optional(),
 });
 
+const comparisonDataSchema = z.object({
+  clients: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      companyName: z.string(),
+      set1AccountNumber: z.string(),
+      set2AccountNumber: z.string(),
+      openingBalanceSet1: z.number(),
+      openingBalanceSet2: z.number(),
+      balanceSet1: z.number(),
+      balanceSet2: z.number(),
+      unmatchedSumSet1: z.number(),
+      unmatchedSumSet2: z.number(),
+      unmatchedCountSet1: z.number(),
+      unmatchedCountSet2: z.number(),
+    })
+  ),
+  totals: z.object({
+    nettoSet1: z.number(),
+    nettoSet2: z.number(),
+    totalUnmatchedCount: z.number(),
+  }),
+});
+
+const groupMatchingDataSchema = z.object({
+  groupId: z.string().uuid(),
+  groupName: z.string(),
+  clientIds: z.array(z.string().uuid()).min(1),
+  reportType: z.enum(["open"]),
+});
+
 const exportRequestSchema = z
   .object({
-    module: z.enum(["mva", "matching"]),
+    module: z.enum(["mva", "matching", "comparison", "group-matching"]),
     format: z.enum(["pdf", "xlsx"]),
     mvaData: mvaDataSchema.optional(),
     matchingParams: matchingParamsSchema.optional(),
+    comparisonData: comparisonDataSchema.optional(),
+    groupMatchingData: groupMatchingDataSchema.optional(),
   })
   .refine(
     (data) => {
       if (data.module === "mva") return !!data.mvaData;
       if (data.module === "matching") return !!data.matchingParams;
+      if (data.module === "comparison") return !!data.comparisonData;
+      if (data.module === "group-matching") return !!data.groupMatchingData;
       return false;
     },
     { message: "Mangler data for valgt modul" }
   );
 
-export async function POST(request: Request) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json().catch(() => null);
+export const POST = withTenant(async (req, { tenantId, userId }) => {
+  const body = await req.json().catch(() => null);
   if (!body) {
     return NextResponse.json(
       { error: "Ugyldig JSON i forespørsel" },
@@ -84,7 +116,7 @@ export async function POST(request: Request) {
     }
     const result = await generateExport(
       parsed.data as unknown as import("@/lib/export/types").ExportRequest,
-      { tenantId: orgId, userId, userEmail }
+      { tenantId, userId, userEmail }
     );
 
     return new NextResponse(new Uint8Array(result.buffer), {
@@ -101,4 +133,4 @@ export async function POST(request: Request) {
     console.error("[export] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});

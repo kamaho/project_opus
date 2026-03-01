@@ -3,6 +3,8 @@ import type {
   ContentTable,
   DynamicContent,
 } from "pdfmake/interfaces";
+import fs from "node:fs";
+import path from "node:path";
 
 // ── Formatting ─────────────────────────────────────────────────────
 
@@ -345,4 +347,162 @@ export function conclusionBlock(text: string): Content {
       },
     ],
   };
+}
+
+// ── Logo helper ─────────────────────────────────────────────────────
+
+let _logoDataUrl: string | null = null;
+
+export function getRevizoLogoDataUrl(): string | null {
+  if (_logoDataUrl) return _logoDataUrl;
+  try {
+    const logoPath = path.join(process.cwd(), "public", "logo-icon-no-bg.png");
+    const buf = fs.readFileSync(logoPath);
+    _logoDataUrl = "data:image/png;base64," + buf.toString("base64");
+    return _logoDataUrl;
+  } catch {
+    return null;
+  }
+}
+
+// ── Cover page ──────────────────────────────────────────────────────
+
+export function coverPage(opts: {
+  reportTitle: string;
+  companyName?: string;
+  klientNavn?: string;
+  period?: string;
+  generatedBy?: string;
+  generatedAt?: string;
+  logoImageKey?: string;
+}): Content {
+  const items: Content[] = [];
+
+  items.push({ text: "", margin: [0, 120, 0, 0] } as Content);
+
+  if (opts.logoImageKey) {
+    items.push({
+      image: opts.logoImageKey,
+      width: 64,
+      alignment: "center",
+      margin: [0, 0, 0, 16],
+    } as Content);
+  }
+
+  items.push({
+    text: opts.reportTitle,
+    fontSize: 28,
+    bold: true,
+    alignment: "center",
+    color: "#111111",
+    margin: [0, 0, 0, 8],
+  } as Content);
+
+  if (opts.companyName) {
+    items.push({
+      text: opts.companyName,
+      fontSize: 14,
+      alignment: "center",
+      color: "#444444",
+      margin: [0, 0, 0, 4],
+    } as Content);
+  }
+
+  if (opts.klientNavn) {
+    items.push({
+      text: opts.klientNavn,
+      fontSize: 12,
+      alignment: "center",
+      color: "#666666",
+      margin: [0, 0, 0, 4],
+    } as Content);
+  }
+
+  if (opts.period) {
+    items.push({
+      text: `Periode: ${opts.period}`,
+      fontSize: 11,
+      alignment: "center",
+      color: "#888888",
+      margin: [0, 0, 0, 0],
+    } as Content);
+  }
+
+  // Linje 195pt bred, fra 0 slik at canvas-boksen sentreres med linjen inni
+  items.push({
+    canvas: [{ type: "line", x1: 0, y1: 0, x2: 195, y2: 0, lineWidth: 0.5, lineColor: "#cccccc" }],
+    margin: [0, 24, 0, 24],
+    alignment: "center",
+  } as Content);
+
+  items.push({
+    text: "Rapport opprettet av Revizo",
+    fontSize: 10,
+    alignment: "center",
+    color: "#999999",
+    margin: [0, 0, 0, 4],
+  } as Content);
+
+  if (opts.generatedBy) {
+    items.push({
+      text: opts.generatedBy,
+      fontSize: 9,
+      alignment: "center",
+      color: "#aaaaaa",
+      margin: [0, 0, 0, 2],
+    } as Content);
+  }
+
+  if (opts.generatedAt) {
+    items.push({
+      text: formatDateTime(opts.generatedAt),
+      fontSize: 9,
+      alignment: "center",
+      color: "#aaaaaa",
+    } as Content);
+  }
+
+  items.push({ text: "", pageBreak: "after" } as Content);
+
+  return { stack: items };
+}
+
+// ── Status badge (for match summary) ────────────────────────────────
+
+export function statusBlock(items: { label: string; value: string; highlight?: boolean }[]): Content {
+  const body = items.map((item) => [
+    {
+      text: item.label,
+      fontSize: 11,
+      color: "#444444",
+      margin: [8, 6, 8, 6] as [number, number, number, number],
+    },
+    {
+      text: item.value,
+      fontSize: 11,
+      bold: true,
+      color: item.highlight ? "#16a34a" : "#111111",
+      alignment: "right" as const,
+      margin: [8, 6, 8, 6] as [number, number, number, number],
+    },
+  ]);
+
+  return {
+    margin: [0, 4, 0, 12],
+    table: {
+      widths: ["*", "auto"],
+      body,
+    },
+    layout: {
+      hLineWidth: (i: number, _node: ContentTable) =>
+        i === 0 || i === body.length ? 0.5 : 0.3,
+      vLineWidth: () => 0,
+      hLineColor: () => "#e5e5e5",
+      fillColor: (rowIndex: number) => (rowIndex % 2 === 0 ? "#fafafa" : undefined),
+      paddingLeft: () => 0,
+      paddingRight: () => 0,
+      paddingTop: () => 0,
+      paddingBottom: () => 0,
+    },
+  } as Content;
 }

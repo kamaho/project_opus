@@ -17,13 +17,12 @@ export default async function DashboardLayout({
 }) {
   const { userId } = await auth();
   if (userId) {
-    let completed = false;
     try {
-      completed = await hasCompletedOnboarding(userId);
+      const completed = await hasCompletedOnboarding(userId);
+      if (!completed) redirect("/onboarding");
     } catch {
-      // DB unavailable; show dashboard anyway so app doesn’t crash
+      // DB unavailable; show dashboard anyway instead of redirect-looping to onboarding
     }
-    if (!completed) redirect("/onboarding");
   }
   return (
     <UiPreferencesProvider>

@@ -11,7 +11,7 @@ export default function OnboardingLayout({
       <div className="min-h-screen bg-muted/30 flex flex-col items-center justify-center p-4">
         <div className="mb-8 flex justify-center">
           <Image
-            src="/revizo-logo.png"
+            src="/logo-revizo.svg"
             alt="Revizo"
             width={160}
             height={40}

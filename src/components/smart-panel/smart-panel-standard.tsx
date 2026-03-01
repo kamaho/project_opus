@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, GraduationCap, Palette } from "lucide-react";
+import { type ReactNode } from "react";
+import { GraduationCap, Palette } from "lucide-react";
 import type {
   TextSizePreference,
   TextWeightPreference,
@@ -18,14 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
-import { useTutorialMode } from "@/contexts/tutorial-mode-context";
-
-const PANEL_TIPS = [
-  "Høyreklikk på elementer med informasjonsstøtte for å lese forklaringer.",
-  "Du finner flere UI-innstillinger under Innstillinger → Utseende.",
-  "Skillelinjer i tabeller kan slås av eller på fra Design her eller i Innstillinger.",
-];
 
 const PANEL_TEXT_SIZE_OPTIONS: { value: TextSizePreference; label: string }[] = [
   { value: "normal", label: "Normal" },
@@ -175,7 +167,21 @@ export function DesignPanelContent() {
   );
 }
 
-export function SmartPanelDesignRow({
+export function SmartPanelDesignRow({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-2 px-3 py-2.5 text-sm transition-colors text-left hover:bg-muted/60"
+      onClick={onClick}
+    >
+      <Palette className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <span className="flex-1 font-medium">Design</span>
+      <span className="text-xs text-muted-foreground/60 shrink-0">UI-innstillinger</span>
+    </button>
+  );
+}
+
+export function SmartPanelTutorialRow({
   isActive,
   onClick,
 }: {
@@ -186,97 +192,15 @@ export function SmartPanelDesignRow({
     <button
       type="button"
       className={`flex w-full items-center gap-2 px-3 py-2.5 text-sm transition-colors text-left ${
-        isActive ? "bg-muted/80 font-medium" : "hover:bg-muted/60"
+        isActive ? "bg-muted/80" : "hover:bg-muted/60"
       }`}
       onClick={onClick}
     >
-      {isActive ? (
-        <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      ) : (
-        <Palette className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-      )}
-      <span className="flex-1 font-medium">{isActive ? "Tilbake" : "Design"}</span>
-      {!isActive && (
-        <span className="text-xs text-muted-foreground shrink-0">UI-innstillinger</span>
+      <GraduationCap className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      <span className="flex-1 font-medium">Tutorial</span>
+      {isActive && (
+        <span className="text-xs text-muted-foreground/60 shrink-0">Aktiv</span>
       )}
     </button>
-  );
-}
-
-export function SmartPanelInnstillingerSection({
-  isActive,
-  onToggle,
-}: {
-  isActive: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div>
-      <SmartPanelSectionLabel>Innstillinger</SmartPanelSectionLabel>
-      <SmartPanelDesignRow isActive={isActive} onClick={onToggle} />
-    </div>
-  );
-}
-
-function TipsCarousel() {
-  const [index, setIndex] = useState(0);
-  const tip = PANEL_TIPS[index] ?? PANEL_TIPS[0];
-  const hasPrev = index > 0;
-  const hasNext = index < PANEL_TIPS.length - 1;
-  return (
-    <div className="p-3 flex items-center gap-2">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 shrink-0"
-        disabled={!hasPrev}
-        onClick={() => setIndex((i) => Math.max(0, i - 1))}
-        aria-label="Forrige tips"
-      >
-        <ChevronLeft className="h-3.5 w-3.5" />
-      </Button>
-      <p className="text-xs text-muted-foreground flex-1 min-w-0">{tip}</p>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 shrink-0"
-        disabled={!hasNext}
-        onClick={() => setIndex((i) => Math.min(PANEL_TIPS.length - 1, i + 1))}
-        aria-label="Neste tips"
-      >
-        <ChevronRight className="h-3.5 w-3.5" />
-      </Button>
-    </div>
-  );
-}
-
-export function SmartPanelTipsSection() {
-  return (
-    <div>
-      <SmartPanelSectionLabel>Tips</SmartPanelSectionLabel>
-      <TipsCarousel />
-    </div>
-  );
-}
-
-export function SmartPanelTutorialSection() {
-  const { enabled, setEnabled } = useTutorialMode();
-  return (
-    <div>
-      <SmartPanelSectionLabel>Tutorial-modus</SmartPanelSectionLabel>
-      <div className="px-3 py-2 flex items-center justify-between gap-3">
-        <span className="text-sm text-muted-foreground flex items-center gap-2">
-          <GraduationCap className="h-4 w-4 shrink-0" />
-          Gjennomgå flyter basert på vinduet du er i
-        </span>
-        <Switch
-          checked={enabled}
-          onCheckedChange={setEnabled}
-          aria-label="Slå tutorial-modus av eller på"
-        />
-      </div>
-    </div>
   );
 }

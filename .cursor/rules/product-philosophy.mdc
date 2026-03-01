@@ -1,0 +1,78 @@
+---
+description: Revizo produktfilosofi — kjerneprinsipper for produkt- og designbeslutninger
+alwaysApply: true
+---
+
+# Revizo — Produktfilosofi
+
+> Denne filen definerer kjerneprinsipper som styrer alle produkt- og designbeslutninger.
+> Les denne FØR du designer nye features.
+
+## Kjerneprinsipp: Brukeren skal bruke Revizo minst mulig
+
+Revizo er ikke et verktøy du sitter i hele dagen. Det er et **autonomt system** som gjør jobben
+for deg, og et **kontrollpanel** du sjekker for å bekrefte at alt er i orden.
+
+### To moduser
+
+| Modus | Plattform | Bruker | Frekvens |
+|-------|-----------|--------|----------|
+| **Overvåking** | Mobil (nettleser) | Leder, partner, regnskapsfører | Daglig, 1–2 min |
+| **Håndtering** | Desktop (nettleser) | Regnskapsfører | Ved behov — avvik, filer, detaljer |
+
+### Hva dette betyr i praksis
+
+**Mobil-opplevelsen:**
+- Dashboardet viser status: "alt er OK" eller "3 ting trenger oppmerksomhet"
+- Push-varsler (fremtidig) forteller deg NÅR du må sjekke
+- Du åpner appen, ser grønt, lukker igjen. Ferdig.
+- Når noe er gult/rødt: tap → se hva det er → vurder om det haster
+
+**Desktop-opplevelsen:**
+- Håndter avvik som automatikken ikke klarte
+- Importer filer manuelt (når integrasjon ikke finnes)
+- Konfigurer regler for Smart Match
+- Gjennomgå og godkjenn rapporter
+- Vedlikehold klienter, kontoer, innstillinger
+
+**Automatikken (bakgrunnsjobber):**
+- Smart Match kjører automatisk ved ny import
+- Rapporter genereres automatisk etter matching
+- Varsler sendes ved avvik, feil, eller fullførte jobber
+- Tripletex-synk kjører på schedule
+- Fremtidig: AI-agent som foreslår matchregler basert på historikk
+
+## Designprinsipper
+
+### 1. Automasjon først, manuelt som fallback
+Før du bygger et UI for noe, spør: "Kan dette skje automatisk?"
+
+### 2. Mobil = lesemodus, desktop = skrivemodus
+Aldri design komplekse input-flows for mobil. Mobil er for å se status, godkjenne og bli varslet.
+
+### 3. Null er idealtilstanden
+Det beste dashboardet viser: "0 uavstemte poster, 0 ventende oppgaver".
+Design for å feire at det ikke er noe å gjøre.
+
+### 4. Varsler driver handlinger
+Brukeren skal ikke trenge å åpne appen for å sjekke "har noe skjedd?".
+Varsler forteller brukeren NÅR de trenger å handle.
+
+## Jobb-kjeder
+
+```
+Import fullført
+  → Auto Smart Match
+    → Matching fullført
+      → Rapportgenerering
+        → E-postvarsling til ansvarlig
+        → Dashboard-oppdatering
+```
+
+## Suksesskriterium
+
+Regnskapsfører: "Jeg importerer filene mine, og neste gang jeg sjekker er alt matchet,
+rapporten er laget, og det eneste jeg trenger å gjøre er å se på de 5 postene som systemet ikke klarte."
+
+Leder: "Jeg åpner appen på telefonen, ser at 23 av 24 klienter er grønne,
+og den ene røde har en kommentar fra regnskapsføreren om at det håndteres."

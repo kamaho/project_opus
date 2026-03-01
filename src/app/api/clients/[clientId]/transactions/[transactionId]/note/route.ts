@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { notifyNoteMention } from "@/lib/notifications";
 import { z } from "zod";
 
@@ -12,21 +12,12 @@ const noteSchema = z.object({
   mentionedUserId: z.string().optional(),
 });
 
-type RouteParams = { params: Promise<{ clientId: string; transactionId: string }> };
+export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const transactionId = params!.transactionId;
 
-export async function PATCH(request: Request, { params }: RouteParams) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, transactionId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const parsed = noteSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "Ugyldig forespørsel" }, { status: 400 });
@@ -63,7 +54,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
   if (mentionedUserId) {
     await notifyNoteMention({
-      tenantId: orgId,
+      tenantId,
       fromUserId: userId,
       mentionedUserId,
       noteText,
@@ -73,4 +64,4 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   }
 
   return NextResponse.json({ ok: true });
-}
+});

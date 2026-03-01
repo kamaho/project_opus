@@ -7,8 +7,8 @@ export function MobileTasksTeaser() {
     <div className="flex h-full flex-col items-center justify-center px-6">
       <div className="w-full max-w-sm text-center">
         {/* Icon */}
-        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[oklch(0.95_0.04_155)] mb-5">
-          <ListChecks className="h-8 w-8 text-[oklch(0.55_0.18_155)]" />
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[oklch(0.95_0.04_280)] mb-5">
+          <ListChecks className="h-8 w-8 text-[oklch(0.48_0.20_280)]" />
         </div>
 
         {/* Title */}
@@ -41,8 +41,8 @@ export function MobileTasksTeaser() {
         {/* Badge */}
         <div className="mt-6 inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1.5">
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[oklch(0.72_0.20_155)] opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-[oklch(0.72_0.20_155)]" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[oklch(0.62_0.22_280)] opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-[oklch(0.62_0.22_280)]" />
           </span>
           <span className="text-xs font-medium text-muted-foreground">Kommer snart</span>
         </div>

@@ -10,9 +10,9 @@ import {
   regulatoryDeadlines,
 } from "../src/lib/db/schema";
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error("DATABASE_URL is not set");
+  console.error("DATABASE_MIGRATION_URL / DATABASE_URL is not set");
   process.exit(1);
 }
 

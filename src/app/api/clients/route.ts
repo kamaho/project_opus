@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { accounts, clients, companies } from "@/lib/db/schema";
@@ -8,27 +8,17 @@ import { revalidateClients, revalidateAccounts } from "@/lib/revalidate";
 import { seedStandardRules } from "@/lib/matching/seed-rules";
 
 /** GET: Liste avstemminger for org. Optional ?companyId= for å filtrere på selskap. */
-export async function GET(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const url = new URL(request.url);
+export const GET = withTenant(async (req, { tenantId }) => {
+  const url = new URL(req.url);
   const companyId = url.searchParams.get("companyId") ?? undefined;
 
-  const rows = await getClientsByTenant(orgId, companyId);
+  const rows = await getClientsByTenant(tenantId, companyId);
   return NextResponse.json(rows);
-}
+});
 
 /** POST: Opprett avstemming med to kontoer i én transaksjon. */
-export async function POST(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const POST = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const { companyId, name, set1, set2 } = body as {
     companyId?: string;
     name?: string;
@@ -46,7 +36,7 @@ export async function POST(request: Request) {
   const [company] = await db
     .select({ id: companies.id })
     .from(companies)
-    .where(and(eq(companies.id, companyId), eq(companies.tenantId, orgId)));
+    .where(and(eq(companies.id, companyId), eq(companies.tenantId, tenantId)));
 
   if (!company) {
     return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
@@ -82,7 +72,7 @@ export async function POST(request: Request) {
     })
     .returning();
 
-  seedStandardRules(created.id, orgId).catch((e) =>
+  seedStandardRules(created.id, tenantId).catch((e) =>
     console.error("[clients] Failed to seed standard matching rules:", e)
   );
 
@@ -90,4 +80,4 @@ export async function POST(request: Request) {
   revalidateAccounts();
 
   return NextResponse.json(created, { status: 201 });
-}
+});

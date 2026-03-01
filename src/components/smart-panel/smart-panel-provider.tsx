@@ -1,80 +1,21 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
 
-const PINNED_STORAGE_KEY = "smart-panel-pinned";
-import { SmartPanel } from "./smart-panel";
-import { Info } from "lucide-react";
-import {
-  DesignPanelContent,
-  SmartPanelInnstillingerSection,
-  SmartPanelSectionLabel,
-  SmartPanelTipsSection,
-  SmartPanelTutorialSection,
-} from "./smart-panel-standard";
-import { useTutorialMode } from "@/contexts/tutorial-mode-context";
+import { SmartPanelMiniContent, MINI_WIDTH, MINI_HEIGHT } from "./smart-panel-mini";
+import { SmartPanelMediumContent, MEDIUM_WIDTH, MEDIUM_HEIGHT } from "./smart-panel-medium";
 
-interface PageElement {
-  name: string;
-  description: string;
-}
+export type PanelMode = "mini" | "medium";
 
-/** Path pattern (prefix match) -> page elements. First match wins. */
-const PAGE_ELEMENTS_BY_PATH: { pattern: string; elements: PageElement[] }[] = [
-  {
-    pattern: "/dashboard/matching-rules",
-    elements: [
-      { name: "Regelliste", description: "Viser alle matching-regler. Klikk for å redigere eller opprette ny regel." },
-      { name: "Ny regel", description: "Oppretter en ny regel for Smart Match (1-til-1 eller mange-til-1)." },
-      { name: "Prioritet", description: "Rekkefølgen avgjør hvilke regler som kjører først ved automatisk matching." },
-    ],
-  },
-  {
-    pattern: "/dashboard/mva-avstemming",
-    elements: [
-      { name: "Periode og klient", description: "Velg hvilken periode og klient du vil avstemme MVA for." },
-      { name: "Avstemmingsvisning", description: "Sammenligner MVA i regnskapet med MVA-melding fra Altinn og viser avvik." },
-    ],
-  },
-  {
-    pattern: "/dashboard/settings",
-    elements: [
-      { name: "Profil", description: "Din brukerprofil og innstillinger knyttet til kontoen." },
-      { name: "Utseende", description: "Tallformat, datoformat, språk og tabellvisning (skillelinjer m.m.)." },
-      { name: "Organisasjon", description: "Organisasjonsdetaljer og invitasjon av flere brukere." },
-    ],
-  },
-  {
-    pattern: "/dashboard/clients",
-    elements: [
-      { name: "Klientliste", description: "Oversikt over alle avstemminger/klienter. Klikk på en klient for å åpne den." },
-      { name: "Matching / Import", description: "Gå til bankavstemming, import av transaksjoner eller Smart Match for valgt klient." },
-      { name: "Header og filtrering", description: "Søk og filtre klienter, eller opprett ny avstemming." },
-    ],
-  },
-  {
-    pattern: "/dashboard",
-    elements: [
-      { name: "Sidemeny", description: "Naviger til Dashboard, Avstemminger, Matching-regler, MVA-avstemming eller Innstillinger." },
-      { name: "Oversikt / kort", description: "Snarveier, frister og status for avstemminger." },
-      { name: "Header", description: "Breadcrumbs og notifikasjoner." },
-    ],
-  },
-];
+const PANEL_MODE_KEY = "smart-panel-mode";
+const VALID_MODES: PanelMode[] = ["mini", "medium"];
 
-function getPageElementsForPath(pathname: string): PageElement[] {
-  const normalized = pathname ?? "";
-  for (const { pattern, elements } of PAGE_ELEMENTS_BY_PATH) {
-    if (normalized === pattern || normalized.startsWith(pattern + "/")) {
-      return elements;
-    }
-  }
-  return [
-    { name: "Sidemeny", description: "Hovednavigasjon til ulike deler av Revizo." },
-    { name: "Innhold", description: "Hovedinnholdet for den siden du er på." },
-  ];
-}
+const PANEL_DIMS: Record<PanelMode, { width: number; height: number }> = {
+  mini: { width: MINI_WIDTH, height: MINI_HEIGHT },
+  medium: { width: MEDIUM_WIDTH, height: MEDIUM_HEIGHT },
+};
 
 interface SmartPanelContextValue {
   isGlobalPanelOpen: boolean;
@@ -130,136 +71,207 @@ function getElementDescription(target: EventTarget | null): string | null {
   return null;
 }
 
+const TRANSITION_STYLE =
+  "width 300ms cubic-bezier(0.4,0,0.2,1), height 300ms cubic-bezier(0.4,0,0.2,1), left 300ms cubic-bezier(0.4,0,0.2,1), top 300ms cubic-bezier(0.4,0,0.2,1), border-radius 200ms ease";
+
 export function SmartPanelProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { enabled: tutorialMode } = useTutorialMode();
   const [open, setOpen] = useState(false);
-  const [pinned, setPinned] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
-  const [description, setDescription] = useState<string | null>(null);
-  const [activeOptionId, setActiveOptionId] = useState<string | null>(null);
+  const [panelMode, setPanelMode] = useState<PanelMode>("medium");
+  const [dragging, setDragging] = useState(false);
+  const [pendingMediumView, setPendingMediumView] = useState<"chat" | "tutorials">("chat");
+  const dragOffset = useRef({ x: 0, y: 0 });
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     try {
-      const stored = sessionStorage.getItem(PINNED_STORAGE_KEY);
-      if (stored !== null) setPinned(stored === "true");
+      const stored = localStorage.getItem(PANEL_MODE_KEY);
+      if (stored && VALID_MODES.includes(stored as PanelMode)) {
+        setPanelMode(stored as PanelMode);
+      } else if (stored === "normal" || stored === "big") {
+        setPanelMode("medium");
+        localStorage.setItem(PANEL_MODE_KEY, "medium");
+      } else if (stored && !VALID_MODES.includes(stored as PanelMode)) {
+        setPanelMode("medium");
+        localStorage.setItem(PANEL_MODE_KEY, "medium");
+      }
     } catch {
       // ignore
     }
   }, []);
 
-  const handlePinChange = useCallback((next: boolean) => {
-    setPinned(next);
+  // --- Drag handling ---
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!panelRef.current) return;
+    e.preventDefault();
+    setDragging(true);
+    const rect = panelRef.current.getBoundingClientRect();
+    dragOffset.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragging) return;
+    const dims = PANEL_DIMS[panelMode];
+    setPos({
+      x: Math.max(0, Math.min(e.clientX - dragOffset.current.x, window.innerWidth - dims.width)),
+      y: Math.max(0, Math.min(e.clientY - dragOffset.current.y, window.innerHeight - dims.height)),
+    });
+  }, [dragging, panelMode]);
+
+  const handlePointerUp = useCallback(() => setDragging(false), []);
+
+  const dragHandleProps = {
+    onPointerDown: handlePointerDown,
+    onPointerMove: handlePointerMove,
+    onPointerUp: handlePointerUp,
+  };
+
+  // --- Mode switching ---
+  const handleModeChange = useCallback((mode: PanelMode) => {
+    setPanelMode((prev) => {
+      const oldDims = PANEL_DIMS[prev];
+      const newDims = PANEL_DIMS[mode];
+
+      const centerX = pos.x + oldDims.width / 2;
+      const centerY = pos.y + oldDims.height / 2;
+
+      const newX = Math.max(8, Math.min(centerX - newDims.width / 2, window.innerWidth - newDims.width - 8));
+      const newY = Math.max(8, Math.min(centerY - newDims.height / 2, window.innerHeight - newDims.height - 8));
+
+      setPos({ x: newX, y: newY });
+      return mode;
+    });
+
     try {
-      sessionStorage.setItem(PINNED_STORAGE_KEY, String(next));
+      localStorage.setItem(PANEL_MODE_KEY, mode);
     } catch {
       // ignore
     }
-  }, []);
+  }, [pos]);
 
+  const handleExpandToMedium = useCallback(() => {
+    setPendingMediumView("chat");
+    handleModeChange("medium");
+  }, [handleModeChange]);
+
+  const handleExpandToTutorials = useCallback(() => {
+    setPendingMediumView("tutorials");
+    handleModeChange("medium");
+  }, [handleModeChange]);
+
+  // --- Open / close ---
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+
     const desc = getElementDescription(e.target);
-    setDescription(desc);
-    // Re-activate panel on every right-click so user can click different elements without closing first
+    void desc; // reserved for future use
+
     if (typeof window !== "undefined") {
-      const panelWidth = 320;
-      const panelHeightEstimate = 400;
+      const storedMode = (localStorage.getItem(PANEL_MODE_KEY) ?? "medium") as PanelMode;
+      const mode = VALID_MODES.includes(storedMode) ? storedMode : "medium";
+      const dims = PANEL_DIMS[mode];
       setPos({
-        x: Math.max(8, (window.innerWidth - panelWidth) / 2),
-        y: Math.max(8, (window.innerHeight - panelHeightEstimate) / 2),
+        x: Math.max(8, (window.innerWidth - dims.width) / 2),
+        y: mode === "mini"
+          ? Math.max(8, window.innerHeight - dims.height - 32)
+          : Math.max(8, (window.innerHeight - dims.height) / 2),
       });
     } else {
       setPos({ x: 0, y: 0 });
     }
+
     setOpen(true);
-    setActiveOptionId(null);
   }, []);
 
   const handleClose = useCallback(() => {
     setOpen(false);
-    setDescription(null);
-    setActiveOptionId(null);
   }, []);
 
-  const handleOptionSelect = useCallback((optionId: string) => {
-    setActiveOptionId(optionId || null);
+  // --- Escape key ---
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, handleClose]);
+
+  const moveToMiniBottomLeft = useCallback(() => {
+    const miniDims = PANEL_DIMS["mini"];
+    setPanelMode("mini");
+    setPos({
+      x: 16,
+      y: typeof window !== "undefined" ? window.innerHeight - miniDims.height - 16 : 0,
+    });
+    try { localStorage.setItem(PANEL_MODE_KEY, "mini"); } catch { /* ignore */ }
   }, []);
 
-  const pageElements = getPageElementsForPath(pathname ?? "");
-  const tutorialContent = (
-    <div className="p-3">
-      <SmartPanelSectionLabel>Elementer på denne siden</SmartPanelSectionLabel>
-      <ul className="space-y-2.5 mt-2 px-3">
-        {pageElements.map((el, i) => (
-          <li key={i} className="text-sm">
-            <span className="font-medium text-foreground">{el.name}</span>
-            <p className="text-muted-foreground mt-0.5 leading-relaxed">{el.description}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-
-  const resultContent =
-    activeOptionId === "design" ? (
-      <DesignPanelContent />
-    ) : description ? (
-      <div className="p-3">
-        <SmartPanelSectionLabel>Om elementet</SmartPanelSectionLabel>
-        <div className="flex items-start gap-2.5 mt-2">
-          <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
-          <p className="text-sm leading-relaxed">{description}</p>
-        </div>
-      </div>
-    ) : tutorialMode ? (
-      tutorialContent
-    ) : (
-      <div className="p-3">
-        <SmartPanelSectionLabel>Smarte funksjonaliteter</SmartPanelSectionLabel>
-        <p className="text-sm text-muted-foreground mt-2">
-          Høyreklikk på et element for å lese mer om det, eller bruk Assistent-fanen nedenfor.
-        </p>
-      </div>
-    );
-
-  const sectionAboveFooter = (
-    <SmartPanelInnstillingerSection
-      isActive={activeOptionId === "design"}
-      onToggle={() =>
-        activeOptionId === "design" ? handleOptionSelect("") : handleOptionSelect("design")
+  // --- Auto-minimize when AI starts a tutorial ---
+  useEffect(() => {
+    const handler = () => {
+      if (open) {
+        moveToMiniBottomLeft();
       }
-    />
-  );
+    };
+    window.addEventListener("ai-start-tutorial", handler);
+    return () => window.removeEventListener("ai-start-tutorial", handler);
+  }, [open, moveToMiniBottomLeft]);
+
+  const dims = PANEL_DIMS[panelMode];
 
   return (
     <SmartPanelContext.Provider value={{ isGlobalPanelOpen: open }}>
-      {/* Capture phase so right-click anywhere opens smart panel before other handlers (e.g. table cell) or browser menu */}
       <div onContextMenuCapture={handleContextMenu} className="contents">
         {children}
       </div>
-      <SmartPanel
-        open={open}
-        onClose={handleClose}
-        position={pos}
-        title={activeOptionId === "design" ? "Design" : "Smarte funksjonaliteter"}
-        options={[]}
-        onOptionSelect={handleOptionSelect}
-        activeOptionId={activeOptionId}
-        resultContent={resultContent}
-        sectionAboveFooter={sectionAboveFooter}
-        footerContent={
-          <>
-            <SmartPanelTipsSection />
-            <div className="border-t" />
-            <SmartPanelTutorialSection />
-          </>
-        }
-        useStandardLayout
-        pinned={pinned}
-        onPinChange={handlePinChange}
-      />
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40 pointer-events-none" />
+          <div
+            ref={panelRef}
+            className={cn(
+              "fixed z-50 rounded-lg border bg-background smart-panel-aura smart-panel-morph overflow-hidden",
+              dragging && "select-none",
+            )}
+            style={{
+              left: pos.x,
+              top: pos.y,
+              width: dims.width,
+              height: dims.height,
+              transition: dragging ? "none" : TRANSITION_STYLE,
+            }}
+          >
+            <div className="smart-panel-aura-glow" />
+            <div
+              key={panelMode}
+              className="h-full w-full animate-in fade-in duration-150"
+            >
+              {panelMode === "mini" && (
+                <SmartPanelMiniContent
+                  onClose={handleClose}
+                  onExpandToMedium={handleExpandToMedium}
+                  onExpandToTutorials={handleExpandToTutorials}
+                  onModeChange={handleModeChange}
+                  dragHandleProps={dragHandleProps}
+                />
+              )}
+              {panelMode === "medium" && (
+                <SmartPanelMediumContent
+                  onClose={handleClose}
+                  onModeChange={handleModeChange}
+                  onTutorialStart={moveToMiniBottomLeft}
+                  initialView={pendingMediumView}
+                  dragHandleProps={dragHandleProps}
+                />
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </SmartPanelContext.Provider>
   );
 }

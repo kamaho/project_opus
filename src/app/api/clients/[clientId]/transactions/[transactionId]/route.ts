@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 
@@ -17,20 +17,10 @@ const patchSchema = z.object({
 /**
  * PATCH: Update a manual transaction (åpningspost). Only allowed when importId is null.
  */
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string; transactionId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, transactionId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const transactionId = params!.transactionId;
 
   const [tx] = await db
     .select({ id: transactions.id, importId: transactions.importId, setNumber: transactions.setNumber })
@@ -47,7 +37,7 @@ export async function PATCH(
     );
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
     const firstError = parsed.error.issues[0]?.message ?? "Ugyldig forespørsel";
@@ -67,7 +57,7 @@ export async function PATCH(
   await db.update(transactions).set(updates).where(eq(transactions.id, transactionId));
 
   await logAudit({
-    tenantId: orgId,
+    tenantId,
     userId,
     action: "transaction.updated",
     entityType: "transaction",
@@ -76,25 +66,15 @@ export async function PATCH(
   });
 
   return NextResponse.json({ ok: true });
-}
+});
 
 /**
  * DELETE: Remove a manual transaction (åpningspost). Only allowed when importId is null.
  */
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ clientId: string; transactionId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, transactionId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const DELETE = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const transactionId = params!.transactionId;
 
   const [tx] = await db
     .select({
@@ -117,7 +97,7 @@ export async function DELETE(
   await db.delete(transactions).where(eq(transactions.id, transactionId));
 
   await logAudit({
-    tenantId: orgId,
+    tenantId,
     userId,
     action: "transaction.deleted",
     entityType: "transaction",
@@ -126,4 +106,4 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true });
-}
+});

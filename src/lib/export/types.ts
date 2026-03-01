@@ -3,7 +3,7 @@ import type { MvaMelding, MvaDifferansekategori } from "@/lib/mva/demo-data";
 // ── Formats & Modules ──────────────────────────────────────────────
 
 export type ExportFormat = "pdf" | "xlsx";
-export type ExportModule = "mva" | "matching";
+export type ExportModule = "mva" | "matching" | "comparison" | "group-matching";
 
 // ── Request types ──────────────────────────────────────────────────
 
@@ -19,11 +19,73 @@ export interface MatchingExportPayload {
   dateTo?: string;
 }
 
+export interface ComparisonExportPayload {
+  clients: {
+    id: string;
+    name: string;
+    companyName: string;
+    set1AccountNumber: string;
+    set2AccountNumber: string;
+    openingBalanceSet1: number;
+    openingBalanceSet2: number;
+    balanceSet1: number;
+    balanceSet2: number;
+    unmatchedSumSet1: number;
+    unmatchedSumSet2: number;
+    unmatchedCountSet1: number;
+    unmatchedCountSet2: number;
+  }[];
+  totals: {
+    nettoSet1: number;
+    nettoSet2: number;
+    totalUnmatchedCount: number;
+  };
+}
+
+export interface GroupMatchingExportPayload {
+  groupId: string;
+  groupName: string;
+  clientIds: string[];
+  reportType: "open";
+}
+
+export interface GroupMatchingClientSection {
+  klientNavn: string;
+  companyName?: string;
+  set1Label: string;
+  set2Label: string;
+  aapneSet1: MatchingTransactionExport[];
+  aapneSet2: MatchingTransactionExport[];
+  totalSet1: number;
+  totalSet2: number;
+  saldoSet1: number;
+  saldoSet2: number;
+  matchCount: number;
+  matchProsent: number;
+}
+
+export interface GroupMatchingExportViewModel {
+  groupName: string;
+  clientCount: number;
+  sections: GroupMatchingClientSection[];
+  totals: {
+    totalOpenSet1: number;
+    totalOpenSet2: number;
+    totalSaldoSet1: number;
+    totalSaldoSet2: number;
+    totalMatches: number;
+  };
+  genererTidspunkt: string;
+  generatedBy?: string;
+}
+
 export interface ExportRequest {
   module: ExportModule;
   format: ExportFormat;
   mvaData?: MvaExportPayload;
   matchingParams?: MatchingExportPayload;
+  comparisonData?: ComparisonExportPayload;
+  groupMatchingData?: GroupMatchingExportPayload;
 }
 
 // ── Result ─────────────────────────────────────────────────────────
@@ -84,6 +146,18 @@ export interface MatchingExportViewModel {
   set2Label: string;
   reportType: "open" | "closed";
   datoPeriode: string;
+
+  // Saldo — sum of ALL transactions (matched + unmatched) per set
+  saldoSet1?: number;
+  saldoSet2?: number;
+  totalPosterSet1?: number;
+  totalPosterSet2?: number;
+
+  // Match summary
+  matchCount?: number;
+  matchedTransactionCount?: number;
+  matchProsent?: number;
+
   // Open report
   aapneSet1?: MatchingTransactionExport[];
   aapneSet2?: MatchingTransactionExport[];
@@ -91,10 +165,12 @@ export interface MatchingExportViewModel {
   antallSet2?: number;
   totalSet1?: number;
   totalSet2?: number;
+
   // Closed report
   matcher?: MatchingMatchGroupExport[];
   antallMatcher?: number;
   totalMatchet?: number;
+
   genererTidspunkt: string;
   /** Selskapsnavn (klientens selskap) for branding. */
   companyName?: string;

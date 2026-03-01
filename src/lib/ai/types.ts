@@ -32,6 +32,14 @@ export interface SearchResult {
   priority?: number;
 }
 
+export interface OrgContact {
+  id: string;
+  name: string;
+  email: string;
+  role: string | null;
+  company: string | null;
+}
+
 export interface UserContext {
   userId: string;
   orgId: string;
@@ -40,6 +48,7 @@ export interface UserContext {
   role?: string;
   clientCount: number;
   onboardingCompleted: boolean;
+  contacts?: OrgContact[];
 }
 
 export interface PageContext {

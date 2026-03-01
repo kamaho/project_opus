@@ -386,7 +386,7 @@ export function AgentReportSettings({
                       className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
                     >
                       {log.status === "success" ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-violet-500 shrink-0" />
                       ) : log.status === "partial" ? (
                         <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                       ) : (

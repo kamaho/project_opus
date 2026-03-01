@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 
@@ -16,22 +16,11 @@ const patchSchema = z.object({
 /**
  * PATCH: Update opening balance for a client (avstemmingsenhet).
  */
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -58,7 +47,7 @@ export async function PATCH(
   await db.update(clients).set(updates).where(eq(clients.id, clientId));
 
   await logAudit({
-    tenantId: orgId,
+    tenantId,
     userId,
     action: "rule.updated",
     entityType: "client",
@@ -67,4 +56,4 @@ export async function PATCH(
   });
 
   return NextResponse.json({ ok: true });
-}
+});
