@@ -11,7 +11,6 @@ import {
   index,
   varchar,
   uniqueIndex,
-  serial,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 

@@ -112,6 +112,15 @@ export function useAiChat(): UseAiChatReturn {
     setWorkingText("");
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (workingIntervalRef.current) {
+        clearInterval(workingIntervalRef.current);
+        workingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();

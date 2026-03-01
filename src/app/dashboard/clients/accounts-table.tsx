@@ -88,7 +88,7 @@ export function AccountsTable({
   );
 
   const onInitialGroupConsumedRef = useRef(onInitialGroupConsumed);
-  onInitialGroupConsumedRef.current = onInitialGroupConsumed;
+  useEffect(() => { onInitialGroupConsumedRef.current = onInitialGroupConsumed; });
   useEffect(() => {
     if (!initialActiveGroupId) return;
     const g = groups.find((x) => x.id === initialActiveGroupId) ?? null;
@@ -97,7 +97,7 @@ export function AccountsTable({
   }, [initialActiveGroupId, groups]);
 
   const onActiveGroupChangeRef = useRef(onActiveGroupChange);
-  onActiveGroupChangeRef.current = onActiveGroupChange;
+  useEffect(() => { onActiveGroupChangeRef.current = onActiveGroupChange; });
   useEffect(() => {
     onActiveGroupChangeRef.current?.(activeGroup);
   }, [activeGroup]);

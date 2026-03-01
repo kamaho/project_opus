@@ -114,12 +114,11 @@ interface UiPreferencesProviderProps {
 
 export function UiPreferencesProvider({ children }: UiPreferencesProviderProps) {
   const [preferences, setPreferencesState] = useState<UiPreferences>(
-    () => DEFAULT_UI_PREFERENCES
+    () => {
+      if (typeof window === "undefined") return DEFAULT_UI_PREFERENCES;
+      return loadUiPreferences();
+    }
   );
-
-  useEffect(() => {
-    setPreferencesState(loadUiPreferences());
-  }, []);
 
   const setPreferences = useCallback((next: UiPreferences | ((prev: UiPreferences) => UiPreferences)) => {
     setPreferencesState((prev) => {

@@ -101,7 +101,7 @@ export default function OnboardingPage() {
   const [path, setPath] = useState<OnboardingPath>(null);
   const [selectedErpId, setSelectedErpId] = useState<string | null>(null);
 
-  const [setupResult, setSetupResult] = useState<SetupResult | null>(null);
+  const [, setSetupResult] = useState<SetupResult | null>(null);
   const [erpResult, setErpResult] = useState<ERPSetupResult | null>(null);
   const [enabledServices, setEnabledServices] = useState<Set<string>>(
     () => new Set(["dashboard", "avstemming"])

@@ -36,10 +36,10 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
   // If selected group was deleted, return to card grid
-  useEffect(() => {
-    if (!selectedGroupId) return;
-    if (!groups.some((g) => g.id === selectedGroupId)) setSelectedGroupId(null);
-  }, [selectedGroupId, groups]);
+  const groupStillExists = !selectedGroupId || groups.some((g) => g.id === selectedGroupId);
+  if (!groupStillExists && selectedGroupId) {
+    setSelectedGroupId(null);
+  }
 
   // Dialog state -- all rendered outside Tabs
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -51,7 +51,7 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
   const [groupForMatchDialog, setGroupForMatchDialog] = useState<ClientGroup | null>(null);
 
   // Track which group is active inside the table (for group header actions)
-  const [activeGroupFromTable, setActiveGroupFromTable] = useState<ClientGroup | null>(null);
+  const [, setActiveGroupFromTable] = useState<ClientGroup | null>(null);
 
   const createDialogRef = useRef<CreateReconciliationDialogRef>(null);
   const newClientToolbarButton = (

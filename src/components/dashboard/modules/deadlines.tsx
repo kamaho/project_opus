@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Calendar, Clock, FileQuestion } from "lucide-react";
-import type { ModuleProps } from "../types";
 
 const NORWEGIAN_DEADLINES = [
   { id: "mva-1", title: "MVA-melding 1. termin", date: "2026-04-10", recurring: "bimonthly" },
@@ -44,7 +43,7 @@ const dateFormatter = new Intl.DateTimeFormat("nb-NO", {
   month: "short",
 });
 
-export default function Deadlines(_props: ModuleProps) {
+export default function Deadlines() {
   const [showPassed, setShowPassed] = useState(false);
 
   const sorted = [...NORWEGIAN_DEADLINES]

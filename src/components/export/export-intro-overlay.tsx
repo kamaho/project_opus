@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Check, FileDown } from "lucide-react";
@@ -46,12 +46,12 @@ export function ExportIntroOverlay({
   const [mounted, setMounted] = useState(false);
   const [checkVisible, setCheckVisible] = useState(false);
   const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
+  useEffect(() => { onCompleteRef.current = onComplete; });
   const isGenerating = mode === "generating";
-  const quoteIndexRef = useRef(
-    Math.floor(Math.random() * MENS_DU_VENTER_QUOTES.length)
+  const [quoteIndex] = useState(
+    () => Math.floor(Math.random() * MENS_DU_VENTER_QUOTES.length)
   );
-  const quote = MENS_DU_VENTER_QUOTES[quoteIndexRef.current];
+  const quote = MENS_DU_VENTER_QUOTES[quoteIndex];
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true));

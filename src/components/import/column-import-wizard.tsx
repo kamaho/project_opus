@@ -322,15 +322,6 @@ export function ColumnImportWizard({
     return [...selected, ...unselected];
   }, [mappings, colCount]);
 
-  const selectedCount = mappings.size;
-  const unselectedCols = useMemo(
-    () =>
-      Array.from({ length: colCount }, (_, i) => i).filter(
-        (i) => !selectedColSet.has(i)
-      ),
-    [colCount, selectedColSet]
-  );
-
   const confirmRows = step === "confirm" ? filteredDataRows : dataRows;
 
   const validationIssues = useMemo(

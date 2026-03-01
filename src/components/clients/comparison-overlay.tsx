@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, FileSpreadsheet, ArrowUpDown } from "lucide-react";
+import { Download, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFormatting } from "@/contexts/ui-preferences-context";
 

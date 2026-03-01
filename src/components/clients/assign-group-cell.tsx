@@ -25,7 +25,6 @@ interface AssignGroupCellProps {
 }
 
 export function AssignGroupCell({
-  groupId,
   assignedUserId,
   onAssign,
 }: AssignGroupCellProps) {
