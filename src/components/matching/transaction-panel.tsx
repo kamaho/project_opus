@@ -354,7 +354,7 @@ export const TransactionPanel = memo(function TransactionPanel({
         const field = key as SortKey;
         if (field === "amount") return matchesAmount(tx.amount, v);
         if (field === "date") return;
-        const cellVal = field === "voucher" ? (tx.voucher ?? "") : field === "notat" ? (tx.notat ?? "") : (tx[field] ?? "");
+        const cellVal = field === "voucher" ? (tx.voucher ?? "") : field === "notat" ? (tx.notat ?? "") : field === "text" ? tx.text : "";
         return cellVal.toLowerCase().includes(v);
       });
     }
@@ -948,7 +948,11 @@ export const TransactionPanel = memo(function TransactionPanel({
                           ? fmtD(tx.date)
                           : field === "voucher"
                             ? (tx.voucher ?? "")
-                            : String(tx[field] ?? ""),
+                            : field === "notat"
+                              ? (tx.notat ?? "")
+                              : field === "text"
+                                ? tx.text
+                                : "",
                     numericValue: field === "amount" ? tx.amount : undefined,
                   });
                   return (

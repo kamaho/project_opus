@@ -749,11 +749,16 @@ export function MatchingViewClient({
       const ids = new Set<string>();
       ids.add(action.txId);
       for (const tx of source) {
-        const match = action.field === "amount"
-          ? tx.amount === action.numericValue
-          : action.field === "voucher"
-            ? (tx.voucher ?? "") === action.value
-            : tx[action.field] === action.value;
+        let match = false;
+        if (action.field === "amount") {
+          match = tx.amount === action.numericValue;
+        } else if (action.field === "voucher") {
+          match = (tx.voucher ?? "") === action.value;
+        } else if (action.field === "date" || action.field === "text") {
+          match = tx[action.field] === action.value;
+        } else if (action.field === "notat") {
+          match = (tx.notat ?? "") === action.value;
+        }
         if (match) ids.add(tx.id);
       }
       return ids;
