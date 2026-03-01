@@ -30,7 +30,7 @@ function getAnthropicClient(): Anthropic {
 
 async function callAnthropicWithRetry(
   anthropic: Anthropic,
-  params: Anthropic.MessageCreateParams
+  params: Anthropic.MessageCreateParamsNonStreaming
 ): Promise<Anthropic.Message> {
   for (let attempt = 0; attempt <= MAX_API_RETRIES; attempt++) {
     try {
