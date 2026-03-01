@@ -1,48 +1,22 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { accounts, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidateAccounts } from "@/lib/revalidate";
-import { validateClientTenant } from "@/lib/db/tenant";
 
 /** GET: Grunnleggende info om en konto (for breadcrumb m.m.). */
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId } = await params;
-  const row = await validateClientTenant(clientId, orgId);
-
-  if (!row) {
-    return NextResponse.json({ error: "Ikke funnet" }, { status: 404 });
-  }
-
-  return NextResponse.json({ id: row.id, name: row.name, companyId: row.companyId });
-}
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  const client = await verifyClientOwnership(params!.clientId, tenantId);
+  return NextResponse.json({ id: client.id, name: client.name, companyId: client.companyId });
+});
 
 /** PATCH: Rename an account belonging to this client. */
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const PATCH = withTenant(async (req, { tenantId }, params) => {
+  const client = await verifyClientOwnership(params!.clientId, tenantId);
 
-  const { clientId } = await params;
-  const client = await validateClientTenant(clientId, orgId);
-  if (!client) {
-    return NextResponse.json({ error: "Ikke funnet" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => null);
+  const body = await req.json().catch(() => null);
   if (!body || typeof body.accountId !== "string" || typeof body.name !== "string") {
     return NextResponse.json({ error: "accountId og name er påkrevd" }, { status: 400 });
   }
@@ -62,7 +36,7 @@ export async function PATCH(
     .select({ id: accounts.id })
     .from(accounts)
     .innerJoin(companies, eq(accounts.companyId, companies.id))
-    .where(and(eq(accounts.id, body.accountId), eq(companies.tenantId, orgId)));
+    .where(and(eq(accounts.id, body.accountId), eq(companies.tenantId, tenantId)));
 
   if (!row) {
     return NextResponse.json({ error: "Konto ikke funnet" }, { status: 404 });
@@ -76,4 +50,4 @@ export async function PATCH(
   revalidateAccounts();
 
   return NextResponse.json({ ok: true, name: newName });
-}
+});

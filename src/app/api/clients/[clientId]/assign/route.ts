@@ -1,22 +1,15 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { orgId } = await auth();
-  if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export const PATCH = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const client = await validateClientTenant(clientId, orgId);
-  if (!client) return NextResponse.json({ error: "Ikke funnet" }, { status: 404 });
-
-  const body = await request.json().catch(() => null);
+  const body = await req.json().catch(() => null);
   if (!body || !("userId" in body)) {
     return NextResponse.json({ error: "userId er påkrevd" }, { status: 400 });
   }
@@ -29,4 +22,4 @@ export async function PATCH(
     .where(eq(clients.id, clientId));
 
   return NextResponse.json({ ok: true, assignedUserId: userId });
-}
+});

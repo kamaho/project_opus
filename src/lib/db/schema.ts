@@ -11,6 +11,7 @@ import {
   index,
   varchar,
   uniqueIndex,
+  serial,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -303,6 +304,17 @@ export const TASK_TYPES = [
 
 export type TaskType = (typeof TASK_TYPES)[number];
 
+export const TASK_CATEGORIES = [
+  "missing_documentation",
+  "needs_correction",
+  "needs_approval",
+  "follow_up_external",
+  "flag_for_later",
+  "other",
+] as const;
+
+export type TaskCategory = (typeof TASK_CATEGORIES)[number];
+
 export const TASK_STATUSES = ["open", "in_progress", "waiting", "completed", "cancelled"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -321,7 +333,10 @@ export const tasks = pgTable(
     description: text("description"),
     status: text("status", { enum: [...TASK_STATUSES] }).notNull().default("open"),
     priority: text("priority", { enum: [...TASK_PRIORITIES] }).notNull().default("medium"),
+    category: text("category", { enum: [...TASK_CATEGORIES] }),
     assigneeId: text("assignee_id"),
+    externalContactId: uuid("external_contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    notifyExternal: boolean("notify_external").default(false),
     createdBy: text("created_by").notNull(),
     dueDate: date("due_date"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -658,6 +673,59 @@ export const agentReportConfigs = pgTable(
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+// Document Requests (external document collection via magic link)
+// ---------------------------------------------------------------------------
+export const DOCUMENT_REQUEST_STATUSES = [
+  "pending",
+  "completed",
+  "expired",
+  "cancelled",
+] as const;
+export type DocumentRequestStatus = (typeof DOCUMENT_REQUEST_STATUSES)[number];
+
+export const documentRequests = pgTable(
+  "document_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    token: text("token").notNull().unique(),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    transactionId: uuid("transaction_id").references(() => transactions.id, { onDelete: "set null" }),
+    contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+    createdBy: text("created_by").notNull(),
+    message: text("message"),
+    status: text("status", { enum: [...DOCUMENT_REQUEST_STATUSES] }).notNull().default("pending"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_document_requests_token").on(t.token),
+    index("idx_document_requests_tenant").on(t.tenantId),
+    index("idx_document_requests_contact").on(t.contactId),
+    index("idx_document_requests_task").on(t.taskId),
+    index("idx_document_requests_status").on(t.status, t.expiresAt),
+  ]
+);
+
+export const documentRequestFiles = pgTable(
+  "document_request_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => documentRequests.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    filePath: text("file_path").notNull(),
+    fileSize: integer("file_size"),
+    contentType: text("content_type"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_document_request_files_request").on(t.requestId)]
+);
+
+// ---------------------------------------------------------------------------
 // Contacts (external contact persons — revisor, kunder, etc.)
 // ---------------------------------------------------------------------------
 export const contacts = pgTable(
@@ -766,5 +834,100 @@ export const agentJobLogs = pgTable(
   (t) => [
     index("idx_agent_logs_config").on(t.configId, t.createdAt),
     index("idx_agent_logs_client").on(t.clientId, t.createdAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Tutorials (global, created by system admins)
+// ---------------------------------------------------------------------------
+export const tutorials = pgTable(
+  "tutorials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    pathnamePattern: text("pathname_pattern").notNull(),
+    createdByUserId: text("created_by_user_id").notNull(),
+    visibility: text("visibility", {
+      enum: ["all", "specific"],
+    })
+      .notNull()
+      .default("all"),
+    isPublished: boolean("is_published").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_tutorials_pathname").on(t.pathnamePattern)]
+);
+
+export const tutorialSteps = pgTable(
+  "tutorial_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tutorialId: uuid("tutorial_id")
+      .notNull()
+      .references(() => tutorials.id, { onDelete: "cascade" }),
+    stepOrder: integer("step_order").notNull(),
+    elementSelector: text("element_selector").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    pathname: text("pathname"),
+    tooltipPosition: text("tooltip_position", {
+      enum: ["top", "bottom", "left", "right"],
+    })
+      .notNull()
+      .default("bottom"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_tutorial_steps_tutorial").on(t.tutorialId, t.stepOrder)]
+);
+
+export const tutorialAudiences = pgTable("tutorial_audiences", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tutorialId: uuid("tutorial_id")
+    .notNull()
+    .references(() => tutorials.id, { onDelete: "cascade" }),
+  orgRole: text("org_role"),
+  orgId: text("org_id"),
+});
+
+export const tutorialCompletions = pgTable(
+  "tutorial_completions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tutorialId: uuid("tutorial_id")
+      .notNull()
+      .references(() => tutorials.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_tutorial_completions_unique").on(t.tutorialId, t.userId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Dashboard Configs (per-user dashboard layout preferences)
+// ---------------------------------------------------------------------------
+export const dashboardConfigs = pgTable(
+  "dashboard_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    userId: text("user_id").notNull(),
+    dashboardType: text("dashboard_type").notNull(),
+    layout: text("layout").notNull().default("overview"),
+    hiddenModules: text("hidden_modules").array().default(sql`'{}'::text[]`),
+    moduleSettings: jsonb("module_settings").default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_dashboard_configs_unique").on(
+      t.tenantId,
+      t.userId,
+      t.dashboardType
+    ),
+    index("idx_dashboard_configs_tenant").on(t.tenantId),
   ]
 );

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexSyncConfigs } from "@/lib/db/schema";
@@ -9,13 +9,8 @@ import { runFullSync } from "@/lib/tripletex/sync";
  * POST /api/tripletex/sync
  * Manually trigger a sync for a specific client.
  */
-export async function POST(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, syncConfigId } = (await request.json()) as {
+export const POST = withTenant(async (req, { tenantId }) => {
+  const { clientId, syncConfigId } = (await req.json()) as {
     clientId?: string;
     syncConfigId?: string;
   };
@@ -29,7 +24,7 @@ export async function POST(request: Request) {
       .where(
         and(
           eq(tripletexSyncConfigs.clientId, clientId),
-          eq(tripletexSyncConfigs.tenantId, orgId)
+          eq(tripletexSyncConfigs.tenantId, tenantId)
         )
       )
       .limit(1);
@@ -57,7 +52,7 @@ export async function POST(request: Request) {
     .where(
       and(
         eq(tripletexSyncConfigs.id, configId),
-        eq(tripletexSyncConfigs.tenantId, orgId)
+        eq(tripletexSyncConfigs.tenantId, tenantId)
       )
     )
     .limit(1);
@@ -74,4 +69,4 @@ export async function POST(request: Request) {
     const message = error instanceof Error ? error.message : "Sync failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});

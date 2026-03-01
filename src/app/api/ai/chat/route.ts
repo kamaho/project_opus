@@ -1,3 +1,4 @@
+import { withTenant } from "@/lib/auth";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
@@ -18,18 +19,38 @@ import { eq } from "drizzle-orm";
 import type { ChatRequest } from "@/lib/ai/types";
 
 const MAX_TOOL_ROUNDS = 5;
+const MAX_API_RETRIES = 2;
+const RATE_LIMIT_RETRY_MS = 5000;
 
 function getAnthropicClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-  return new Anthropic({ apiKey });
+  return new Anthropic({ apiKey, maxRetries: 0 });
 }
 
-export async function POST(request: Request) {
-  const { userId, orgId, orgSlug } = await auth();
-  if (!userId || !orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+async function callAnthropicWithRetry(
+  anthropic: Anthropic,
+  params: Anthropic.MessageCreateParams
+): Promise<Anthropic.Message> {
+  for (let attempt = 0; attempt <= MAX_API_RETRIES; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      const isRetryable = status === 429 || status === 529;
+      if (isRetryable && attempt < MAX_API_RETRIES) {
+        const delay = RATE_LIMIT_RETRY_MS * (attempt + 1);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
   }
+  throw new Error("Exhausted retries");
+}
+
+export const POST = withTenant(async (req, { tenantId, userId }) => {
+  const { orgSlug } = await auth();
 
   const rl = rateLimit(`ai-chat:${userId}`, RATE_LIMITS.aiChat);
   if (!rl.success) {
@@ -41,7 +62,7 @@ export async function POST(request: Request) {
 
   let body: ChatRequest;
   try {
-    body = await request.json();
+    body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -65,14 +86,14 @@ export async function POST(request: Request) {
     const user = await currentUser();
     const userCtx = await getUserContext(
       userId,
-      orgId,
+      tenantId,
       user?.firstName ?? undefined,
       orgSlug ?? undefined
     );
     const pageCtx = pagePath ? getPageContext(pagePath) : null;
 
     if (pageCtx?.clientId) {
-      const name = await getClientName(pageCtx.clientId, orgId);
+      const name = await getClientName(pageCtx.clientId, tenantId);
       if (name) pageCtx.clientName = name;
     }
 
@@ -81,7 +102,7 @@ export async function POST(request: Request) {
 
     const [knowledgeResults, memories] = await Promise.all([
       searchKnowledge(lastUserMessage.content).catch(() => []),
-      getUserMemories(userId, orgId).catch(() => []),
+      getUserMemories(userId, tenantId).catch(() => []),
     ]);
 
     const systemPrompt = buildEnrichedPrompt(basePrompt, knowledgeResults, memories);
@@ -96,10 +117,11 @@ export async function POST(request: Request) {
     const toolsUsed: string[] = [];
     let totalTokens = 0;
     let smartMatchGroups: [string[], string[]][] | undefined;
+    let suggestedTutorials: Array<{ id: string; name: string; description: string | null }> | undefined;
 
     let currentMessages = [...anthropicMessages];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const response = await anthropic.messages.create({
+      const response = await callAnthropicWithRetry(anthropic, {
         model: "claude-sonnet-4-20250514",
         max_tokens: 1024,
         system: systemPrompt,
@@ -130,7 +152,7 @@ export async function POST(request: Request) {
         const result = await executeAction(
           toolUse.name,
           toolUse.input as Record<string, unknown>,
-          orgId,
+          tenantId,
           userId
         );
         const resultObj = result as Record<string, unknown>;
@@ -138,6 +160,17 @@ export async function POST(request: Request) {
         if (toolUse.name === "run_smart_match" && resultObj._matchGroups) {
           smartMatchGroups = resultObj._matchGroups as [string[], string[]][];
           delete resultObj._matchGroups;
+        }
+
+        if (toolUse.name === "list_tutorials" && Array.isArray(resultObj.tutorials)) {
+          const tutorials = resultObj.tutorials as Array<{ id: string; navn: string; beskrivelse: string | null }>;
+          if (tutorials.length > 0) {
+            suggestedTutorials = tutorials.map((t) => ({
+              id: t.id,
+              name: t.navn,
+              description: t.beskrivelse,
+            }));
+          }
         }
 
         toolResults.push({
@@ -168,7 +201,7 @@ export async function POST(request: Request) {
     const convId = await saveConversation(
       conversationId ?? null,
       userId,
-      orgId,
+      tenantId,
       messages.map((m) => ({ role: m.role, content: m.content })),
       responseText,
       mode,
@@ -177,25 +210,40 @@ export async function POST(request: Request) {
       totalTokens
     );
 
-    return streamTextResponse(responseText, convId, actions);
-  } catch (err) {
+    return streamTextResponse(responseText, convId, actions, suggestedTutorials);
+  } catch (err: unknown) {
     console.error("[AI Chat] Error:", err);
+
+    const status = (err as { status?: number }).status;
+    if (status === 429) {
+      return streamTextResponse(
+        "Jeg trenger et lite øyeblikk — for mange forespørsler akkurat nå. Prøv igjen om noen sekunder."
+      );
+    }
+    if (status === 529) {
+      return streamTextResponse(
+        "AI-tjenesten er midlertidig overbelastet. Prøv igjen om et øyeblikk."
+      );
+    }
+
     return NextResponse.json(
       { error: "Noe gikk galt. Prøv igjen senere." },
       { status: 500 }
     );
   }
-}
+});
 
 function streamTextResponse(
   text: string,
   conversationId?: string | null,
-  actions?: Array<{ type: string }>
+  actions?: Array<{ type: string }>,
+  suggestedTutorials?: Array<{ id: string; name: string; description: string | null }>
 ) {
   const payload = JSON.stringify({
     content: text,
     conversationId: conversationId ?? null,
     ...(actions && actions.length > 0 ? { actions } : {}),
+    ...(suggestedTutorials && suggestedTutorials.length > 0 ? { suggestedTutorials } : {}),
   });
 
   return new Response(payload, {

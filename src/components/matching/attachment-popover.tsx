@@ -154,16 +154,12 @@ export function AttachmentPopover({
       }
       setPreviewLoading(true);
       try {
-        const res = await fetch(
-          `/api/clients/${clientId}/transactions/${transactionId}/attachments/${attachment.id}/download`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
+        const inlineUrl = `/api/clients/${clientId}/transactions/${transactionId}/attachments/${attachment.id}/download?inline=1`;
         setPreviewAttachment({
           id: attachment.id,
           filename: attachment.filename,
           contentType: attachment.contentType,
-          url: data.url,
+          url: inlineUrl,
         });
       } finally {
         setPreviewLoading(false);
@@ -176,7 +172,7 @@ export function AttachmentPopover({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) setPreviewAttachment(null); onOpenChange(v); }}>
-      <DialogContent className={cn("sm:max-w-sm transition-all", previewAttachment && "sm:max-w-lg")}>
+      <DialogContent className={cn("sm:max-w-sm transition-all overflow-hidden", previewAttachment && "sm:max-w-lg")}>
         {previewAttachment ? (
           <>
             <DialogHeader>
@@ -231,48 +227,50 @@ export function AttachmentPopover({
                       return (
                         <div
                           key={a.id}
-                          className="flex items-center gap-2 p-1.5 rounded-md border text-sm hover:bg-muted/50 transition-colors"
+                          className="flex items-center gap-2 p-2 rounded-md border text-sm hover:bg-muted/50 transition-colors"
                         >
                           <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm leading-tight">{a.filename}</p>
+                            <p className="text-sm leading-tight break-all">{a.filename}</p>
                             <p className="text-xs text-muted-foreground">{formatFileSize(a.fileSize)}</p>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 shrink-0"
-                            onClick={() => handlePreview(a)}
-                            disabled={previewLoading}
-                            title={canPreviewInline(a.contentType) ? "Forhåndsvis" : "Åpne i ny fane"}
-                          >
-                            {previewLoading ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Eye className="h-3 w-3" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 shrink-0"
-                            onClick={() => handleDownload(a.id)}
-                          >
-                            <Download className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 shrink-0 text-destructive hover:text-destructive"
-                            onClick={() => handleDelete(a.id)}
-                            disabled={deletingId === a.id}
-                          >
-                            {deletingId === a.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3 w-3" />
-                            )}
-                          </Button>
+                          <div className="flex items-center shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => handlePreview(a)}
+                              disabled={previewLoading}
+                              title={canPreviewInline(a.contentType) ? "Forhåndsvis" : "Åpne i ny fane"}
+                            >
+                              {previewLoading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Eye className="h-3 w-3" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => handleDownload(a.id)}
+                            >
+                              <Download className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                              onClick={() => handleDelete(a.id)}
+                              disabled={deletingId === a.id}
+                            >
+                              {deletingId === a.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       );
                     })}

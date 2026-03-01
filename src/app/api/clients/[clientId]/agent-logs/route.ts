@@ -1,24 +1,13 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { agentJobLogs } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId } = await params;
-  const client = await validateClientTenant(clientId, orgId);
-  if (!client) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
   const logs = await db
     .select()
@@ -28,4 +17,4 @@ export async function GET(
     .limit(20);
 
   return NextResponse.json(logs);
-}
+});

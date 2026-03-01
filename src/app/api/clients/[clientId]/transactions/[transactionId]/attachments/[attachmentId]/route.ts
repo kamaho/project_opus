@@ -1,26 +1,15 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactionAttachments } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { supabase, ATTACHMENTS_BUCKET } from "@/lib/supabase";
 
-type RouteParams = {
-  params: Promise<{ clientId: string; transactionId: string; attachmentId: string }>;
-};
-
-export async function DELETE(_request: Request, { params }: RouteParams) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, attachmentId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const DELETE = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const attachmentId = params!.attachmentId;
 
   const [attachment] = await db
     .select()
@@ -45,4 +34,4 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
     .where(eq(transactionAttachments.id, attachmentId));
 
   return NextResponse.json({ ok: true });
-}
+});

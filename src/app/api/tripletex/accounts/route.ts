@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { fetchAllPages } from "@/lib/tripletex/pagination";
 import type { TxAccount } from "@/lib/tripletex/types";
@@ -10,16 +10,11 @@ export const dynamic = "force-dynamic";
  * Lists accounts from Tripletex for account selection when setting up sync.
  * Uses per-tenant credentials from DB, falling back to env vars.
  */
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withTenant(async (_req, { tenantId }) => {
   try {
     const all = await fetchAllPages<TxAccount>("/ledger/account", {
       fields: "id,number,name,isBankAccount,isInactive,type,ledgerType,requireReconciliation,displayName",
-    }, orgId);
+    }, tenantId);
 
     const mapped = all
       .filter((a) => !a.isInactive)
@@ -39,4 +34,4 @@ export async function GET() {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 502 });
   }
-}
+});

@@ -1,6 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { previewAutoMatch, runAutoMatch } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 import { notifySmartMatchCompleted } from "@/lib/notifications";
@@ -10,22 +10,11 @@ import { notifySmartMatchCompleted } from "@/lib/notifications";
  * - Default (no body or mode=preview): runs pipeline, returns stats only (no DB writes)
  * - mode=commit: runs pipeline + commits all matches in bulk, returns stats + matched tx IDs
  */
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const POST = withTenant(async (req, { tenantId, userId }, params) => {
+  const clientRow = await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
-
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const mode = (body as { mode?: string }).mode ?? "preview";
 
   try {
@@ -34,7 +23,7 @@ export async function POST(
 
       if (result.totalMatches > 0) {
         await logAudit({
-          tenantId: orgId,
+          tenantId,
           userId,
           action: "match.created",
           entityType: "match",
@@ -46,7 +35,7 @@ export async function POST(
         });
 
         notifySmartMatchCompleted({
-          tenantId: orgId,
+          tenantId,
           userId,
           clientId,
           clientName: clientRow.name,
@@ -71,4 +60,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

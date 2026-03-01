@@ -1,26 +1,15 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactionAttachments } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { supabase, ATTACHMENTS_BUCKET } from "@/lib/supabase";
 
-type RouteParams = {
-  params: Promise<{ clientId: string; transactionId: string; attachmentId: string }>;
-};
-
-export async function GET(_request: Request, { params }: RouteParams) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, attachmentId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const attachmentId = params!.attachmentId;
 
   if (!supabase) {
     return NextResponse.json({ error: "Storage ikke konfigurert" }, { status: 500 });
@@ -40,9 +29,31 @@ export async function GET(_request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Vedlegg ikke funnet" }, { status: 404 });
   }
 
+  const url = new URL(req.url);
+  const inline = url.searchParams.get("inline") === "1";
+
+  if (inline) {
+    const { data, error } = await supabase.storage
+      .from(ATTACHMENTS_BUCKET)
+      .download(attachment.filePath);
+
+    if (error || !data) {
+      return NextResponse.json({ error: "Kunne ikke laste fil" }, { status: 500 });
+    }
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": attachment.contentType || "application/octet-stream",
+        "Content-Disposition": `inline; filename="${attachment.filename}"`,
+        "Cache-Control": "private, max-age=300",
+      },
+    });
+  }
+
   const { data, error } = await supabase.storage
     .from(ATTACHMENTS_BUCKET)
-    .createSignedUrl(attachment.filePath, 60 * 5); // 5 min
+    .createSignedUrl(attachment.filePath, 60 * 5);
 
   if (error || !data?.signedUrl) {
     return NextResponse.json({ error: "Kunne ikke generere nedlastingslenke" }, { status: 500 });
@@ -53,4 +64,4 @@ export async function GET(_request: Request, { params }: RouteParams) {
     filename: attachment.filename,
     contentType: attachment.contentType,
   });
-}
+});

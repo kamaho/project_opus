@@ -18,8 +18,9 @@ import { useVoiceInput } from "@/hooks/use-voice-input";
 import { useTutorialMode } from "@/contexts/tutorial-mode-context";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { TutorialStartButton } from "./tutorial-start-button";
 
-export type PanelMode = "mini" | "normal" | "big";
+export type PanelMode = "mini" | "normal";
 
 const DEFAULT_WIDTH = 320;
 const TUTORIAL_WIDTH = 420;
@@ -77,7 +78,7 @@ function getSuggestedQuestionsForPath(pathname: string): string[] {
 }
 
 const AGENT_PLACEHOLDERS = [
-  "Spør meg om hva som helst…",
+  "Spør Revizo om hva som helst…",
   "Hva er differansen mellom mengdene?",
   "Finn poster uten motpost",
   "Forklar denne transaksjonen",
@@ -221,7 +222,7 @@ function AgentChatView() {
         {messages.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center py-4 text-center">
             <AiAvatar size={40} className="mb-3" />
-            <p className="text-sm font-medium">Hei! Jeg er din assistent.</p>
+            <p className="text-sm font-medium">Hei! Jeg er Revizo.</p>
             <p className="text-xs text-muted-foreground mt-1 max-w-[240px]">
               Still spørsmål om transaksjoner, poster, avstemming eller frister.
             </p>
@@ -263,6 +264,13 @@ function AgentChatView() {
               ) : (
                 msg.content
               )}
+              {msg.suggestedTutorials && msg.suggestedTutorials.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1.5">
+                  {msg.suggestedTutorials.map((t) => (
+                    <TutorialStartButton key={t.id} tutorial={t} />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -297,7 +305,7 @@ function AgentChatView() {
       </div>
       <div className="border-t px-3 py-1">
         <p className="text-[10px] text-muted-foreground/50 leading-tight">
-          Reviz er en produktassistent. Den gir ikke regnskaps- eller juridisk rådgivning.
+          Revizo gir ikke regnskaps- eller juridisk rådgivning.
         </p>
       </div>
       <form onSubmit={handleSubmit} className="border-t px-3 py-2">
@@ -339,8 +347,8 @@ function AgentChatView() {
               )}
               onClick={toggleVoice}
               disabled={isLoading || isWorking}
-              title={isListening ? "Stopp stemmeinndata" : "Snakk til assistenten"}
-              aria-label={isListening ? "Stopp stemmeinndata" : "Snakk til assistenten"}
+              title={isListening ? "Stopp stemmeinndata" : "Snakk til Revizo"}
+              aria-label={isListening ? "Stopp stemmeinndata" : "Snakk til Revizo"}
             >
               <Mic className="h-4 w-4" />
             </Button>
@@ -381,7 +389,8 @@ export function SmartPanel({
   const [chatOpen, setChatOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
 
-  const { enabled: tutorialMode, setEnabled: setTutorialEnabled } = useTutorialMode();
+  const tutorial = useTutorialMode();
+  const tutorialMode = tutorial.mode !== "idle";
   const effectiveWidth = tutorialMode ? TUTORIAL_WIDTH : DEFAULT_WIDTH;
   const effectiveMaxHeight = tutorialMode ? TUTORIAL_MAX_HEIGHT : "min(85vh, 640px)";
 
@@ -437,7 +446,7 @@ export function SmartPanel({
   const isMainView = !chatOpen && !designOpen && !activeOptionId;
 
   const headerTitle = chatOpen
-    ? "Assistent"
+    ? "Revizo"
     : designOpen
       ? "Design"
       : activeOptionId
@@ -490,7 +499,7 @@ export function SmartPanel({
           {onModeChange && (
             <PanelSizeToggle
               expanded
-              onClick={() => onModeChange("big", pos)}
+              onClick={() => onModeChange("mini", pos)}
               className="h-6 w-6"
             />
           )}
@@ -577,7 +586,9 @@ export function SmartPanel({
               <SmartPanelDesignRow onClick={() => setDesignOpen(true)} />
               <SmartPanelTutorialRow
                 isActive={tutorialMode}
-                onClick={() => setTutorialEnabled(!tutorialMode)}
+                onClick={() => {
+                  // Tutorial: stays in current mode (big removed)
+                }}
               />
             </div>
           </>

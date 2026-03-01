@@ -1,24 +1,15 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { transactionAttachments, transactions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
 import { supabase, ATTACHMENTS_BUCKET } from "@/lib/supabase";
 
-type RouteParams = { params: Promise<{ clientId: string; transactionId: string }> };
-
-export async function GET(_request: Request, { params }: RouteParams) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, transactionId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const transactionId = params!.transactionId;
 
   const attachments = await db
     .select()
@@ -32,19 +23,12 @@ export async function GET(_request: Request, { params }: RouteParams) {
     .orderBy(transactionAttachments.createdAt);
 
   return NextResponse.json(attachments);
-}
+});
 
-export async function POST(request: Request, { params }: RouteParams) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { clientId, transactionId } = await params;
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+export const POST = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
+  const transactionId = params!.transactionId;
 
   if (!supabase) {
     return NextResponse.json({ error: "Storage ikke konfigurert" }, { status: 500 });
@@ -59,7 +43,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: "Transaksjon ikke funnet" }, { status: 404 });
   }
 
-  const formData = await request.formData();
+  const formData = await req.formData();
   const files = formData.getAll("files") as File[];
 
   if (files.length === 0) {
@@ -70,7 +54,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   for (const file of files) {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storagePath = `${orgId}/${clientId}/${transactionId}/${Date.now()}-${file.name}`;
+    const storagePath = `${tenantId}/${clientId}/${transactionId}/${Date.now()}-${file.name}`;
 
     const { error: uploadError } = await supabase.storage
       .from(ATTACHMENTS_BUCKET)
@@ -100,4 +84,4 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 
   return NextResponse.json({ ok: true, attachments: results });
-}
+});

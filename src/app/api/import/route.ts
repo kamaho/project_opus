@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { imports, transactions } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { validateClientTenant } from "@/lib/db/tenant";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { parseFile, parseExcel, decodeTextBuffer } from "@/lib/parsers";
 import type { CsvParserConfig, KlinkParserConfig, ExcelParserConfig } from "@/lib/parsers";
 import { supabase, UPLOAD_BUCKET } from "@/lib/supabase";
@@ -91,14 +91,9 @@ const bodySchema = z.object({
   selectedIndices: z.array(z.number()).optional(),
 });
 
-export async function POST(request: Request) {
-  const { userId, orgId } = await auth();
-  if (!userId || !orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const POST = withTenant(async (req, { tenantId, userId }) => {
   // ── Rate limiting ──
-  const rl = rateLimit(`import:${orgId}:${userId}`, RATE_LIMITS.import);
+  const rl = rateLimit(`import:${tenantId}:${userId}`, RATE_LIMITS.import);
   if (!rl.success) {
     return NextResponse.json(
       { error: "For mange forespørsler", details: "Vent litt før du prøver igjen." },
@@ -108,7 +103,7 @@ export async function POST(request: Request) {
 
   let formData: FormData;
   try {
-    formData = await request.formData();
+    formData = await req.formData();
   } catch {
     return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
   }
@@ -201,10 +196,7 @@ export async function POST(request: Request) {
   }
 
   // ── Tenant-scoped client validation ──
-  const clientRow = await validateClientTenant(cId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
+  const clientRow = await verifyClientOwnership(cId, tenantId);
 
   // ── File-level duplicate check (SHA-256) ──
   const fileBuffer = await file.arrayBuffer();
@@ -410,7 +402,7 @@ export async function POST(request: Request) {
 
   // ── Upload file to storage ──
   const filename = sanitizeFilename(file.name);
-  let storagePath = `${orgId}/${cId}/${setNum}/${Date.now()}-${filename}`;
+  let storagePath = `${tenantId}/${cId}/${setNum}/${Date.now()}-${filename}`;
   let storageError: string | null = null;
 
   if (supabase) {
@@ -506,7 +498,7 @@ export async function POST(request: Request) {
 
       // Audit log
       await logAuditTx(tx, {
-        tenantId: orgId,
+        tenantId,
         userId,
         action: "import.created",
         entityType: "import",
@@ -524,7 +516,7 @@ export async function POST(request: Request) {
     });
 
     notifyImportCompleted({
-      tenantId: orgId,
+      tenantId,
       userId,
       clientId: cId,
       clientName: clientRow.name,
@@ -561,12 +553,12 @@ export async function POST(request: Request) {
         "Sjekk at beløpskolonnen kun inneholder tall.";
     }
 
-    Sentry.captureException(err, { extra: { tenantId: orgId, clientId: cId } });
-    console.error("[import] Failed", { tenantId: orgId, clientId: cId, error: message });
+    Sentry.captureException(err, { extra: { tenantId, clientId: cId } });
+    console.error("[import] Failed", { tenantId, clientId: cId, error: message });
 
     return NextResponse.json(
       { error: "Import feilet", details },
       { status: 500 }
     );
   }
-}
+});

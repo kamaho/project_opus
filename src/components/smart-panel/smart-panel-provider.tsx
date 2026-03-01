@@ -6,17 +6,15 @@ import { cn } from "@/lib/utils";
 
 import { SmartPanelMiniContent, MINI_WIDTH, MINI_HEIGHT } from "./smart-panel-mini";
 import { SmartPanelMediumContent, MEDIUM_WIDTH, MEDIUM_HEIGHT } from "./smart-panel-medium";
-import { SmartPanelBigContent, BIG_WIDTH, BIG_HEIGHT } from "./smart-panel-big";
 
-export type PanelMode = "mini" | "medium" | "big";
+export type PanelMode = "mini" | "medium";
 
 const PANEL_MODE_KEY = "smart-panel-mode";
-const VALID_MODES: PanelMode[] = ["mini", "medium", "big"];
+const VALID_MODES: PanelMode[] = ["mini", "medium"];
 
 const PANEL_DIMS: Record<PanelMode, { width: number; height: number }> = {
   mini: { width: MINI_WIDTH, height: MINI_HEIGHT },
   medium: { width: MEDIUM_WIDTH, height: MEDIUM_HEIGHT },
-  big: { width: BIG_WIDTH, height: BIG_HEIGHT },
 };
 
 interface SmartPanelContextValue {
@@ -82,6 +80,7 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [panelMode, setPanelMode] = useState<PanelMode>("medium");
   const [dragging, setDragging] = useState(false);
+  const [pendingMediumView, setPendingMediumView] = useState<"chat" | "tutorials">("chat");
   const dragOffset = useRef({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -91,6 +90,9 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
       if (stored && VALID_MODES.includes(stored as PanelMode)) {
         setPanelMode(stored as PanelMode);
       } else if (stored === "normal" || stored === "big") {
+        setPanelMode("medium");
+        localStorage.setItem(PANEL_MODE_KEY, "medium");
+      } else if (stored && !VALID_MODES.includes(stored as PanelMode)) {
         setPanelMode("medium");
         localStorage.setItem(PANEL_MODE_KEY, "medium");
       }
@@ -150,6 +152,12 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
   }, [pos]);
 
   const handleExpandToMedium = useCallback(() => {
+    setPendingMediumView("chat");
+    handleModeChange("medium");
+  }, [handleModeChange]);
+
+  const handleExpandToTutorials = useCallback(() => {
+    setPendingMediumView("tutorials");
     handleModeChange("medium");
   }, [handleModeChange]);
 
@@ -192,6 +200,27 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", handler);
   }, [open, handleClose]);
 
+  const moveToMiniBottomLeft = useCallback(() => {
+    const miniDims = PANEL_DIMS["mini"];
+    setPanelMode("mini");
+    setPos({
+      x: 16,
+      y: typeof window !== "undefined" ? window.innerHeight - miniDims.height - 16 : 0,
+    });
+    try { localStorage.setItem(PANEL_MODE_KEY, "mini"); } catch { /* ignore */ }
+  }, []);
+
+  // --- Auto-minimize when AI starts a tutorial ---
+  useEffect(() => {
+    const handler = () => {
+      if (open) {
+        moveToMiniBottomLeft();
+      }
+    };
+    window.addEventListener("ai-start-tutorial", handler);
+    return () => window.removeEventListener("ai-start-tutorial", handler);
+  }, [open, moveToMiniBottomLeft]);
+
   const dims = PANEL_DIMS[panelMode];
 
   return (
@@ -225,6 +254,8 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
                 <SmartPanelMiniContent
                   onClose={handleClose}
                   onExpandToMedium={handleExpandToMedium}
+                  onExpandToTutorials={handleExpandToTutorials}
+                  onModeChange={handleModeChange}
                   dragHandleProps={dragHandleProps}
                 />
               )}
@@ -232,13 +263,8 @@ export function SmartPanelProvider({ children }: { children: ReactNode }) {
                 <SmartPanelMediumContent
                   onClose={handleClose}
                   onModeChange={handleModeChange}
-                  dragHandleProps={dragHandleProps}
-                />
-              )}
-              {panelMode === "big" && (
-                <SmartPanelBigContent
-                  onClose={handleClose}
-                  onModeChange={handleModeChange}
+                  onTutorialStart={moveToMiniBottomLeft}
+                  initialView={pendingMediumView}
                   dragHandleProps={dragHandleProps}
                 />
               )}

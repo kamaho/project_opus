@@ -30,7 +30,7 @@ const PRO_BENEFITS = [
 const ENTERPRISE_BENEFITS = [
   "Alt i Pro, pluss:",
   "Integrasjoner med Tripletex, Fiken, Visma m.fl.",
-  "AI-assistent med risikovurdering",
+  "Revizo AI med risikovurdering",
   "Dokumentarkiv med versjonskontroll",
   "Revisor- og klientportal",
   "SSO, API-tilgang og SLA",

@@ -1,4 +1,6 @@
 import { Resend } from "resend";
+import fs from "fs";
+import path from "path";
 
 const apiKey = process.env.RESEND_API_KEY;
 
@@ -11,10 +13,32 @@ export const resend = apiKey ? new Resend(apiKey) : null;
 const FROM_ADDRESS =
   process.env.RESEND_FROM_ADDRESS ?? "Revizo <noreply@accountcontrol.no>";
 
+let logoBase64: string | null = null;
+try {
+  const logoPath = path.resolve(process.cwd(), "public/logo-icon-no-bg.png");
+  logoBase64 = fs.readFileSync(logoPath).toString("base64");
+} catch {
+  /* logo not available — fallback to text */
+}
+
+export const LOGO_ATTACHMENT = logoBase64
+  ? [{ filename: "logo.png", content: Buffer.from(logoBase64, "base64"), content_id: "revizo_logo" }]
+  : [];
+
 function logSendResult(label: string, result: { data: unknown; error: unknown }) {
   if (result.error) {
     console.error(`[resend] ${label} failed:`, result.error);
   }
+}
+
+async function sendEmail(label: string, params: { from: string; to: string; subject: string; html: string; attachments?: { filename: string; content: Buffer; content_id?: string }[] }) {
+  if (!resend) return;
+  const existing = params.attachments ?? [];
+  const result = await resend.emails.send({
+    ...params,
+    attachments: [...existing, ...LOGO_ATTACHMENT],
+  });
+  logSendResult(label, result);
 }
 
 // ── Design tokens (matching design system, email-safe hex) ──────────────────
@@ -33,6 +57,11 @@ const T = {
 } as const;
 
 function emailLayout(content: string): string {
+  const logoSrc = logoBase64 ? "cid:revizo_logo" : "";
+  const logoImg = logoSrc
+    ? `<img src="${logoSrc}" alt="R" width="28" height="28" style="display:inline-block;vertical-align:middle;border:0;" />`
+    : "";
+
   return `<!DOCTYPE html>
 <html lang="no">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -43,8 +72,8 @@ function emailLayout(content: string): string {
 
         <!-- Header -->
         <tr><td style="padding-bottom:24px;">
-          <span style="font-size:15px;font-weight:600;color:${T.fg};letter-spacing:-0.3px;">Revizo</span>
-          <span style="display:inline-block;width:5px;height:5px;background:${T.brand};border-radius:50%;margin-left:2px;vertical-align:super;"></span>
+          ${logoImg}
+          <span style="font-size:15px;font-weight:600;color:${T.fg};letter-spacing:-0.3px;${logoImg ? "margin-left:8px;" : ""}vertical-align:middle;">Revizo</span>
         </td></tr>
 
         <!-- Card -->
@@ -116,7 +145,7 @@ export async function sendNoteMentionEmail(params: {
 
   const { toEmail, fromUserName, noteText, transactionDescription, link } = params;
 
-  const result = await resend.emails.send({
+  await sendEmail("note-mention", {
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `${fromUserName} nevnte deg i et notat`,
@@ -132,7 +161,6 @@ export async function sendNoteMentionEmail(params: {
       ${cta("Se transaksjonen", link)}
     `),
   });
-  logSendResult("note-mention", result);
 }
 
 export async function sendSmartMatchEmail(params: {
@@ -198,7 +226,7 @@ export async function sendSmartMatchEmail(params: {
       </tr>
     </table>`;
 
-  const result = await resend.emails.send({
+  await sendEmail("smart-match", {
     from: FROM_ADDRESS,
     to: toEmail,
     subject: allDone
@@ -224,7 +252,6 @@ export async function sendSmartMatchEmail(params: {
       ${cta(allDone ? "Se resultatet" : "Se åpne poster", link)}
     `),
   });
-  logSendResult("smart-match", result);
 }
 
 export async function sendImportCompletedEmail(params: {
@@ -241,7 +268,7 @@ export async function sendImportCompletedEmail(params: {
   const { toEmail, userName, clientName, filename, recordCount, setNumber, link } = params;
   const setLabel = setNumber === 1 ? "Mengde 1" : "Mengde 2";
 
-  const result = await resend.emails.send({
+  await sendEmail("import-completed", {
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `Import fullført — ${recordCount} poster importert for ${clientName}`,
@@ -259,7 +286,6 @@ export async function sendImportCompletedEmail(params: {
       ${cta("Gå til avstemming", link)}
     `),
   });
-  logSendResult("import-completed", result);
 }
 
 export async function sendAgentReportEmail(params: {
@@ -298,7 +324,11 @@ export async function sendAgentReportEmail(params: {
 
   const diff = totalSet1 - totalSet2;
 
-  const result = await resend.emails.send({
+  const pdfAttachments = pdfBuffer
+    ? [{ filename: `revizo-rapport-${clientName.replace(/\s+/g, "-").toLowerCase()}-${reportDate}.pdf`, content: pdfBuffer }]
+    : [];
+
+  await sendEmail("agent-report", {
     from: FROM_ADDRESS,
     to: toEmail,
     subject: `Revizo Rapport — ${clientName} — ${reportDate}`,
@@ -337,16 +367,111 @@ export async function sendAgentReportEmail(params: {
       ${pdfBuffer ? mutedText("Fullstendig rapport er vedlagt som PDF.") : ""}
       ${cta("Åpne i Revizo", link)}
     `),
-    ...(pdfBuffer
-      ? {
-          attachments: [
-            {
-              filename: `revizo-rapport-${clientName.replace(/\s+/g, "-").toLowerCase()}-${reportDate}.pdf`,
-              content: pdfBuffer,
-            },
-          ],
-        }
-      : {}),
+    attachments: pdfAttachments,
   });
-  logSendResult("agent-report", result);
+}
+
+// ── Task follow-up email to external contact ────────────────────────────────
+
+interface TaskExternalEmailParams {
+  to: string;
+  contactName: string;
+  taskTitle: string;
+  taskDescription?: string;
+  category: string | null;
+  clientName: string | null;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  missing_documentation: "Mangler dokumentasjon",
+  needs_correction: "Må korrigeres",
+  needs_approval: "Trenger godkjenning",
+  follow_up_external: "Purring til ekstern",
+  flag_for_later: "Flagg til senere",
+  other: "Annet",
+};
+
+// ── Document request email (magic link to upload) ───────────────────────────
+
+interface DocumentRequestEmailParams {
+  to: string;
+  contactName: string;
+  requestMessage?: string | null;
+  senderName: string;
+  orgName?: string;
+  uploadUrl: string;
+  expiresAt: Date;
+}
+
+export async function sendDocumentRequestEmail(params: DocumentRequestEmailParams) {
+  if (!resend) return;
+
+  const {
+    to,
+    contactName,
+    requestMessage,
+    senderName,
+    orgName,
+    uploadUrl,
+    expiresAt,
+  } = params;
+
+  const expiryStr = expiresAt.toLocaleDateString("nb-NO", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const fromLabel = orgName ? `${senderName} (${orgName})` : senderName;
+
+  await sendEmail("document-request", {
+    from: FROM_ADDRESS,
+    to,
+    subject: `Forespørsel om dokumentasjon fra ${fromLabel}`,
+    html: emailLayout(`
+      ${heading("Forespørsel om dokumentasjon")}
+      ${paragraph(`Hei ${contactName},`)}
+      ${paragraph(`<strong>${fromLabel}</strong> ber om at du laster opp dokumentasjon.`)}
+      ${requestMessage ? `
+        <div style="background:${T.subtle};border-radius:6px;padding:16px;margin-bottom:16px;border-left:3px solid ${T.brand};">
+          <div style="font-size:14px;color:${T.fg};line-height:1.6;">${requestMessage}</div>
+        </div>
+      ` : ""}
+      ${paragraph("Klikk på knappen under for å laste opp filer. Du trenger ikke å logge inn.")}
+      <div style="text-align:center;margin:24px 0;">
+        ${cta("Last opp dokumentasjon", uploadUrl)}
+      </div>
+      ${mutedText(`Denne lenken utløper ${expiryStr}.`)}
+      ${divider()}
+      ${mutedText("Dersom du ikke forventet denne forespørselen, kan du trygt ignorere denne e-posten.")}
+    `),
+  });
+}
+
+export async function sendTaskExternalEmail(params: TaskExternalEmailParams) {
+  if (!resend) return;
+
+  const categoryLabel = params.category ? (CATEGORY_LABELS[params.category] ?? params.category) : null;
+
+  const details = [
+    categoryLabel ? `<strong>Type:</strong> ${categoryLabel}` : null,
+    params.clientName ? `<strong>Klient:</strong> ${params.clientName}` : null,
+  ].filter(Boolean);
+
+  await sendEmail("task-external", {
+    from: FROM_ADDRESS,
+    to: params.to,
+    subject: `Oppfølging: ${params.taskTitle}`,
+    html: emailLayout(`
+      ${heading("Oppfølging påkrevd")}
+      ${paragraph(`Hei ${params.contactName},`)}
+      ${paragraph(`Du har mottatt en forespørsel om oppfølging:`)}
+      <div style="background:${T.subtle};border-radius:6px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:15px;font-weight:600;color:${T.fg};margin-bottom:8px;">${params.taskTitle}</div>
+        ${params.taskDescription ? `<div style="font-size:13px;color:${T.muted};margin-bottom:8px;">${params.taskDescription}</div>` : ""}
+        ${details.length > 0 ? `<div style="font-size:13px;color:${T.fg};line-height:1.8;">${details.join("<br>")}</div>` : ""}
+      </div>
+      ${mutedText("Vennligst ta kontakt med din regnskapsfører dersom du har spørsmål.")}
+    `),
+  });
 }

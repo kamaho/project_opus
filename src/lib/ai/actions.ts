@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getClientSummary, getUnmatchedSummary, getOrgContacts } from "./context";
 import { db } from "@/lib/db";
-import { regulatoryDeadlines } from "@/lib/db/schema";
-import { sql } from "drizzle-orm";
+import { regulatoryDeadlines, tutorials } from "@/lib/db/schema";
+import { sql, eq } from "drizzle-orm";
 import { validateClientTenant } from "@/lib/db/tenant";
 import { runAutoMatch } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
@@ -121,6 +121,26 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         },
       },
       required: ["client_id"],
+    },
+  },
+  {
+    name: "list_tutorials",
+    description:
+      "Finn tilgjengelige tutorials/veiledninger for en spesifikk side eller generelt. " +
+      "Bruk denne når brukeren spør om hjelp med en prosess, hvordan noe fungerer, " +
+      "eller ber om en guidet gjennomgang. Returnerer en liste over tutorials " +
+      "som kan startes. Bruk deretter start_tutorial for å starte en.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pathname: {
+          type: "string",
+          description:
+            "URL-sti å filtrere tutorials for (f.eks. /dashboard/clients). " +
+            "Hvis ikke oppgitt, returnerer alle tutorials.",
+        },
+      },
+      required: [],
     },
   },
   {
@@ -334,6 +354,38 @@ export async function executeAction(
         console.error("[ai send-report] Failed:", err);
         return { error: "Klarte ikke å generere eller sende rapporten. Prøv igjen." };
       }
+    }
+
+    case "list_tutorials": {
+      const pathname = (input.pathname as string) ?? "";
+
+      const allTutorials = await db
+        .select({
+          id: tutorials.id,
+          name: tutorials.name,
+          description: tutorials.description,
+          pathnamePattern: tutorials.pathnamePattern,
+          stepCount: sql<number>`(SELECT count(*) FROM tutorial_steps WHERE tutorial_id = ${tutorials.id})::int`,
+        })
+        .from(tutorials)
+        .where(eq(tutorials.isPublished, true));
+
+      let filtered = allTutorials;
+      if (pathname) {
+        const { matchPathname } = await import("@/lib/tutorial/pathname-matcher");
+        filtered = allTutorials.filter((t) => matchPathname(t.pathnamePattern, pathname));
+      }
+
+      return {
+        antall: filtered.length,
+        tutorials: filtered.map((t) => ({
+          id: t.id,
+          navn: t.name,
+          beskrivelse: t.description,
+          side: t.pathnamePattern,
+          antall_steg: t.stepCount,
+        })),
+      };
     }
 
     case "lookup_contact": {

@@ -47,6 +47,8 @@ import { useVoiceInput } from "@/hooks/use-voice-input";
 import { RevizoIcon, AiAvatar } from "@/components/ui/revizo-icon";
 import { useTutorialMode } from "@/contexts/tutorial-mode-context";
 import { dispatchSmartPanelAction } from "./smart-panel-mini";
+import { TutorialStartButton } from "./tutorial-start-button";
+import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -55,6 +57,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import { useUser } from "@clerk/nextjs";
+import { isSystemAdmin } from "@/lib/auth/is-system-admin";
+
+const TutorialListLazy = dynamic(
+  () => import("@/components/tutorial/tutorial-list").then((m) => m.TutorialList),
+  { ssr: false }
+);
 
 export const BIG_WIDTH = 960;
 export const BIG_HEIGHT = 700;
@@ -149,7 +159,7 @@ interface SmartPanelBigContentProps {
   dragHandleProps: DragHandleProps;
 }
 
-type SectionId = "overview" | "documents" | "analytics" | null;
+type SectionId = "overview" | "documents" | "analytics" | "tutorials" | null;
 
 interface SectionCard {
   id: SectionId & string;
@@ -399,7 +409,9 @@ export function SmartPanelBigContent({
   dragHandleProps,
 }: SmartPanelBigContentProps) {
   const pathname = usePathname();
-  const { enabled: tutorialMode, setEnabled: setTutorialEnabled } = useTutorialMode();
+  const tutorial = useTutorialMode();
+  const { user } = useUser();
+  const _isAdmin = isSystemAdmin(user?.emailAddresses?.[0]?.emailAddress);
   const actions = getActionsForPath(pathname ?? "");
   const [activeSection, setActiveSection] = useState<SectionId>(null);
   const suggestedQuestions = getSuggestedQuestionsForPath(pathname ?? "");
@@ -514,7 +526,7 @@ export function SmartPanelBigContent({
             {messages.length === 0 && !isLoading && (
               <div className="flex flex-col items-center justify-center py-6 text-center">
                 <AiAvatar size={52} className="mb-4" />
-                <p className="text-sm font-medium">Hei! Jeg er din assistent.</p>
+                <p className="text-sm font-medium">Hei! Jeg er Revizo.</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-[360px]">
                   Still spørsmål om transaksjoner, poster, avstemming eller frister — eller utforsk seksjonene over.
                 </p>
@@ -560,6 +572,13 @@ export function SmartPanelBigContent({
                       ) : (
                         msg.content
                       )}
+                      {msg.suggestedTutorials && msg.suggestedTutorials.length > 0 && (
+                        <div className="mt-2 flex flex-col gap-1.5">
+                          {msg.suggestedTutorials.map((t) => (
+                            <TutorialStartButton key={t.id} tutorial={t} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -597,6 +616,13 @@ export function SmartPanelBigContent({
             {activeSection === "overview" && <OverviewSection />}
             {activeSection === "documents" && <DocumentsSection />}
             {activeSection === "analytics" && <AnalyticsSection />}
+            {activeSection === "tutorials" && (
+              <TutorialListLazy
+                isAdmin={_isAdmin}
+                onStartPlayback={() => onModeChange("mini")}
+                onBack={() => setActiveSection(null)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -623,7 +649,7 @@ export function SmartPanelBigContent({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={isListening ? "Lytter…" : "Spør assistenten om hva som helst…"}
+              placeholder={isListening ? "Lytter…" : "Spør Revizo om hva som helst…"}
               className={cn(
                 "flex-1 h-9 rounded-lg border bg-muted/30 pl-3 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40 transition-all",
                 isListening && "border-primary/60 ring-2 ring-primary/20"
@@ -642,8 +668,8 @@ export function SmartPanelBigContent({
                 )}
                 onClick={toggleVoice}
                 disabled={isLoading || isWorking}
-                title={isListening ? "Stopp stemmeinndata" : "Snakk til assistenten"}
-                aria-label={isListening ? "Stopp stemmeinndata" : "Snakk til assistenten"}
+                title={isListening ? "Stopp stemmeinndata" : "Snakk til Revizo"}
+                aria-label={isListening ? "Stopp stemmeinndata" : "Snakk til Revizo"}
               >
                 <Mic className="h-4 w-4" />
               </Button>
@@ -683,6 +709,39 @@ export function SmartPanelBigContent({
 
             <div className="h-5 w-px bg-border shrink-0 mx-0.5" />
 
+            {_isAdmin && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className={cn(
+                      "h-7 w-7 shrink-0",
+                      tutorial.mode === "recording" ? "text-red-500" : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => {
+                      if (tutorial.mode === "recording") {
+                        tutorial.stopRecording();
+                      } else {
+                        tutorial.startRecording();
+                        onModeChange("mini");
+                      }
+                    }}
+                  >
+                    <span className="relative">
+                      <GraduationCap className="h-3.5 w-3.5" />
+                      {tutorial.mode === "recording" && (
+                        <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-red-500" />
+                      )}
+                    </span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">
+                  {tutorial.mode === "recording" ? "Stopp opptak" : "Opprett tutorial"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -690,15 +749,15 @@ export function SmartPanelBigContent({
                   variant="ghost"
                   className={cn(
                     "h-7 w-7 shrink-0",
-                    tutorialMode ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                    activeSection === "tutorials" ? "text-primary" : "text-muted-foreground hover:text-foreground"
                   )}
-                  onClick={() => setTutorialEnabled(!tutorialMode)}
+                  onClick={() => setActiveSection(activeSection === "tutorials" ? null : "tutorials")}
                 >
                   <GraduationCap className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">
-                {tutorialMode ? "Tutorial aktiv" : "Tutorial"}
+                Se tutorials
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -706,7 +765,7 @@ export function SmartPanelBigContent({
           <div className="flex-1" />
 
           <span className="text-[10px] text-muted-foreground/40 mr-1">
-            Reviz gir ikke regnskapsrådgivning
+            Revizo gir ikke regnskapsrådgivning
           </span>
         </div>
       </div>

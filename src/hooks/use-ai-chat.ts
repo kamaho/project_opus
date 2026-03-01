@@ -3,9 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 
-interface ChatMessage {
+export interface SuggestedTutorial {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  suggestedTutorials?: SuggestedTutorial[];
 }
 
 const WORKING_PHRASES = [
@@ -182,6 +189,7 @@ export function useAiChat(): UseAiChatReturn {
         const assistantMessage: ChatMessage = {
           role: "assistant",
           content: assistantContent,
+          ...(data.suggestedTutorials?.length ? { suggestedTutorials: data.suggestedTutorials } : {}),
         };
         setMessages((prev) => [...prev, assistantMessage]);
 

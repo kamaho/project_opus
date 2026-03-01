@@ -150,8 +150,8 @@ export function ContactsTab({ isEn }: { isEn: boolean }) {
           </h2>
           <p className="text-sm text-muted-foreground">
             {isEn
-              ? "External contacts such as auditors, clients, and collaborators. The AI assistant can use these to send reports directly."
-              : "Eksterne kontaktpersoner som revisorer, kunder og samarbeidspartnere. AI-assistenten kan bruke disse til å sende rapporter direkte."}
+              ? "External contacts such as auditors, clients, and collaborators. Revizo can use these to send reports directly."
+              : "Eksterne kontaktpersoner som revisorer, kunder og samarbeidspartnere. Revizo kan bruke disse til å sende rapporter direkte."}
           </p>
         </div>
 
@@ -281,8 +281,8 @@ export function ContactsTab({ isEn }: { isEn: boolean }) {
           </p>
           <p className="mt-1 text-xs text-muted-foreground max-w-[320px]">
             {isEn
-              ? "Add your auditor, clients, or other contacts. The AI assistant will be able to look them up when sending reports."
-              : "Legg til revisor, kunder eller andre kontakter. AI-assistenten kan slå dem opp når den sender rapporter."}
+              ? "Add your auditor, clients, or other contacts. Revizo will be able to look them up when sending reports."
+              : "Legg til revisor, kunder eller andre kontakter. Revizo kan slå dem opp når den sender rapporter."}
           </p>
         </div>
       ) : (

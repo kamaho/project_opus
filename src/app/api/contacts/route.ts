@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { contacts } from "@/lib/db/schema";
@@ -14,27 +14,17 @@ const createContactSchema = z.object({
   notes: z.string().max(1000).optional(),
 });
 
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withTenant(async (_req, { tenantId }) => {
   const rows = await db
     .select()
     .from(contacts)
-    .where(eq(contacts.tenantId, orgId));
+    .where(eq(contacts.tenantId, tenantId));
 
   return NextResponse.json(rows);
-}
+});
 
-export async function POST(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const POST = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const parsed = createContactSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
@@ -46,7 +36,7 @@ export async function POST(request: Request) {
   const [created] = await db
     .insert(contacts)
     .values({
-      tenantId: orgId,
+      tenantId,
       name: parsed.data.name.trim(),
       email: parsed.data.email.trim().toLowerCase(),
       role: parsed.data.role?.trim() || null,
@@ -57,15 +47,10 @@ export async function POST(request: Request) {
     .returning();
 
   return NextResponse.json(created, { status: 201 });
-}
+});
 
-export async function PATCH(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const PATCH = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const { id, ...fields } = body as { id?: string } & Record<string, unknown>;
   if (!id) {
     return NextResponse.json({ error: "Mangler id" }, { status: 400 });
@@ -94,7 +79,7 @@ export async function PATCH(request: Request) {
   const [updated] = await db
     .update(contacts)
     .set(updates)
-    .where(and(eq(contacts.id, id), eq(contacts.tenantId, orgId)))
+    .where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId)))
     .returning();
 
   if (!updated) {
@@ -102,15 +87,10 @@ export async function PATCH(request: Request) {
   }
 
   return NextResponse.json(updated);
-}
+});
 
-export async function DELETE(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const url = new URL(request.url);
+export const DELETE = withTenant(async (req, { tenantId }) => {
+  const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Mangler id" }, { status: 400 });
@@ -118,7 +98,7 @@ export async function DELETE(request: Request) {
 
   const deleted = await db
     .delete(contacts)
-    .where(and(eq(contacts.id, id), eq(contacts.tenantId, orgId)))
+    .where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId)))
     .returning();
 
   if (deleted.length === 0) {
@@ -129,4 +109,4 @@ export async function DELETE(request: Request) {
   }
 
   return NextResponse.json({ success: true });
-}
+});

@@ -4,6 +4,8 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/health",
+  "/d/(.*)",
+  "/api/document-requests/public/(.*)",
 ]);
 
 // Session timeout (max 8h for financial data) is configured in the

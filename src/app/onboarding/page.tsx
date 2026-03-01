@@ -511,7 +511,7 @@ const SERVICES: ServiceItem[] = [
   {
     id: "revizo-ai-agent",
     name: "Revizo AI Agent",
-    description: "AI-assistent som svarer på spørsmål, analyserer data og gir anbefalinger basert på dine avstemminger.",
+    description: "Din AI-baserte revisor som svarer på spørsmål, analyserer data og gir anbefalinger basert på dine avstemminger.",
     price: 299,
     icon: Bot,
     category: "ai",

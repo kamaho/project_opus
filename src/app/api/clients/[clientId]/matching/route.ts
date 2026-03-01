@@ -1,10 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { imports, transactions, matches } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
-import { validateClientTenant } from "@/lib/db/tenant";
 
 /**
  * Dissolve all match groups that include transactions belonging to the given import IDs.
@@ -44,25 +44,14 @@ async function dissolveMatchesForImports(importIds: string[]): Promise<number> {
  * When soft-deleting, any match groups that include transactions from the
  * deleted import are dissolved (all transactions in those groups return to unmatched).
  */
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const DELETE = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const url = new URL(_request.url);
+  const url = new URL(req.url);
   const importId = url.searchParams.get("importId");
   const permanent = url.searchParams.get("permanent") === "true";
   const setNumberParam = url.searchParams.get("setNumber");
-
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
-  }
 
   if (importId) {
     if (permanent) {
@@ -93,7 +82,7 @@ export async function DELETE(
         .where(and(eq(imports.id, importId), eq(imports.clientId, clientId)));
 
       await logAudit({
-        tenantId: orgId,
+        tenantId,
         userId,
         action: "import.permanently_deleted",
         entityType: "import",
@@ -123,7 +112,7 @@ export async function DELETE(
     const dissolved = await dissolveMatchesForImports([importId]);
 
     await logAudit({
-      tenantId: orgId,
+      tenantId,
       userId,
       action: "import.deleted",
       entityType: "import",
@@ -170,7 +159,7 @@ export async function DELETE(
   const dissolved = await dissolveMatchesForImports(importIds);
 
   await logAudit({
-    tenantId: orgId,
+    tenantId,
     userId,
     action: "import.deleted",
     entityType: "import",
@@ -179,32 +168,21 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true });
-}
+});
 
 /**
  * PATCH: Restore a soft-deleted import (set deleted_at = null).
  * Body: { importId: string }
  */
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ clientId: string }> }
-) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
+  await verifyClientOwnership(params!.clientId, tenantId);
+  const clientId = params!.clientId;
 
-  const { clientId } = await params;
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const importId = body.importId as string | undefined;
 
   if (!importId) {
     return NextResponse.json({ error: "Mangler importId" }, { status: 400 });
-  }
-
-  const clientRow = await validateClientTenant(clientId, orgId);
-  if (!clientRow) {
-    return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
   }
 
   const result = await db
@@ -227,7 +205,7 @@ export async function PATCH(
   }
 
   await logAudit({
-    tenantId: orgId,
+    tenantId,
     userId,
     action: "import.restored",
     entityType: "import",
@@ -235,4 +213,4 @@ export async function PATCH(
   });
 
   return NextResponse.json({ ok: true, restoredId: result[0].id });
-}
+});

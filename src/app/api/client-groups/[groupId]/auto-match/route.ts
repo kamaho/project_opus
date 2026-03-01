@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
@@ -7,7 +7,7 @@ import {
   clients,
   companies,
 } from "@/lib/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { previewAutoMatch, runAutoMatch } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 
@@ -26,21 +26,13 @@ export interface GroupAutoMatchResult {
   durationMs: number;
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ groupId: string }> }
-) {
-  const { orgId, userId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { groupId } = await params;
+export const POST = withTenant(async (req, { tenantId, userId }, params) => {
+  const groupId = params!.groupId;
 
   const [group] = await db
     .select({ id: clientGroups.id, name: clientGroups.name })
     .from(clientGroups)
-    .where(and(eq(clientGroups.id, groupId), eq(clientGroups.tenantId, orgId)));
+    .where(and(eq(clientGroups.id, groupId), eq(clientGroups.tenantId, tenantId)));
 
   if (!group) {
     return NextResponse.json({ error: "Gruppe ikke funnet" }, { status: 404 });
@@ -57,7 +49,7 @@ export async function POST(
     .where(
       and(
         eq(clientGroupMembers.groupId, groupId),
-        eq(companies.tenantId, orgId)
+        eq(companies.tenantId, tenantId)
       )
     );
 
@@ -68,7 +60,7 @@ export async function POST(
     );
   }
 
-  const body = await request.json().catch(() => ({}));
+  const body = await req.json().catch(() => ({}));
   const mode = (body as { mode?: string }).mode ?? "preview";
   const startMs = Date.now();
 
@@ -93,7 +85,7 @@ export async function POST(
 
       if (totalMatches > 0) {
         await logAudit({
-          tenantId: orgId,
+          tenantId,
           userId,
           action: "match.created",
           entityType: "match",
@@ -118,7 +110,6 @@ export async function POST(
       return NextResponse.json(response);
     }
 
-    // Preview mode: run all in parallel
     const previews = await Promise.all(
       memberRows.map(async (member) => {
         const stats = await previewAutoMatch(member.clientId);
@@ -147,4 +138,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

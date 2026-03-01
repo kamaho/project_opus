@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexConnections } from "@/lib/db/schema";
@@ -11,13 +11,8 @@ export const dynamic = "force-dynamic";
  * POST /api/tripletex/connect
  * Verifies Tripletex credentials and saves them for the tenant.
  */
-export async function POST(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const POST = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const { consumerToken, employeeToken } = body as {
     consumerToken?: string;
     employeeToken?: string;
@@ -76,7 +71,7 @@ export async function POST(request: Request) {
     const [connection] = await db
       .insert(tripletexConnections)
       .values({
-        tenantId: orgId,
+        tenantId,
         consumerToken: paddedConsumer,
         employeeToken: paddedEmployee,
         baseUrl,
@@ -112,7 +107,7 @@ export async function POST(request: Request) {
     const friendly = parseTripletexError(raw);
     return NextResponse.json({ error: friendly }, { status: 400 });
   }
-}
+});
 
 function parseTripletexError(raw: string): string {
   try {
@@ -154,12 +149,7 @@ function parseTripletexError(raw: string): string {
  * GET /api/tripletex/connect
  * Returns the current tenant's Tripletex connection status.
  */
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withTenant(async (_req, { tenantId }) => {
   const [connection] = await db
     .select({
       id: tripletexConnections.id,
@@ -168,8 +158,8 @@ export async function GET() {
       verifiedAt: tripletexConnections.verifiedAt,
     })
     .from(tripletexConnections)
-    .where(eq(tripletexConnections.tenantId, orgId))
+    .where(eq(tripletexConnections.tenantId, tenantId))
     .limit(1);
 
   return NextResponse.json({ connection: connection ?? null });
-}
+});

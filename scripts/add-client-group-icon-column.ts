@@ -9,14 +9,14 @@ import postgres from "postgres";
 
 config({ path: path.resolve(process.cwd(), ".env.local") });
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL;
 if (!url) {
-  console.error("DATABASE_URL is not set. Set it in .env.local.");
+  console.error("DATABASE_MIGRATION_URL / DATABASE_URL is not set. Set it in .env.local.");
   process.exit(1);
 }
 
 async function run() {
-  const sql = postgres(url, { max: 1 });
+  const sql = postgres(url!, { max: 1 });
   try {
     await sql.unsafe(
       "ALTER TABLE client_groups ADD COLUMN IF NOT EXISTS icon text;"

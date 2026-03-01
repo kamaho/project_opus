@@ -1,47 +1,35 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clientGroups, clientGroupMembers, clients, companies } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
-export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ groupId: string }> }
-) {
-  const { orgId } = await auth();
-  if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { groupId } = await params;
+export const DELETE = withTenant(async (_req, { tenantId }, params) => {
+  const groupId = params!.groupId;
 
   const [group] = await db
     .select({ id: clientGroups.id })
     .from(clientGroups)
-    .where(and(eq(clientGroups.id, groupId), eq(clientGroups.tenantId, orgId)));
+    .where(and(eq(clientGroups.id, groupId), eq(clientGroups.tenantId, tenantId)));
 
   if (!group) return NextResponse.json({ error: "Gruppe ikke funnet" }, { status: 404 });
 
   await db.delete(clientGroups).where(eq(clientGroups.id, groupId));
 
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: Promise<{ groupId: string }> }
-) {
-  const { orgId } = await auth();
-  if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { groupId } = await params;
+export const PATCH = withTenant(async (req, { tenantId }, params) => {
+  const groupId = params!.groupId;
 
   const [group] = await db
     .select({ id: clientGroups.id })
     .from(clientGroups)
-    .where(and(eq(clientGroups.id, groupId), eq(clientGroups.tenantId, orgId)));
+    .where(and(eq(clientGroups.id, groupId), eq(clientGroups.tenantId, tenantId)));
 
   if (!group) return NextResponse.json({ error: "Gruppe ikke funnet" }, { status: 404 });
 
-  const body = await request.json().catch(() => null);
+  const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
 
   const { name, description, color, icon, clientIds, assignedUserId } = body as {
@@ -69,7 +57,7 @@ export async function PATCH(
       .select({ id: clients.id })
       .from(clients)
       .innerJoin(companies, eq(clients.companyId, companies.id))
-      .where(and(eq(companies.tenantId, orgId), inArray(clients.id, clientIds)));
+      .where(and(eq(companies.tenantId, tenantId), inArray(clients.id, clientIds)));
 
     if (validClients.length !== clientIds.length) {
       return NextResponse.json({ error: "En eller flere klienter ble ikke funnet" }, { status: 404 });
@@ -82,4 +70,4 @@ export async function PATCH(
   }
 
   return NextResponse.json({ ok: true });
-}
+});

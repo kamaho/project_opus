@@ -1,14 +1,11 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, companies, accounts, transactions } from "@/lib/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 
-export async function GET(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { searchParams } = new URL(request.url);
+export const GET = withTenant(async (req, { tenantId }) => {
+  const { searchParams } = new URL(req.url);
   const idsParam = searchParams.get("ids");
   if (!idsParam) {
     return NextResponse.json({ error: "ids parameter er påkrevd" }, { status: 400 });
@@ -36,7 +33,7 @@ export async function GET(request: Request) {
     .innerJoin(companies, eq(clients.companyId, companies.id))
     .innerJoin(sql`accounts s1`, sql`s1.id = ${clients.set1AccountId}`)
     .innerJoin(sql`accounts s2`, sql`s2.id = ${clients.set2AccountId}`)
-    .where(and(eq(companies.tenantId, orgId), inArray(clients.id, ids)));
+    .where(and(eq(companies.tenantId, tenantId), inArray(clients.id, ids)));
 
   if (clientRows.length < 2) {
     return NextResponse.json({ error: "Fant ikke nok klienter" }, { status: 404 });
@@ -139,4 +136,4 @@ export async function GET(request: Request) {
       totalUnmatchedCount,
     },
   });
-}
+});

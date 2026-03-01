@@ -1,4 +1,5 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
+import { clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { generateExport } from "@/lib/export/service";
@@ -87,13 +88,8 @@ const exportRequestSchema = z
     { message: "Mangler data for valgt modul" }
   );
 
-export async function POST(request: Request) {
-  const { userId, orgId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json().catch(() => null);
+export const POST = withTenant(async (req, { tenantId, userId }) => {
+  const body = await req.json().catch(() => null);
   if (!body) {
     return NextResponse.json(
       { error: "Ugyldig JSON i forespørsel" },
@@ -120,7 +116,7 @@ export async function POST(request: Request) {
     }
     const result = await generateExport(
       parsed.data as unknown as import("@/lib/export/types").ExportRequest,
-      { tenantId: orgId, userId, userEmail }
+      { tenantId, userId, userEmail }
     );
 
     return new NextResponse(new Uint8Array(result.buffer), {
@@ -137,4 +133,4 @@ export async function POST(request: Request) {
     console.error("[export] Error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});

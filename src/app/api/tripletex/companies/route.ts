@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { tripletexGet } from "@/lib/tripletex";
 import type { TxCompany } from "@/lib/tripletex/types";
@@ -19,12 +19,7 @@ interface WhoAmIResponse {
  * Lists companies accessible via the current Tripletex token.
  * Uses per-tenant credentials from DB, falling back to env vars.
  */
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withTenant(async (_req, { tenantId }) => {
   try {
     const companies: Array<{
       id: number;
@@ -36,14 +31,14 @@ export async function GET() {
     const whoami = await tripletexGet<WhoAmIResponse>(
       "/token/session/>whoAmI",
       undefined,
-      orgId
+      tenantId
     );
     const ownCompanyId = whoami.value.companyId;
 
     const ownCompany = await tripletexGet<{ value: TxCompany }>(
       `/company/${ownCompanyId}`,
       { fields: "id,name,displayName,organizationNumber,type" },
-      orgId
+      tenantId
     );
 
     companies.push({
@@ -57,7 +52,7 @@ export async function GET() {
       const clientCompanies = await tripletexGet<CompanyListResponse>(
         "/company/>withLoginAccess",
         { fields: "id,name,displayName,organizationNumber,type", count: 1000 },
-        orgId
+        tenantId
       );
 
       for (const c of clientCompanies.values) {
@@ -79,4 +74,4 @@ export async function GET() {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 502 });
   }
-}
+});

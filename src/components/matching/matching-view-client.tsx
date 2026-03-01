@@ -29,6 +29,7 @@ import { useTableAppearance, useFormatting } from "@/contexts/ui-preferences-con
 import { SmartPanel } from "@/components/smart-panel/smart-panel";
 import { SMART_PANEL_ACTION_EVENT } from "@/components/smart-panel/smart-panel-mini";
 
+import { FollowUpTaskDialog } from "@/components/tasks/follow-up-task-dialog";
 import { NotePopover } from "@/components/matching/note-popover";
 import { NoteDialog } from "@/components/matching/note-dialog";
 import { AttachmentPopover } from "@/components/matching/attachment-popover";
@@ -1104,37 +1105,76 @@ export function MatchingViewClient({
     amount: number;
     date: string;
   } | null>(null);
-  const [taskSaving, setTaskSaving] = useState(false);
 
-  const handleCreateTaskFromTx = useCallback(async () => {
-    if (!taskFromTx) return;
-    setTaskSaving(true);
+  const handleCreateTaskFromTx = useCallback(async (payload: {
+    title: string;
+    category: string | null;
+    assigneeId: string | null;
+    externalContactId: string | null;
+    notifyExternal: boolean;
+    requestDocument?: boolean;
+    documentMessage?: string;
+  }) => {
+    if (!taskFromTx) return false;
     try {
+      const taskBody: Record<string, unknown> = {
+        title: payload.title,
+        type: "unmatched_items",
+        priority: "medium",
+        category: payload.category,
+        assigneeId: payload.assigneeId,
+        externalContactId: payload.externalContactId,
+        notifyExternal: payload.requestDocument ? false : payload.notifyExternal,
+        clientId,
+        metadata: {
+          transactionId: taskFromTx.txId,
+          amount: taskFromTx.amount,
+          date: taskFromTx.date,
+        },
+      };
+
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: taskFromTx.title,
-          type: "unmatched_items",
-          priority: "medium",
-          clientId,
-          metadata: {
-            transactionId: taskFromTx.txId,
-            amount: taskFromTx.amount,
-            date: taskFromTx.date,
-          },
-        }),
+        body: JSON.stringify(taskBody),
       });
-      if (res.ok) {
-        toast.success("Oppgave opprettet");
-        setTaskFromTx(null);
-      } else {
+
+      if (!res.ok) {
         toast.error("Kunne ikke opprette oppgave");
+        return false;
       }
+
+      const task = await res.json();
+
+      if (payload.requestDocument && payload.externalContactId) {
+        const docRes = await fetch("/api/document-requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contactId: payload.externalContactId,
+            taskId: task.id,
+            clientId,
+            transactionId: taskFromTx.txId,
+            message: payload.documentMessage,
+            expiresInDays: 14,
+          }),
+        });
+
+        if (docRes.ok) {
+          toast.success("Oppgave opprettet og dokumentforespørsel sendt");
+        } else {
+          toast.error("Oppgave opprettet, men dokumentforespørsel feilet");
+        }
+      } else {
+        toast.success("Oppgave opprettet");
+      }
+
+      setTaskFromTx(null);
+      return true;
     } catch {
       toast.error("Kunne ikke opprette oppgave");
+      return false;
     }
-    setTaskSaving(false);
   }, [taskFromTx, clientId]);
 
   // --- Matching action ---
@@ -3227,48 +3267,21 @@ export function MatchingViewClient({
       />
 
       {/* Task from transaction dialog */}
-      <Dialog open={!!taskFromTx} onOpenChange={(open) => { if (!open) setTaskFromTx(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Opprett oppgave fra transaksjon</DialogTitle>
-          </DialogHeader>
-          {taskFromTx && (
-            <div className="space-y-4 pt-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="task-tx-title">Tittel</Label>
-                <Input
-                  id="task-tx-title"
-                  value={taskFromTx.title}
-                  onChange={(e) => setTaskFromTx({ ...taskFromTx, title: e.target.value })}
-                  autoFocus
-                />
-              </div>
-              <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Beløp</span>
-                  <span className="font-mono tabular-nums">{fmtNum(taskFromTx.amount)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Dato</span>
-                  <span className="tabular-nums">{fmtD(taskFromTx.date)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Klient</span>
-                  <span>{clientName}</span>
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setTaskFromTx(null)}>
-                  Avbryt
-                </Button>
-                <Button onClick={handleCreateTaskFromTx} disabled={taskSaving || !taskFromTx.title.trim()}>
-                  {taskSaving ? "Oppretter..." : "Opprett oppgave"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {taskFromTx && (
+        <FollowUpTaskDialog
+          open={!!taskFromTx}
+          onOpenChange={(open) => { if (!open) setTaskFromTx(null); }}
+          title={taskFromTx.title}
+          onTitleChange={(t) => setTaskFromTx({ ...taskFromTx, title: t })}
+          clientId={clientId}
+          clientName={clientName}
+          infoRows={[
+            { label: "Beløp", value: fmtNum(taskFromTx.amount) },
+            { label: "Dato", value: fmtD(taskFromTx.date) },
+          ]}
+          onSubmit={handleCreateTaskFromTx}
+        />
+      )}
     </>
   );
 }

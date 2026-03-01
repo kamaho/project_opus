@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexSyncConfigs, clients, companies } from "@/lib/db/schema";
@@ -11,13 +11,8 @@ export const dynamic = "force-dynamic";
  * GET /api/tripletex/sync-config?clientId=xxx
  * Returns the sync config for a given client (if any).
  */
-export async function GET(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { searchParams } = new URL(request.url);
+export const GET = withTenant(async (req, { tenantId }) => {
+  const { searchParams } = new URL(req.url);
   const clientId = searchParams.get("clientId");
   if (!clientId) {
     return NextResponse.json({ error: "clientId required" }, { status: 400 });
@@ -29,25 +24,20 @@ export async function GET(request: Request) {
     .where(
       and(
         eq(tripletexSyncConfigs.clientId, clientId),
-        eq(tripletexSyncConfigs.tenantId, orgId)
+        eq(tripletexSyncConfigs.tenantId, tenantId)
       )
     )
     .limit(1);
 
   return NextResponse.json({ config: config ?? null });
-}
+});
 
 /**
  * POST /api/tripletex/sync-config
  * Creates a new sync config and runs initial sync.
  */
-export async function POST(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const POST = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const {
     clientId,
     tripletexCompanyId,
@@ -86,7 +76,7 @@ export async function POST(request: Request) {
     .select({ id: clients.id, companyId: clients.companyId })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
-    .where(and(eq(clients.id, clientId), eq(companies.tenantId, orgId)))
+    .where(and(eq(clients.id, clientId), eq(companies.tenantId, tenantId)))
     .limit(1);
 
   if (!client) {
@@ -94,15 +84,15 @@ export async function POST(request: Request) {
   }
 
   // Sync company + accounts into Revizo DB (pass tenantId for per-tenant credentials)
-  const companyId = await syncCompany(tripletexCompanyId, orgId);
-  await syncAccounts(tripletexCompanyId, companyId, orgId);
+  const companyId = await syncCompany(tripletexCompanyId, tenantId);
+  await syncAccounts(tripletexCompanyId, companyId, tenantId);
 
   // Create sync config
   const [config] = await db
     .insert(tripletexSyncConfigs)
     .values({
       clientId,
-      tenantId: orgId,
+      tenantId,
       tripletexCompanyId,
       set1TripletexAccountId: resolvedSet1Ids[0] ?? null,
       set2TripletexAccountId: resolvedSet2Ids[0] ?? null,
@@ -133,19 +123,14 @@ export async function POST(request: Request) {
   const result = await runFullSync(config.id);
 
   return NextResponse.json({ config, syncResult: result }, { status: 201 });
-}
+});
 
 /**
  * PATCH /api/tripletex/sync-config
  * Updates an existing sync config.
  */
-export async function PATCH(request: Request) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = await request.json();
+export const PATCH = withTenant(async (req, { tenantId }) => {
+  const body = await req.json();
   const { configId, ...updates } = body as {
     configId: string;
     set1TripletexAccountId?: number;
@@ -167,7 +152,7 @@ export async function PATCH(request: Request) {
     .where(
       and(
         eq(tripletexSyncConfigs.id, configId),
-        eq(tripletexSyncConfigs.tenantId, orgId)
+        eq(tripletexSyncConfigs.tenantId, tenantId)
       )
     )
     .limit(1);
@@ -183,4 +168,4 @@ export async function PATCH(request: Request) {
     .returning();
 
   return NextResponse.json({ config: updated });
-}
+});

@@ -1,13 +1,10 @@
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clientGroups, clientGroupMembers, clients, companies } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export const GET = withTenant(async (_req, { tenantId }) => {
   const groups = await db
     .select({
       id: clientGroups.id,
@@ -17,7 +14,7 @@ export async function GET() {
       createdAt: clientGroups.createdAt,
     })
     .from(clientGroups)
-    .where(eq(clientGroups.tenantId, orgId))
+    .where(eq(clientGroups.tenantId, tenantId))
     .orderBy(clientGroups.name);
 
   const groupIds = groups.map((g) => g.id);
@@ -52,13 +49,10 @@ export async function GET() {
   }));
 
   return NextResponse.json(result);
-}
+});
 
-export async function POST(request: Request) {
-  const { orgId, userId } = await auth();
-  if (!orgId || !userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const body = await request.json().catch(() => null);
+export const POST = withTenant(async (req, { tenantId, userId }) => {
+  const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
 
   const { name, description, clientIds } = body as {
@@ -78,7 +72,7 @@ export async function POST(request: Request) {
     .select({ id: clients.id })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
-    .where(and(eq(companies.tenantId, orgId), inArray(clients.id, clientIds)));
+    .where(and(eq(companies.tenantId, tenantId), inArray(clients.id, clientIds)));
 
   if (validClients.length !== clientIds.length) {
     return NextResponse.json({ error: "En eller flere klienter ble ikke funnet" }, { status: 404 });
@@ -87,7 +81,7 @@ export async function POST(request: Request) {
   const [group] = await db
     .insert(clientGroups)
     .values({
-      tenantId: orgId,
+      tenantId,
       name: name.trim(),
       description: description?.trim() || null,
       createdBy: userId,
@@ -99,4 +93,4 @@ export async function POST(request: Request) {
   );
 
   return NextResponse.json(group, { status: 201 });
-}
+});

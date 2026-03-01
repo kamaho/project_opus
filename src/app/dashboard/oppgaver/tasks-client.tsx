@@ -1,19 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useUser, useOrganization } from "@clerk/nextjs";
 import {
   CheckSquare,
   Plus,
   Search,
   AlertCircle,
-  Clock,
   CheckCircle2,
   ArrowUpDown,
-  Filter,
-  Calendar,
-  Building2,
-  User,
-  ChevronDown,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -21,6 +16,8 @@ import {
   Timer,
   Pause,
   XCircle,
+  Mail,
+  UserCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,8 +37,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useFormatting } from "@/contexts/ui-preferences-context";
 import { CreateTaskDialog } from "./create-task-dialog";
+import { TASK_CATEGORY_LABELS, TASK_CATEGORY_COLORS } from "@/lib/constants/task-categories";
+import type { TaskCategory } from "@/lib/db/schema";
+import { toast } from "sonner";
 
 interface TaskRow {
   id: string;
@@ -50,7 +52,10 @@ interface TaskRow {
   type: string;
   status: string;
   priority: string;
+  category?: string | null;
   assigneeId: string | null;
+  externalContactId?: string | null;
+  notifyExternal?: boolean | null;
   companyId: string | null;
   clientId: string | null;
   dueDate: string | null;
@@ -63,6 +68,8 @@ interface TaskRow {
   updatedAt: string;
   companyName: string | null;
   clientName: string | null;
+  externalContactName?: string | null;
+  externalContactEmail?: string | null;
 }
 
 interface TaskStats {
@@ -85,6 +92,12 @@ interface ClientOption {
   companyName: string;
 }
 
+interface OrgMember {
+  id: string;
+  name: string;
+  imageUrl?: string;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; icon: typeof Circle; className: string }> = {
   open: { label: "Åpen", icon: Circle, className: "text-blue-500" },
   in_progress: { label: "Pågår", icon: Timer, className: "text-amber-500" },
@@ -100,6 +113,10 @@ const PRIORITY_CONFIG: Record<string, { label: string; className: string }> = {
   low: { label: "Lav", className: "bg-muted text-muted-foreground border-border" },
 };
 
+function initials(name: string) {
+  return name.split(" ").map((p) => p[0]).join("").toUpperCase().slice(0, 2);
+}
+
 export function TasksClient({
   companies,
   clients: clientOptions,
@@ -110,8 +127,12 @@ export function TasksClient({
   stats: TaskStats;
 }) {
   const { fmtDate } = useFormatting();
+  const { user } = useUser();
+  const { memberships } = useOrganization({ memberships: { pageSize: 50 } });
+
   const [taskList, setTaskList] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [worklistTab, setWorklistTab] = useState<string>("mine");
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
@@ -122,8 +143,26 @@ export function TasksClient({
   const [editingTask, setEditingTask] = useState<TaskRow | null>(null);
   const [stats, setStats] = useState(initialStats);
 
+  const members: OrgMember[] = (memberships?.data ?? []).map((m) => {
+    const pub = m.publicUserData;
+    return {
+      id: pub?.userId ?? "",
+      name: [pub?.firstName, pub?.lastName].filter(Boolean).join(" ") || "Ukjent",
+      imageUrl: pub?.imageUrl ?? undefined,
+    };
+  });
+
+  const memberMap = new Map(members.map((m) => [m.id, m]));
+
   const fetchTasks = useCallback(async () => {
     const params = new URLSearchParams();
+
+    if (worklistTab === "mine") {
+      params.set("assignee", "me");
+    } else if (worklistTab === "unassigned") {
+      params.set("assignee", "unassigned");
+    }
+
     if (statusFilter === "active") {
       params.set("status", "open,in_progress,waiting");
     } else if (statusFilter !== "all") {
@@ -141,7 +180,7 @@ export function TasksClient({
       setTaskList(data);
     }
     setLoading(false);
-  }, [statusFilter, priorityFilter, companyFilter, searchQuery, sortBy, sortDir]);
+  }, [worklistTab, statusFilter, priorityFilter, companyFilter, searchQuery, sortBy, sortDir]);
 
   useEffect(() => {
     fetchTasks();
@@ -154,6 +193,18 @@ export function TasksClient({
       body: JSON.stringify({ status: newStatus }),
     });
     if (res.ok) fetchTasks();
+  };
+
+  const handleAssignToMe = async (taskId: string) => {
+    const res = await fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assigneeId: user?.id }),
+    });
+    if (res.ok) {
+      toast.success("Oppgave tildelt deg");
+      fetchTasks();
+    }
   };
 
   const handleDeleteTask = async (taskId: string) => {
@@ -178,6 +229,35 @@ export function TasksClient({
       setSortDir("asc");
     }
   };
+
+  const renderAssignee = (task: TaskRow) => {
+    if (task.externalContactId && task.externalContactName) {
+      return (
+        <span className="flex items-center gap-1.5 truncate">
+          <Mail className="size-3 shrink-0 text-violet-600" />
+          <span className="truncate">{task.externalContactName}</span>
+        </span>
+      );
+    }
+    if (task.assigneeId) {
+      const member = memberMap.get(task.assigneeId);
+      if (member) {
+        return (
+          <span className="flex items-center gap-1.5 truncate">
+            <Avatar size="sm">
+              {member.imageUrl && <AvatarImage src={member.imageUrl} alt={member.name} />}
+              <AvatarFallback>{initials(member.name)}</AvatarFallback>
+            </Avatar>
+            <span className="truncate">{member.name}</span>
+          </span>
+        );
+      }
+      return <span className="truncate text-muted-foreground">{task.assigneeId.slice(0, 8)}...</span>;
+    }
+    return <span className="text-muted-foreground">—</span>;
+  };
+
+  const colSpan = 8;
 
   return (
     <div className="space-y-6">
@@ -221,6 +301,15 @@ export function TasksClient({
           icon={<CheckCircle2 className="size-4 text-green-500" />}
         />
       </div>
+
+      {/* Worklist tabs */}
+      <Tabs value={worklistTab} onValueChange={setWorklistTab}>
+        <TabsList>
+          <TabsTrigger value="mine">Min arbeidsliste</TabsTrigger>
+          <TabsTrigger value="all">Alle oppgaver</TabsTrigger>
+          <TabsTrigger value="unassigned">Ikke tildelt</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
@@ -291,13 +380,22 @@ export function TasksClient({
                     <ArrowUpDown className="size-3" />
                   </button>
                 </th>
+                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">
+                  <button onClick={() => toggleSort("category")} className="flex items-center gap-1 hover:text-foreground transition-colors">
+                    Kategori
+                    <ArrowUpDown className="size-3" />
+                  </button>
+                </th>
+                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">
+                  Tildelt til
+                </th>
                 <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-24">
                   <button onClick={() => toggleSort("priority")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                     Prioritet
                     <ArrowUpDown className="size-3" />
                   </button>
                 </th>
-                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Selskap</th>
+                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-32">Selskap</th>
                 <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">
                   <button onClick={() => toggleSort("due_date")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                     Frist
@@ -312,16 +410,18 @@ export function TasksClient({
             <tbody className="divide-y">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-12 text-center text-muted-foreground">
+                  <td colSpan={colSpan} className="px-3 py-12 text-center text-muted-foreground">
                     Laster oppgaver...
                   </td>
                 </tr>
               ) : taskList.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-12 text-center">
+                  <td colSpan={colSpan} className="px-3 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
                       <CheckSquare className="size-8 text-muted-foreground/40" />
-                      <p className="text-muted-foreground">Ingen oppgaver funnet</p>
+                      <p className="text-muted-foreground">
+                        {worklistTab === "mine" ? "Ingen oppgaver i din arbeidsliste" : "Ingen oppgaver funnet"}
+                      </p>
                       <Button
                         variant="outline"
                         size="sm"
@@ -339,6 +439,10 @@ export function TasksClient({
                   const pc = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG.medium;
                   const overdue = isOverdue(task);
                   const StatusIcon = sc.icon;
+                  const categoryKey = task.category as TaskCategory | null;
+                  const categoryLabel = categoryKey ? TASK_CATEGORY_LABELS[categoryKey] : null;
+                  const categoryColor = categoryKey ? TASK_CATEGORY_COLORS[categoryKey] : null;
+
                   return (
                     <tr
                       key={task.id}
@@ -387,11 +491,23 @@ export function TasksClient({
                         </div>
                       </td>
                       <td className="px-3 py-2.5">
+                        {categoryLabel ? (
+                          <Badge variant="outline" className={cn("text-[10px] font-medium whitespace-nowrap", categoryColor)}>
+                            {categoryLabel}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs max-w-[140px]">
+                        {renderAssignee(task)}
+                      </td>
+                      <td className="px-3 py-2.5">
                         <Badge variant="outline" className={cn("text-[11px] font-medium", pc.className)}>
                           {pc.label}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2.5 text-muted-foreground text-xs truncate max-w-[140px]">
+                      <td className="px-3 py-2.5 text-muted-foreground text-xs truncate max-w-[130px]">
                         {task.companyName ?? "—"}
                       </td>
                       <td className={cn(
@@ -415,6 +531,18 @@ export function TasksClient({
                             </button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
+                            {!task.assigneeId && !task.externalContactId && (
+                              <>
+                                <DropdownMenuItem
+                                  onClick={() => handleAssignToMe(task.id)}
+                                  className="gap-2"
+                                >
+                                  <UserCheck className="size-3.5" />
+                                  Tildel meg
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                              </>
+                            )}
                             <DropdownMenuItem
                               onClick={() => {
                                 setEditingTask(task);

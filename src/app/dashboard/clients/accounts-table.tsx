@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import {
   BarChart3,
   ChevronLeft,
@@ -17,7 +18,10 @@ import { Button } from "@/components/ui/button";
 import { DataTable, type ColumnDef } from "@/components/ui/data-table";
 import { NavArrowButton } from "@/components/ui/nav-arrow-button";
 import { SelectionActionBar } from "@/components/clients/selection-action-bar";
-import { AssignUserCell } from "@/components/clients/assign-user-cell";
+const AssignUserCell = dynamic(
+  () => import("@/components/clients/assign-user-cell").then((m) => m.AssignUserCell),
+  { ssr: false }
+);
 import { AssignGroupCell } from "@/components/clients/assign-group-cell";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 

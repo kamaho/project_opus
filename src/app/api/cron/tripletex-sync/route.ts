@@ -1,3 +1,4 @@
+// No tenant required: cron endpoint
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexSyncConfigs } from "@/lib/db/schema";
