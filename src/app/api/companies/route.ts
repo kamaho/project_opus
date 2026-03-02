@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getCompaniesByTenant } from "@/lib/db/tenant";
 import { revalidateCompanies } from "@/lib/revalidate";
 
@@ -39,29 +40,55 @@ export const POST = withTenant(async (req, { tenantId }) => {
       }
     }
 
-    const [created] = await db
-      .insert(companies)
-      .values({
-        tenantId,
-        name: name.trim(),
-        orgNumber: orgNumber?.trim() || null,
-        type: companyType,
-        parentCompanyId: parentCompanyId || null,
-      })
-      .returning();
+    // Insert only base columns so this works before migration 0008 (tripletex_company_id) is run
+    const nameVal = name.trim();
+    const orgNumberVal = orgNumber?.trim() || null;
+    const parentVal = parentCompanyId || null;
+    const rows = await db.execute<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      org_number: string | null;
+      type: string;
+      parent_company_id: string | null;
+      created_at: Date;
+      updated_at: Date;
+    }>(sql`
+      INSERT INTO companies (tenant_id, name, org_number, type, parent_company_id)
+      VALUES (${tenantId}, ${nameVal}, ${orgNumberVal}, ${companyType}, ${parentVal})
+      RETURNING id, tenant_id, name, org_number, type, parent_company_id, created_at, updated_at
+    `);
 
+    const created = rows[0];
     if (!created) {
       return NextResponse.json({ error: "Kunne ikke opprette selskap" }, { status: 500 });
     }
 
     revalidateCompanies();
 
-    return NextResponse.json(created, { status: 201 });
+    return NextResponse.json(
+      {
+        id: created.id,
+        name: created.name,
+        tenantId: created.tenant_id,
+        orgNumber: created.org_number,
+        type: created.type,
+        parentCompanyId: created.parent_company_id,
+        createdAt: created.created_at,
+        updatedAt: created.updated_at,
+      },
+      { status: 201 }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[api/companies] POST error:", message);
+    const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+    console.error("[api/companies] POST error:", message, code, err);
     if (message.includes("duplicate") || message.includes("unique") || message.includes("constraint")) {
       return NextResponse.json({ error: "Selskap eller konsern med dette navnet/org.nr finnes allerede" }, { status: 400 });
+    }
+    // RLS / permission (e.g. Postgres 42501) or missing org context
+    if (code === "42501" || /policy|permission|denied|tenant|organization/i.test(message)) {
+      return NextResponse.json({ error: "Kunne ikke opprette selskap. Sjekk at du har valgt organisasjon." }, { status: 403 });
     }
     return NextResponse.json({ error: "Kunne ikke opprette selskap. Sjekk at du har valgt organisasjon." }, { status: 500 });
   }

@@ -132,9 +132,11 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
             orgNumber: groupData.orgNumber.trim() || undefined,
             type: "group",
           }),
+          credentials: "include",
         });
-        if (!res.ok) throw new Error((await res.json()).error || "Kunne ikke opprette konsern");
-        const group = await res.json();
+        const errBody = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((errBody as { error?: string }).error || "Kunne ikke opprette konsern");
+        const group = errBody as { id: string; name: string };
         result.group = { id: group.id, name: group.name };
         parentCompanyId = group.id;
       }
@@ -149,9 +151,11 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
             type: "company",
             parentCompanyId,
           }),
+          credentials: "include",
         });
-        if (!res.ok) throw new Error((await res.json()).error || "Kunne ikke opprette selskap");
-        const company = await res.json();
+        const errBody = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((errBody as { error?: string }).error || "Kunne ikke opprette selskap");
+        const company = errBody as { id: string; name: string };
         result.companies.push({ id: company.id, name: company.name });
       }
 
@@ -176,9 +180,11 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
               type: rec.set2Type,
             },
           }),
+          credentials: "include",
         });
-        if (!res.ok) throw new Error((await res.json()).error || "Kunne ikke opprette avstemming");
-        const client = await res.json();
+        const errBody = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error((errBody as { error?: string }).error || "Kunne ikke opprette avstemming");
+        const client = errBody as { id: string; name: string; companyId: string };
         result.reconciliations.push({ id: client.id, name: client.name, companyId: firstCompanyId });
       }
 
@@ -272,6 +278,9 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
       {error && (
         <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
+          {/organisasjon|organization/i.test(error) && (
+            <p className="mt-2 text-foreground/80">Velg organisasjon i headeren og prøv igjen.</p>
+          )}
         </div>
       )}
 

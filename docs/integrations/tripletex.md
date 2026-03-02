@@ -56,7 +56,9 @@ via cron-jobb.
 | `src/app/api/cron/tripletex-sync/route.ts` | Automatisk synk (cron-jobb) |
 | `src/components/settings/tripletex-config-dialog.tsx` | UI for konfigurasjon |
 | `src/components/settings/tripletex-tab.tsx` | Innstillinger-fane |
-| `src/lib/db/migrations/0008_add_tripletex_integration.sql` | Database-migrasjon |
+| `src/lib/db/migrations/0008_add_tripletex_integration.sql` | Database-migrasjon (tripletex_company_id m.m.) |
+
+**Produksjon:** For at Tripletex-synk og kobling skal fungere må migrering 0008 være kjørt mot prod-databasen. Manuelt oppsett (onboarding uten integrasjon) fungerer også uten denne migreringen. Se `docs/DATABASE_DEV_PROD.md` for hvordan du kjører migrasjoner mot produksjon.
 
 ## Miljøvariabler
 
