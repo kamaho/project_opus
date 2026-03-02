@@ -17,11 +17,11 @@ export function renderMvaXlsx(vm: MvaExportViewModel): Buffer {
   const columns = [
     { header: "MVA-kode", width: 12 },
     { header: "Beskrivelse", width: 30 },
-    { header: "Grunnlag", width: 15, numFmt: "#,##0" },
+    { header: "Grunnlag", width: 15, numFmt: "#,##0.00" },
     { header: "Sats %", width: 8 },
-    { header: "Beregnet", width: 15, numFmt: "#,##0" },
-    { header: "Bokført", width: 15, numFmt: "#,##0" },
-    { header: "Differanse", width: 15, numFmt: "#,##0" },
+    { header: "Beregnet", width: 15, numFmt: "#,##0.00" },
+    { header: "Bokført", width: 15, numFmt: "#,##0.00" },
+    { header: "Differanse", width: 15, numFmt: "#,##0.00" },
     { header: "Årsak", width: 18 },
     { header: "Kommentar", width: 35 },
   ];

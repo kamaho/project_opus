@@ -9,6 +9,28 @@ import type {
   FieldCondition,
 } from "./types";
 
+/** Max unmatched transactions per side (set1 or set2) before the engine refuses to run. */
+export const TRANSACTION_LIMIT = 10_000;
+
+/**
+ * Thrown when a client has more unmatched transactions than the engine can safely handle.
+ * Callers should surface this as a 400 with a user-friendly message.
+ */
+export class TooManyTransactionsError extends Error {
+  readonly code = "TOO_MANY_TRANSACTIONS" as const;
+  constructor(
+    public readonly set1Count: number,
+    public readonly set2Count: number,
+    public readonly limit: number
+  ) {
+    super(
+      `For mange uavstemte transaksjoner (sett 1: ${set1Count}, sett 2: ${set2Count}). ` +
+        `Grense: ${limit.toLocaleString("nb-NO")} per sett. Del opp importen i kortere perioder.`
+    );
+    this.name = "TooManyTransactionsError";
+  }
+}
+
 function toIndexed(row: {
   id: string;
   setNumber: number;
@@ -98,6 +120,30 @@ function toMatchingRule(row: {
 async function loadUnmatchedTransactions(
   clientId: string
 ): Promise<{ set1: IndexedTransaction[]; set2: IndexedTransaction[] }> {
+  const baseWhere = and(
+    eq(transactions.clientId, clientId),
+    eq(transactions.matchStatus, "unmatched"),
+    sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
+  );
+
+  // Count per set first — avoids loading potentially hundreds of thousands of rows
+  // into Node.js memory before discovering the limit would be exceeded.
+  const [counts] = await db
+    .select({
+      set1Count: sql<number>`sum(case when ${transactions.setNumber} = 1 then 1 else 0 end)::int`,
+      set2Count: sql<number>`sum(case when ${transactions.setNumber} = 2 then 1 else 0 end)::int`,
+    })
+    .from(transactions)
+    .leftJoin(imports, eq(transactions.importId, imports.id))
+    .where(baseWhere);
+
+  const set1Count = counts?.set1Count ?? 0;
+  const set2Count = counts?.set2Count ?? 0;
+
+  if (set1Count > TRANSACTION_LIMIT || set2Count > TRANSACTION_LIMIT) {
+    throw new TooManyTransactionsError(set1Count, set2Count, TRANSACTION_LIMIT);
+  }
+
   const rows = await db
     .select({
       id: transactions.id,
@@ -124,13 +170,7 @@ async function loadUnmatchedTransactions(
     })
     .from(transactions)
     .leftJoin(imports, eq(transactions.importId, imports.id))
-    .where(
-      and(
-        eq(transactions.clientId, clientId),
-        eq(transactions.matchStatus, "unmatched"),
-        sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
-      )
-    );
+    .where(baseWhere);
 
   const set1: IndexedTransaction[] = [];
   const set2: IndexedTransaction[] = [];
@@ -264,11 +304,14 @@ export async function runAutoMatch(
     }
 
     if (pairs.length > 0) {
-      const valuesList = pairs.map((p) => `('${p.txId}'::uuid, '${p.matchId}'::uuid)`).join(",");
+      const valuesClause = sql.join(
+        pairs.map((p) => sql`(${p.txId}::uuid, ${p.matchId}::uuid)`),
+        sql`, `
+      );
       await tx.execute(sql`
         UPDATE ${transactions} AS t
         SET match_id = v.match_id, match_status = 'matched'
-        FROM (VALUES ${sql.raw(valuesList)}) AS v(tx_id, match_id)
+        FROM (VALUES ${valuesClause}) AS v(tx_id, match_id)
         WHERE t.id = v.tx_id
       `);
     }

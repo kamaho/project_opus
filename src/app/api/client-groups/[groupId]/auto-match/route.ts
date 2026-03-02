@@ -8,7 +8,7 @@ import {
   companies,
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { previewAutoMatch, runAutoMatch } from "@/lib/matching/engine";
+import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 
 export interface GroupAutoMatchClientResult {
@@ -132,10 +132,19 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
 
     return NextResponse.json(response);
   } catch (err) {
+    if (err instanceof TooManyTransactionsError) {
+      return NextResponse.json(
+        {
+          error: err.message,
+          code: err.code,
+          set1Count: err.set1Count,
+          set2Count: err.set2Count,
+          limit: err.limit,
+        },
+        { status: 400 }
+      );
+    }
     console.error("[group-auto-match] Failed:", err);
-    return NextResponse.json(
-      { error: "Gruppe-matching feilet" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Gruppe-matching feilet" }, { status: 500 });
   }
 });

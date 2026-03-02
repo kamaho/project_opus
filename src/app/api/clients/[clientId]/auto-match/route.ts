@@ -1,7 +1,7 @@
 import { withTenant } from "@/lib/auth";
 import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
-import { previewAutoMatch, runAutoMatch } from "@/lib/matching/engine";
+import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 import { notifySmartMatchCompleted } from "@/lib/notifications";
 
@@ -54,10 +54,19 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     const stats = await previewAutoMatch(clientId);
     return NextResponse.json(stats);
   } catch (err) {
+    if (err instanceof TooManyTransactionsError) {
+      return NextResponse.json(
+        {
+          error: err.message,
+          code: err.code,
+          set1Count: err.set1Count,
+          set2Count: err.set2Count,
+          limit: err.limit,
+        },
+        { status: 400 }
+      );
+    }
     console.error("[auto-match] Failed:", err);
-    return NextResponse.json(
-      { error: "Matching feilet" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Matching feilet" }, { status: 500 });
   }
 });

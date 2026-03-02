@@ -95,17 +95,52 @@ function getSteps(path: OnboardingPath): StepDef[] {
 // Main component
 // ---------------------------------------------------------------------------
 
+const STORAGE_KEY = "revizo_onboarding_state";
+
+interface PersistedState {
+  step: number;
+  path: OnboardingPath;
+  selectedErpId: string | null;
+  enabledServices: string[];
+}
+
+function loadPersistedState(): Partial<PersistedState> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as PersistedState;
+  } catch {
+    return {};
+  }
+}
+
+function persistState(state: PersistedState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch { /* quota exceeded or SSR — ignore */ }
+}
+
+function clearPersistedState() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
+
 export default function OnboardingPage() {
-  const [showIntro, setShowIntro] = useState(true);
-  const [step, setStep] = useState(0);
+  const [showIntro, setShowIntro] = useState(() => {
+    const saved = loadPersistedState();
+    return saved.step == null || saved.step === 0;
+  });
+  const [step, setStep] = useState(() => loadPersistedState().step ?? 0);
   const [direction, setDirection] = useState<"forward" | "back">("forward");
-  const [path, setPath] = useState<OnboardingPath>(null);
-  const [selectedErpId, setSelectedErpId] = useState<string | null>(null);
+  const [path, setPath] = useState<OnboardingPath>(() => loadPersistedState().path ?? null);
+  const [selectedErpId, setSelectedErpId] = useState<string | null>(() => loadPersistedState().selectedErpId ?? null);
 
   const [, setSetupResult] = useState<SetupResult | null>(null);
   const [erpResult, setErpResult] = useState<ERPSetupResult | null>(null);
   const [enabledServices, setEnabledServices] = useState<Set<string>>(
-    () => new Set(["dashboard", "avstemming"])
+    () => {
+      const saved = loadPersistedState().enabledServices;
+      return saved ? new Set(saved) : new Set(["dashboard", "avstemming"]);
+    }
   );
   const { user, isLoaded: userLoaded } = useUser();
   const { organization, isLoaded: orgLoaded } = useOrganization();
@@ -113,6 +148,10 @@ export default function OnboardingPage() {
 
   const steps = useMemo(() => getSteps(path), [path]);
   const currentStepId = steps[step]?.id ?? "welcome";
+
+  useEffect(() => {
+    persistState({ step, path, selectedErpId, enabledServices: Array.from(enabledServices) });
+  }, [step, path, selectedErpId, enabledServices]);
 
   function goTo(nextStep: number) {
     setDirection(nextStep > step ? "forward" : "back");
@@ -147,13 +186,16 @@ export default function OnboardingPage() {
     });
   }
 
+  const [finishing, setFinishing] = useState(false);
+
   async function handleFinish() {
     if (!organization) {
-      toast.error("Velg eller opprett en organisasjon først. Bruk organisasjonsvelgeren i headeren.");
+      toast.error("Velg eller opprett en organisasjon først. Bruk organisasjonsvelgeren øverst ved logoen.");
       return;
     }
+    setFinishing(true);
     try {
-      await fetch("/api/onboarding/complete", {
+      const res = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -162,9 +204,17 @@ export default function OnboardingPage() {
           erpConnected: !!erpResult,
         }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error ?? "Kunne ikke fullføre onboarding. Prøv igjen.");
+        setFinishing(false);
+        return;
+      }
+      clearPersistedState();
       router.push("/dashboard");
     } catch {
-      // leave user on page on error
+      toast.error("Nettverksfeil — sjekk tilkoblingen og prøv igjen.");
+      setFinishing(false);
     }
   }
 
@@ -271,10 +321,7 @@ export default function OnboardingPage() {
                 <Building2 className="h-10 w-10 mx-auto text-amber-600 dark:text-amber-400" />
                 <h3 className="font-semibold text-foreground">Velg eller opprett organisasjon</h3>
                 <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                  Du må ha en organisasjon for å sette opp avstemming. Bruk organisasjonsvelgeren i headeren (ved ditt navn) for å opprette eller velge en organisasjon.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Har du slått på organisasjonsbruk i Clerk? Etter at du har organisasjon, last siden på nytt eller gå tilbake og inn hit igjen.
+                  Du må ha en organisasjon for å sette opp avstemming. Bruk organisasjonsvelgeren øverst ved logoen for å opprette eller velge en organisasjon.
                 </p>
               </div>
             ) : (
@@ -314,7 +361,7 @@ export default function OnboardingPage() {
         )}
 
         {currentStepId === "ready" && (
-          <StepReady onFinish={handleFinish} canFinish={!!organization} />
+          <StepReady onFinish={handleFinish} canFinish={!!organization} finishing={finishing} />
         )}
       </div>
     </div>
@@ -923,7 +970,7 @@ function StepPreferences({
 /* Step: Ready                                                         */
 /* ------------------------------------------------------------------ */
 
-function StepReady({ onFinish, canFinish = true }: { onFinish: () => void; canFinish?: boolean }) {
+function StepReady({ onFinish, canFinish = true, finishing = false }: { onFinish: () => void; canFinish?: boolean; finishing?: boolean }) {
   return (
     <div className="text-center space-y-6">
       <div className="flex justify-center">
@@ -940,12 +987,12 @@ function StepReady({ onFinish, canFinish = true }: { onFinish: () => void; canFi
       </div>
       {!canFinish && (
         <p className="text-sm text-amber-600 dark:text-amber-400">
-          Velg eller opprett en organisasjon i headeren for å fullføre.
+          Velg eller opprett en organisasjon øverst ved logoen for å fullføre.
         </p>
       )}
-      <Button size="lg" onClick={onFinish} className="gap-2" disabled={!canFinish}>
-        Start avstemming
-        <ArrowRight className="h-4 w-4" />
+      <Button size="lg" onClick={onFinish} className="gap-2" disabled={!canFinish || finishing}>
+        {finishing ? "Fullfører..." : "Start avstemming"}
+        {!finishing && <ArrowRight className="h-4 w-4" />}
       </Button>
     </div>
   );

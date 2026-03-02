@@ -27,18 +27,33 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
 
   const { setNumber, date, amount, text, voucher } = parsed.data;
 
-  const [inserted] = await db
-    .insert(transactions)
-    .values({
-      clientId,
-      setNumber,
-      date1: date,
-      amount: String(amount),
-      description: text,
-      bilag: voucher || null,
-      matchStatus: "unmatched",
-    })
-    .returning({ id: transactions.id });
+  let inserted: { id: string };
+  try {
+    const [row] = await db
+      .insert(transactions)
+      .values({
+        clientId,
+        setNumber,
+        date1: date,
+        amount: String(amount),
+        description: text,
+        bilag: voucher || null,
+        matchStatus: "unmatched",
+      })
+      .returning({ id: transactions.id });
+    inserted = row;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const code = err && typeof err === "object" && "code" in err ? String((err as { code: string }).code) : "";
+    console.error("[api/transactions] POST error:", message, code, err);
+    if (message.includes("duplicate") || message.includes("unique") || message.includes("constraint")) {
+      return NextResponse.json({ error: "Transaksjonen finnes allerede." }, { status: 400 });
+    }
+    if (code === "42501") {
+      return NextResponse.json({ error: "Ingen tilgang til å opprette transaksjon." }, { status: 403 });
+    }
+    return NextResponse.json({ error: "Kunne ikke opprette transaksjon. Prøv igjen." }, { status: 500 });
+  }
 
   await logAudit({
     tenantId,

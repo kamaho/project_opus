@@ -37,27 +37,70 @@ Nødvendige variabler:
 
 | Variabel                              | Hvor finner du den                           |
 |---------------------------------------|----------------------------------------------|
-| `DATABASE_URL`                        | Supabase → Settings → Database → Connection string (Session pooler). **Lokal:** bruk dev-prosjektets URL. |
+| `DATABASE_URL`                        | Supabase → Settings → Database → **Transaction pooler** (port 6543). Brukes av app-serveren. |
+| `DATABASE_MIGRATION_URL`              | Supabase → Settings → Database → **Direct URL** (port 5432). Brukes av `db:migrate` og GitHub Actions. |
 | `NEXT_PUBLIC_SUPABASE_URL`            | Supabase → Settings → API → Project URL      |
 | `SUPABASE_SERVICE_ROLE_KEY`           | Supabase → Settings → API → service_role key |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`   | Clerk → API Keys → Publishable key           |
 | `CLERK_SECRET_KEY`                    | Clerk → API Keys → Secret key                |
+| `NEXT_PUBLIC_ENV`                     | Sett til `development` lokalt og på staging. La stå tom (eller `production`) i Vercel prod. Viser miljø-badge i headeren. |
 
 De øvrige `NEXT_PUBLIC_CLERK_*` variablene er URL-stier og trenger vanligvis ikke endres.
 
+### GitHub Secrets (produksjon)
+
+For at GitHub Actions-pipelinen skal fungere må disse hemmeligheter være satt i **GitHub → Settings → Secrets and variables → Actions**:
+
+| Secret | Verdi |
+|---|---|
+| `DATABASE_MIGRATION_URL` | Supabase prod Direct URL (port 5432) |
+
 ## 3. Database-migrasjoner
 
-Kjør migrasjoner for å opprette tabellene:
+### Automatisk pipeline (prod)
+
+Migrasjoner kjøres **automatisk via GitHub Actions** når du pusher til `main`:
+
+1. `.github/workflows/migrate.yml` kjøres ved push til `main` (hvis migrations-filer er endret)
+2. Actions bruker `DATABASE_MIGRATION_URL` fra GitHub Secrets (Direct URL, port 5432)
+3. Vercel deployer etter at migreringen er ferdig
+
+Du trenger **aldri** å kjøre `db:migrate` manuelt mot prod.
+
+### Lokalt (dev)
+
+Kjør migrasjoner mot dev-databasen:
 
 ```bash
-npx drizzle-kit migrate
+npm run db:migrate
 ```
 
 For å se databasen i en GUI:
 
 ```bash
-npx drizzle-kit studio
+npm run db:studio
 ```
+
+### Ny schema-endring (riktig arbeidsflyt)
+
+```
+1. Rediger src/lib/db/schema.ts
+2. npm run db:generate    ← genererer SQL-migrasjonsfil
+3. git add src/lib/db/
+4. git commit + push → main
+5. GitHub Actions kjører db:migrate mot prod automatisk
+```
+
+> **Aldri** rediger migrasjonsfiler manuelt eller kjør `db:migrate` mot prod fra din maskin.
+
+### To DATABASE_URL-er
+
+| Variabel | Tilkobling | Brukes til |
+|---|---|---|
+| `DATABASE_URL` | Transaction Pooler (port **6543**) | App-serveren (alle API-ruter) |
+| `DATABASE_MIGRATION_URL` | Direct URL (port **5432**) | `db:migrate` og `db:studio` |
+
+Supabase → Settings → Database → **Connection string** — velg riktig pooler-type. Migrasjoner krever direkte tilkobling (ikke PgBouncer) fordi Drizzle bruker `SET search_path`.
 
 ## 4. Seed-data (valgfritt)
 

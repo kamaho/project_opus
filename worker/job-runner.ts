@@ -8,7 +8,7 @@ import {
   transactions,
 } from "../src/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { runAutoMatch } from "../src/lib/matching/engine";
+import { runAutoMatch, TooManyTransactionsError } from "../src/lib/matching/engine";
 import { generateExport } from "../src/lib/export/service";
 import { sendAgentReportEmail } from "../src/lib/resend";
 import { effectiveNextRun, isDue } from "../src/lib/agent-scheduler";
@@ -101,9 +101,15 @@ export async function runJob(db: Db, config: Config) {
         transactionCount = result.totalTransactions;
         log(config.id, `Smart Match done: ${matchCount} matches, ${transactionCount} transactions`);
       } catch (err) {
-        errorMessage = `Smart Match failed: ${err instanceof Error ? err.message : err}`;
-        log(config.id, errorMessage);
-        status = reportDue ? "partial" : "failed";
+        if (err instanceof TooManyTransactionsError) {
+          // Dataset too large — skip matching but continue to report generation.
+          errorMessage = `Smart Match skipped: ${err.message}`;
+          log(config.id, `[LIMIT] ${errorMessage}`);
+        } else {
+          errorMessage = `Smart Match failed: ${err instanceof Error ? err.message : err}`;
+          log(config.id, errorMessage);
+          status = reportDue ? "partial" : "failed";
+        }
       }
     }
 

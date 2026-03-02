@@ -36,20 +36,24 @@ export const companies = pgTable(
 // ---------------------------------------------------------------------------
 // Accounts (konto)
 // ---------------------------------------------------------------------------
-export const accounts = pgTable("accounts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  companyId: uuid("company_id")
-    .notNull()
-    .references(() => companies.id, { onDelete: "cascade" }),
-  accountNumber: text("account_number").notNull(),
-  name: text("name").notNull(),
-  accountType: text("account_type", {
-    enum: ["ledger", "bank"],
-  }).notNull(),
-  currency: text("currency").default("NOK"),
-  tripletexAccountId: integer("tripletex_account_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    accountNumber: text("account_number").notNull(),
+    name: text("name").notNull(),
+    accountType: text("account_type", {
+      enum: ["ledger", "bank"],
+    }).notNull(),
+    currency: text("currency").default("NOK"),
+    tripletexAccountId: integer("tripletex_account_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_accounts_company").on(t.companyId)]
+);
 
 // ---------------------------------------------------------------------------
 // Parser configurations (innlesningsskript)
@@ -69,28 +73,32 @@ export const parserConfigs = pgTable("parser_configs", {
 // ---------------------------------------------------------------------------
 // Clients (avstemmingsenhet = Set 1 + Set 2)
 // ---------------------------------------------------------------------------
-export const clients = pgTable("clients", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  companyId: uuid("company_id")
-    .notNull()
-    .references(() => companies.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  set1AccountId: uuid("set1_account_id")
-    .notNull()
-    .references(() => accounts.id),
-  set2AccountId: uuid("set2_account_id")
-    .notNull()
-    .references(() => accounts.id),
-  openingBalanceSet1: numeric("opening_balance_set1", { precision: 18, scale: 2 }).default("0"),
-  openingBalanceSet2: numeric("opening_balance_set2", { precision: 18, scale: 2 }).default("0"),
-  openingBalanceDate: date("opening_balance_date"),
-  allowTolerance: boolean("allow_tolerance").default(false),
-  toleranceAmount: numeric("tolerance_amount", { precision: 18, scale: 2 }).default("0"),
-  assignedUserId: text("assigned_user_id"),
-  status: text("status", { enum: ["active", "archived"] }).default("active"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+export const clients = pgTable(
+  "clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    set1AccountId: uuid("set1_account_id")
+      .notNull()
+      .references(() => accounts.id),
+    set2AccountId: uuid("set2_account_id")
+      .notNull()
+      .references(() => accounts.id),
+    openingBalanceSet1: numeric("opening_balance_set1", { precision: 18, scale: 2 }).default("0"),
+    openingBalanceSet2: numeric("opening_balance_set2", { precision: 18, scale: 2 }).default("0"),
+    openingBalanceDate: date("opening_balance_date"),
+    allowTolerance: boolean("allow_tolerance").default(false),
+    toleranceAmount: numeric("tolerance_amount", { precision: 18, scale: 2 }).default("0"),
+    assignedUserId: text("assigned_user_id"),
+    status: text("status", { enum: ["active", "archived"] }).default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_clients_company").on(t.companyId)]
+);
 
 // ---------------------------------------------------------------------------
 // Matching rules (avstemmingsregler)
@@ -160,17 +168,21 @@ export const imports = pgTable(
 // ---------------------------------------------------------------------------
 // Matches (groups of matched transactions)
 // ---------------------------------------------------------------------------
-export const matches = pgTable("matches", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  clientId: uuid("client_id")
-    .notNull()
-    .references(() => clients.id, { onDelete: "cascade" }),
-  ruleId: uuid("rule_id").references(() => matchingRules.id),
-  matchType: text("match_type", { enum: ["auto", "manual"] }).notNull(),
-  difference: numeric("difference", { precision: 18, scale: 2 }).default("0"),
-  matchedAt: timestamp("matched_at", { withTimezone: true }).defaultNow(),
-  matchedBy: text("matched_by"),
-});
+export const matches = pgTable(
+  "matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    ruleId: uuid("rule_id").references(() => matchingRules.id),
+    matchType: text("match_type", { enum: ["auto", "manual"] }).notNull(),
+    difference: numeric("difference", { precision: 18, scale: 2 }).default("0"),
+    matchedAt: timestamp("matched_at", { withTimezone: true }).defaultNow(),
+    matchedBy: text("matched_by"),
+  },
+  (t) => [index("idx_matches_client").on(t.clientId)]
+);
 
 // ---------------------------------------------------------------------------
 // Transactions (transaksjoner/poster)

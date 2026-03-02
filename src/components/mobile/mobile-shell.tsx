@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Bell, FileText, Calendar, Monitor } from "lucide-react";
+import { Sparkles, Bell, FileText, Calendar, Monitor, Scale } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { RevizoLogo } from "@/components/ui/revizo-logo";
 import { cn } from "@/lib/utils";
@@ -9,10 +9,12 @@ import { MobileAiTab } from "./mobile-ai-tab";
 import { MobileNotificationsTab } from "./mobile-notifications-tab";
 import { MobileReportsTab } from "./mobile-reports-tab";
 import { MobileDeadlineStatus } from "./mobile-deadline-status";
+import { MobileReconciliationTab } from "./mobile-reconciliation-tab";
 
-type Tab = "ai" | "notifications" | "reports" | "deadlines";
+type Tab = "status" | "ai" | "notifications" | "reports" | "deadlines";
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
+  { id: "status", label: "Status", icon: Scale },
   { id: "ai", label: "Revizo AI", icon: Sparkles },
   { id: "notifications", label: "Varsler", icon: Bell },
   { id: "reports", label: "Rapporter", icon: FileText },
@@ -24,7 +26,7 @@ interface MobileShellProps {
 }
 
 export function MobileShell({ onRequestDesktop }: MobileShellProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("ai");
+  const [activeTab, setActiveTab] = useState<Tab>("status");
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -49,6 +51,7 @@ export function MobileShell({ onRequestDesktop }: MobileShellProps) {
 
       {/* Tab content */}
       <main className="flex-1 overflow-hidden">
+        {activeTab === "status" && <MobileReconciliationTab />}
         {activeTab === "ai" && <MobileAiTab />}
         {activeTab === "notifications" && <MobileNotificationsTab />}
         {activeTab === "reports" && <MobileReportsTab />}

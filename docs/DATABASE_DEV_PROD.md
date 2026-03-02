@@ -113,12 +113,20 @@ Hvis appen bruker Supabase Storage (f.eks. for import-filer):
 
 ## Sjekkliste
 
-- [ ] **project opus** brukes kun i `.env.local` (lokal dev).
-- [ ] Nytt Supabase-prosjekt opprettet (f.eks. «Revizo prod»).
-- [ ] Migrasjoner kjørt én gang mot prod (steg 4).
-- [ ] Vercel Production har `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` fra **Revizo prod**.
-- [ ] Redeploy fra Vercel. Test innlogging og grunnflyt på revizo.ai – data skal nå komme fra prod-DB (tom til du oppretter noe der).
+- [x] **project opus** brukes kun i `.env.local` (lokal dev).
+- [x] Nytt Supabase-prosjekt opprettet: **Revizo Prod** (`pejkokemdzsekboaebmy`, eu-central-1).
+- [x] Migrasjoner kjørt mot prod — full schema-migrering 02.03.2026 (se `docs/migrations/prod_migration_2026_03_02.sql`). Prod har nå 37 tabeller.
+- [x] Vercel Production har `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` fra **Revizo Prod**.
+- [x] GitHub Actions automatiserer fremtidige migreringer (`.github/workflows/migrate.yml`). `DATABASE_MIGRATION_URL` satt som GitHub Secret.
 
 ---
 
-*Etter dette har du lokal DB (project opus med demo-data) og prod-DB (Revizo prod, tom og fersk).*
+## Migreringsautomatisering (fra 02.03.2026)
+
+Fremtidige schema-endringer kjøres automatisk mot prod via GitHub Actions. Se `docs/SETUP.md` for full arbeidsflyt.
+
+```
+schema.ts endret → db:generate → commit + push → Actions kjører db:migrate → prod oppdatert
+```
+
+*Etter dette har du lokal DB (project opus med demo-data) og prod-DB (Revizo prod, aktiv).*

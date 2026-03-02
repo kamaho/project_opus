@@ -74,7 +74,7 @@ function buildReceivableExcel(entries: ReceivableEntry[], builder: ReturnType<ty
     [
       { header: "Periode", width: 20 },
       { header: "Antall", width: 10, numFmt: "#,##0" },
-      { header: "Beløp", width: 18, numFmt: "#,##0" },
+      { header: "Beløp", width: 18, numFmt: "#,##0.00" },
       { header: "Andel %", width: 10, numFmt: "0.0%" },
     ],
     [
@@ -91,8 +91,8 @@ function buildReceivableExcel(entries: ReceivableEntry[], builder: ReturnType<ty
       { header: "Fakturanr", width: 15 },
       { header: "Fakturadato", width: 14 },
       { header: "Forfallsdato", width: 14 },
-      { header: "Beløp", width: 15, numFmt: "#,##0" },
-      { header: "Utestående", width: 15, numFmt: "#,##0" },
+      { header: "Beløp", width: 15, numFmt: "#,##0.00" },
+      { header: "Utestående", width: 15, numFmt: "#,##0.00" },
       { header: "Valuta", width: 8 },
     ],
     entries.map((e) => [
@@ -113,7 +113,7 @@ function buildReceivableExcel(entries: ReceivableEntry[], builder: ReturnType<ty
     [
       { header: "Kunde", width: 25 },
       { header: "Antall fakturaer", width: 18, numFmt: "#,##0" },
-      { header: "Total utestående", width: 18, numFmt: "#,##0" },
+      { header: "Total utestående", width: 18, numFmt: "#,##0.00" },
     ],
     Object.entries(byCustomer).map(([name, items]) => [
       name,
@@ -135,7 +135,7 @@ function buildPayableExcel(entries: PayableEntry[], builder: ReturnType<typeof c
     [
       { header: "Periode", width: 20 },
       { header: "Antall", width: 10, numFmt: "#,##0" },
-      { header: "Beløp", width: 18, numFmt: "#,##0" },
+      { header: "Beløp", width: 18, numFmt: "#,##0.00" },
       { header: "Andel %", width: 10, numFmt: "0.0%" },
     ],
     [
@@ -152,8 +152,8 @@ function buildPayableExcel(entries: PayableEntry[], builder: ReturnType<typeof c
       { header: "Fakturanr", width: 15 },
       { header: "Fakturadato", width: 14 },
       { header: "Forfallsdato", width: 14 },
-      { header: "Beløp", width: 15, numFmt: "#,##0" },
-      { header: "Utestående", width: 15, numFmt: "#,##0" },
+      { header: "Beløp", width: 15, numFmt: "#,##0.00" },
+      { header: "Utestående", width: 15, numFmt: "#,##0.00" },
       { header: "Valuta", width: 8 },
     ],
     entries.map((e) => [
@@ -174,7 +174,7 @@ function buildPayableExcel(entries: PayableEntry[], builder: ReturnType<typeof c
     [
       { header: "Leverandør", width: 25 },
       { header: "Antall fakturaer", width: 18, numFmt: "#,##0" },
-      { header: "Total utestående", width: 18, numFmt: "#,##0" },
+      { header: "Total utestående", width: 18, numFmt: "#,##0.00" },
     ],
     Object.entries(bySupplier).map(([name, items]) => [
       name,
@@ -199,9 +199,9 @@ function buildVatExcel(vat: VatSummary, builder: ReturnType<typeof createWorkboo
     [
       { header: "MVA-kode", width: 12 },
       { header: "Beskrivelse", width: 35 },
-      { header: "Grunnlag", width: 18, numFmt: "#,##0" },
+      { header: "Grunnlag", width: 18, numFmt: "#,##0.00" },
       { header: "Sats", width: 10, numFmt: "0%" },
-      { header: "MVA-beløp", width: 18, numFmt: "#,##0" },
+      { header: "MVA-beløp", width: 18, numFmt: "#,##0.00" },
     ],
     vat.lines.map((l) => [l.vatCode, l.description, l.basis, l.rate, l.vatAmount])
   );
@@ -224,11 +224,11 @@ function buildPayrollExcel(payroll: PayrollData, builder: ReturnType<typeof crea
     "Per ansatt",
     [
       { header: "Ansatt", width: 25 },
-      { header: "Brutto", width: 15, numFmt: "#,##0" },
-      { header: "Skattetrekk", width: 15, numFmt: "#,##0" },
-      { header: "AGA", width: 15, numFmt: "#,##0" },
-      { header: "Pensjon", width: 15, numFmt: "#,##0" },
-      { header: "Netto", width: 15, numFmt: "#,##0" },
+      { header: "Brutto", width: 15, numFmt: "#,##0.00" },
+      { header: "Skattetrekk", width: 15, numFmt: "#,##0.00" },
+      { header: "AGA", width: 15, numFmt: "#,##0.00" },
+      { header: "Pensjon", width: 15, numFmt: "#,##0.00" },
+      { header: "Netto", width: 15, numFmt: "#,##0.00" },
     ],
     payroll.employees.map((e) => [
       e.name,
@@ -254,7 +254,7 @@ function buildPayrollExcel(payroll: PayrollData, builder: ReturnType<typeof crea
         { header: "Ansatt", width: 25 },
         { header: "Kode", width: 10 },
         { header: "Beskrivelse", width: 30 },
-        { header: "Beløp", width: 15, numFmt: "#,##0" },
+        { header: "Beløp", width: 15, numFmt: "#,##0.00" },
       ],
       benefitRows
     );
@@ -276,11 +276,11 @@ function buildHolidayPayExcel(hp: HolidayPayData, builder: ReturnType<typeof cre
     "Per ansatt",
     [
       { header: "Ansatt", width: 25 },
-      { header: "Grunnlag", width: 18, numFmt: "#,##0" },
+      { header: "Grunnlag", width: 18, numFmt: "#,##0.00" },
       { header: "Sats", width: 10, numFmt: "0.0%" },
-      { header: "Beregnet", width: 18, numFmt: "#,##0" },
-      { header: "Utbetalt", width: 18, numFmt: "#,##0" },
-      { header: "Gjenstående", width: 18, numFmt: "#,##0" },
+      { header: "Beregnet", width: 18, numFmt: "#,##0.00" },
+      { header: "Utbetalt", width: 18, numFmt: "#,##0.00" },
+      { header: "Gjenstående", width: 18, numFmt: "#,##0.00" },
     ],
     hp.employees.map((e) => [
       e.name,

@@ -50,7 +50,7 @@ export function generateControlExcel(
       [
         { header: "Intervall", width: 20 },
         { header: "Antall", width: 10 },
-        { header: "Beløp (kr)", width: 18, numFmt: "#,##0" },
+        { header: "Beløp (kr)", width: 18, numFmt: "#,##0.00" },
         { header: "Andel (%)", width: 12, numFmt: "0.0" },
       ],
       agingBuckets.map((b) => [b.label, b.count, b.totalAmount, b.percentage])
@@ -67,7 +67,7 @@ export function generateControlExcel(
         { header: "Kategori", width: 20 },
         { header: "Beskrivelse", width: 50 },
         { header: "Referanse", width: 18 },
-        { header: "Beløp (kr)", width: 16, numFmt: "#,##0" },
+        { header: "Beløp (kr)", width: 16, numFmt: "#,##0.00" },
       ],
       result.deviations.map((d) => [
         SEVERITY_LABELS[d.severity],
@@ -89,8 +89,8 @@ export function generateControlExcel(
       "Per kunde",
       [
         { header: "Kunde", width: 30 },
-        { header: "Total utestående (kr)", width: 22, numFmt: "#,##0" },
-        { header: "Forfalt (kr)", width: 18, numFmt: "#,##0" },
+        { header: "Total utestående (kr)", width: 22, numFmt: "#,##0.00" },
+        { header: "Forfalt (kr)", width: 18, numFmt: "#,##0.00" },
         { header: "Antall fakturaer", width: 16 },
         { header: "Eldste forfalt (dager)", width: 22 },
       ],
@@ -104,8 +104,8 @@ export function generateControlExcel(
       "Per leverandør",
       [
         { header: "Leverandør", width: 30 },
-        { header: "Total utestående (kr)", width: 22, numFmt: "#,##0" },
-        { header: "Forfalt (kr)", width: 18, numFmt: "#,##0" },
+        { header: "Total utestående (kr)", width: 22, numFmt: "#,##0.00" },
+        { header: "Forfalt (kr)", width: 18, numFmt: "#,##0.00" },
         { header: "Antall fakturaer", width: 16 },
         { header: "Eldste forfalt (dager)", width: 22 },
       ],

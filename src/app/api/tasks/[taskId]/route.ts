@@ -1,7 +1,7 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, contacts, clients, TASK_CATEGORIES } from "@/lib/db/schema";
+import { tasks, contacts, clients, calendarEvents, TASK_CATEGORIES } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { sendTaskExternalEmail } from "@/lib/resend";
@@ -60,6 +60,14 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
   if (data.resolution !== undefined) updates.resolution = data.resolution;
   if (data.metadata !== undefined) updates.metadata = data.metadata;
 
+  if (data.linkedEventId) {
+    const [event] = await db
+      .select({ id: calendarEvents.id })
+      .from(calendarEvents)
+      .where(and(eq(calendarEvents.id, data.linkedEventId), eq(calendarEvents.tenantId, tenantId)));
+    if (!event) return NextResponse.json({ error: "Kalenderhendelse ikke funnet" }, { status: 404 });
+  }
+
   if (data.status !== undefined) {
     updates.status = data.status;
     if (data.status === "completed") {
@@ -83,7 +91,7 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
     const [contact] = await db
       .select({ name: contacts.name, email: contacts.email })
       .from(contacts)
-      .where(eq(contacts.id, data.externalContactId));
+      .where(and(eq(contacts.id, data.externalContactId), eq(contacts.tenantId, tenantId)));
 
     if (contact?.email) {
       let clientName: string | undefined;

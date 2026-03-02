@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Upload } from "lucide-react";
+import { toast } from "sonner";
+import { validateImportFile } from "@/lib/upload-validation";
 
 interface FileDropzoneProps {
   onFile: (file: File) => void;
@@ -19,24 +21,36 @@ export function FileDropzone({
 }: FileDropzoneProps) {
   const [drag, setDrag] = useState(false);
 
+  const validateAndForward = useCallback(
+    (file: File) => {
+      const result = validateImportFile(file);
+      if (!result.valid) {
+        toast.error(result.error);
+        return;
+      }
+      onFile(file);
+    },
+    [onFile]
+  );
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDrag(false);
       if (disabled) return;
       const file = e.dataTransfer.files[0];
-      if (file) onFile(file);
+      if (file) validateAndForward(file);
     },
-    [onFile, disabled]
+    [validateAndForward, disabled]
   );
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) onFile(file);
+      if (file) validateAndForward(file);
       e.target.value = "";
     },
-    [onFile]
+    [validateAndForward]
   );
 
   return (

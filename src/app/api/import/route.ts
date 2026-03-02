@@ -12,9 +12,10 @@ import { logAuditTx } from "@/lib/audit";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { notifyImportCompleted } from "@/lib/notifications";
 import * as Sentry from "@sentry/nextjs";
+import { MAX_IMPORT_SIZE } from "@/lib/upload-validation";
 
 // ── Constants ──
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
+const MAX_FILE_SIZE = MAX_IMPORT_SIZE;
 const ALLOWED_MIME_TYPES = new Set([
   "text/csv",
   "text/plain",

@@ -7,6 +7,8 @@ import {
   contacts,
   tasks,
   clients,
+  transactions,
+  companies,
 } from "@/lib/db/schema";
 import { eq, and, desc, count } from "drizzle-orm";
 import { z } from "zod";
@@ -89,6 +91,40 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       { error: "Kontakt ikke funnet" },
       { status: 404 }
     );
+  }
+
+  if (data.clientId) {
+    const [client] = await db
+      .select({ id: clients.id })
+      .from(clients)
+      .innerJoin(companies, eq(clients.companyId, companies.id))
+      .where(and(eq(clients.id, data.clientId), eq(companies.tenantId, tenantId)));
+    if (!client) {
+      return NextResponse.json({ error: "Klient ikke funnet" }, { status: 404 });
+    }
+  }
+
+  if (data.taskId) {
+    const [task] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(and(eq(tasks.id, data.taskId), eq(tasks.tenantId, tenantId)));
+    if (!task) {
+      return NextResponse.json({ error: "Oppgave ikke funnet" }, { status: 404 });
+    }
+  }
+
+  if (data.transactionId) {
+    if (!data.clientId) {
+      return NextResponse.json({ error: "clientId er påkrevd når transactionId er oppgitt" }, { status: 400 });
+    }
+    const [tx] = await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.id, data.transactionId), eq(transactions.clientId, data.clientId)));
+    if (!tx) {
+      return NextResponse.json({ error: "Transaksjon ikke funnet" }, { status: 404 });
+    }
   }
 
   const token = randomBytes(32).toString("base64url");

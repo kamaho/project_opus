@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
+  AlertCircle,
   CheckCircle2,
   Loader2,
   ArrowRight,
@@ -79,6 +80,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
 
   // Creating
   const [creating, setCreating] = useState(false);
+  const [createProgress, setCreateProgress] = useState<string | null>(null);
 
   // Check if tenant already has a connection
   useEffect(() => {
@@ -185,6 +187,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     setCreating(true);
     setPhase("creating");
     setError(null);
+    setCreateProgress(null);
 
     const txCompanyId = Number(selectedCompanyId);
     const txCompany = txCompanies.find((c) => c.id === txCompanyId);
@@ -192,6 +195,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     const selectedAccounts = txAccounts.filter((a) => selectedAccountIds.has(a.id));
 
     try {
+      setCreateProgress(`Oppretter selskap «${txCompany?.name ?? "Selskap"}»...`);
       const companyRes = await fetch("/api/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,18 +204,25 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
           orgNumber: txCompany?.orgNumber ?? undefined,
           type: "company",
         }),
+        credentials: "include",
       });
+      const companyBody = await companyRes.json().catch(() => ({}));
       if (!companyRes.ok) {
-        const err = await companyRes.json();
-        throw new Error(err.error || "Kunne ikke opprette selskap");
+        const msg = (companyBody as { error?: string }).error || "Kunne ikke opprette selskap";
+        throw new Error(`Selskap: ${msg}`);
       }
-      const company = await companyRes.json();
+      const company = companyBody as { id: string; name: string };
 
       const createdClients: ERPSetupClient[] = [];
 
-      for (const account of selectedAccounts) {
+      for (let i = 0; i < selectedAccounts.length; i++) {
+        const account = selectedAccounts[i];
         const clientName = `${account.number} ${account.name}`;
         const accountType = account.isBankAccount ? "bank" : "ledger";
+
+        setCreateProgress(
+          `Oppretter konto ${i + 1} av ${selectedAccounts.length} (${account.number} ${account.name})...`
+        );
 
         const clientRes = await fetch("/api/clients", {
           method: "POST",
@@ -230,13 +241,16 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
               type: accountType === "bank" ? "ledger" : "bank",
             },
           }),
+          credentials: "include",
         });
+        const clientBody = await clientRes.json().catch(() => ({}));
         if (!clientRes.ok) {
-          const err = await clientRes.json();
-          throw new Error(err.error || `Kunne ikke opprette klient for ${clientName}`);
+          const msg = (clientBody as { error?: string }).error || "Ukjent feil";
+          throw new Error(`Konto ${account.number} ${account.name}: ${msg}`);
         }
-        const client = await clientRes.json();
+        const client = clientBody as { id: string; name: string };
 
+        setCreateProgress(`Synkroniserer konto ${account.number}...`);
         const syncRes = await fetch("/api/tripletex/sync-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -264,6 +278,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
         });
       }
 
+      setCreateProgress(null);
       onComplete({
         companyId: company.id,
         companyName: company.name,
@@ -271,8 +286,9 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
         clients: createdClients,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Noe gikk galt under opprettelsen");
+      setError(e instanceof Error ? e.message : "Noe gikk galt under opprettelsen. Prøv igjen.");
       setPhase("select-accounts");
+      setCreateProgress(null);
     } finally {
       setCreating(false);
     }
@@ -521,9 +537,13 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               <div className="space-y-1 text-center">
                 <p className="text-sm font-medium">Setter opp alt...</p>
-                <p className="text-xs text-muted-foreground">
-                  Oppretter selskap, avstemming og kjører første synkronisering.
-                </p>
+                {createProgress ? (
+                  <p className="text-xs text-muted-foreground">{createProgress}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Oppretter selskap, kontoer og kjører første synkronisering.
+                  </p>
+                )}
               </div>
             </>
           ) : (
@@ -540,7 +560,22 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
       {/* Error display */}
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
+          <div className="flex gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p>{error}</p>
+              {(/tilgang|permission|organisation|organization|403/i.test(error)) && (
+                <p className="text-foreground/70">
+                  Velg riktig organisasjon i headeren og prøv igjen.
+                </p>
+              )}
+              {(/duplikat|allerede|kontoene|duplicate|unique/i.test(error)) && (
+                <p className="text-foreground/70">
+                  Denne kontoen er allerede satt opp. Velg en annen konto, eller gå til dashbordet.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

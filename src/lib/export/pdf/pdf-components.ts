@@ -11,8 +11,8 @@ import path from "node:path";
 export function formatNok(value: number): string {
   return new Intl.NumberFormat("nb-NO", {
     style: "decimal",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 

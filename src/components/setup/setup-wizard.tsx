@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   Building2,
@@ -77,6 +78,7 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const [hasGroup, setHasGroup] = useState<boolean | null>(null);
   const [groupData, setGroupData] = useState<GroupData>({ name: "", orgNumber: "" });
@@ -118,12 +120,14 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
     setError(null);
+    setProgress(null);
 
     try {
       const result: SetupResult = { companies: [], reconciliations: [] };
 
       let parentCompanyId: string | undefined;
       if (hasGroup && groupData.name.trim()) {
+        setProgress(`Oppretter konsern «${groupData.name.trim()}»...`);
         const res = await fetch("/api/companies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -134,14 +138,22 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
           }),
           credentials: "include",
         });
-        const errBody = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((errBody as { error?: string }).error || "Kunne ikke opprette konsern");
-        const group = errBody as { id: string; name: string };
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = (body as { error?: string }).error || "Kunne ikke opprette konsern";
+          throw new Error(`Konsern: ${msg}`);
+        }
+        const group = body as { id: string; name: string };
         result.group = { id: group.id, name: group.name };
         parentCompanyId = group.id;
       }
 
-      for (const companyData of companiesList) {
+      for (let i = 0; i < companiesList.length; i++) {
+        const companyData = companiesList[i];
+        const label = companiesList.length > 1
+          ? `selskap ${i + 1} av ${companiesList.length} («${companyData.name.trim()}»)`
+          : `selskap «${companyData.name.trim()}»`;
+        setProgress(`Oppretter ${label}...`);
         const res = await fetch("/api/companies", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -153,16 +165,24 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
           }),
           credentials: "include",
         });
-        const errBody = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((errBody as { error?: string }).error || "Kunne ikke opprette selskap");
-        const company = errBody as { id: string; name: string };
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = (body as { error?: string }).error || "Kunne ikke opprette selskap";
+          throw new Error(`${companyData.name.trim()}: ${msg}`);
+        }
+        const company = body as { id: string; name: string };
         result.companies.push({ id: company.id, name: company.name });
       }
 
       const firstCompanyId = result.companies[0]?.id;
       if (!firstCompanyId) throw new Error("Ingen selskap opprettet");
 
-      for (const rec of reconciliationsList) {
+      for (let i = 0; i < reconciliationsList.length; i++) {
+        const rec = reconciliationsList[i];
+        const label = reconciliationsList.length > 1
+          ? `avstemming ${i + 1} av ${reconciliationsList.length} («${rec.name.trim()}»)`
+          : `avstemming «${rec.name.trim()}»`;
+        setProgress(`Oppretter ${label}...`);
         const res = await fetch("/api/clients", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -182,17 +202,21 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
           }),
           credentials: "include",
         });
-        const errBody = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((errBody as { error?: string }).error || "Kunne ikke opprette avstemming");
-        const client = errBody as { id: string; name: string; companyId: string };
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const msg = (body as { error?: string }).error || "Kunne ikke opprette avstemming";
+          throw new Error(`${rec.name.trim()}: ${msg}`);
+        }
+        const client = body as { id: string; name: string; companyId: string };
         result.reconciliations.push({ id: client.id, name: client.name, companyId: firstCompanyId });
       }
 
       onComplete(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Noe gikk galt");
+      setError(e instanceof Error ? e.message : "Noe gikk galt. Prøv igjen.");
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
   }, [hasGroup, groupData, companiesList, reconciliationsList, onComplete]);
 
@@ -277,10 +301,22 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
       {/* Error */}
       {error && (
         <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
-          {/organisasjon|organization/i.test(error) && (
-            <p className="mt-2 text-foreground/80">Velg organisasjon i headeren og prøv igjen.</p>
-          )}
+          <div className="flex gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p>{error}</p>
+              {(/organisasjon|organization|tilgang|permission|403/i.test(error)) && (
+                <p className="text-foreground/70">
+                  Velg riktig organisasjon i headeren og prøv igjen.
+                </p>
+              )}
+              {(/duplikat|allerede|kontoene|duplicate|unique/i.test(error)) && (
+                <p className="text-foreground/70">
+                  Kontroller at kontonumrene ikke er i bruk i en annen avstemming.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -307,19 +343,24 @@ export function SetupWizard({ onComplete, onCancel, mode = "fullscreen", hidePro
               <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button onClick={handleSubmit} disabled={submitting}>
-              {submitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Oppretter...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4" />
-                  Opprett alt
-                </>
+            <div className="flex flex-col items-end gap-1.5">
+              {submitting && progress && (
+                <p className="text-xs text-muted-foreground max-w-48 text-right leading-snug">{progress}</p>
               )}
-            </Button>
+              <Button onClick={handleSubmit} disabled={submitting}>
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Oppretter...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    Opprett alt
+                  </>
+                )}
+              </Button>
+            </div>
           )}
         </div>
       </div>

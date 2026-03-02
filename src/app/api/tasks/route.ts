@@ -1,7 +1,7 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, companies, clients, contacts, TASK_CATEGORIES } from "@/lib/db/schema";
+import { tasks, companies, clients, contacts, calendarEvents, TASK_CATEGORIES } from "@/lib/db/schema";
 import { eq, and, inArray, desc, asc, ilike, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { TaskStatus, TaskPriority } from "@/lib/db/schema";
@@ -135,6 +135,14 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
     if (!company) return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
   }
 
+  if (data.linkedEventId) {
+    const [event] = await db
+      .select({ id: calendarEvents.id })
+      .from(calendarEvents)
+      .where(and(eq(calendarEvents.id, data.linkedEventId), eq(calendarEvents.tenantId, tenantId)));
+    if (!event) return NextResponse.json({ error: "Kalenderhendelse ikke funnet" }, { status: 404 });
+  }
+
   const [created] = await db
     .insert(tasks)
     .values({
@@ -162,7 +170,7 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
     const [contact] = await db
       .select({ name: contacts.name, email: contacts.email })
       .from(contacts)
-      .where(eq(contacts.id, data.externalContactId));
+      .where(and(eq(contacts.id, data.externalContactId), eq(contacts.tenantId, tenantId)));
 
     if (contact?.email) {
       let clientName: string | undefined;

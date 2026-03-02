@@ -26,15 +26,15 @@
     {
       "idx": 3,
       "version": "7",
-      "when": 1772444407955,
-      "tag": "0016_add_control_results",
+      "when": 1772479698619,
+      "tag": "0005_add_missing_fk_indexes",
       "breakpoints": true
     },
     {
       "idx": 4,
       "version": "7",
-      "when": 1772600000000,
-      "tag": "0020_add_client_groups_color_icon",
+      "when": 1772620000000,
+      "tag": "0004_catchup_missing_tables",
       "breakpoints": true
     }
   ]

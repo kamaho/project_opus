@@ -1,0 +1,39 @@
+name: Migrate database
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/db/migrations/**"
+      - "src/lib/db/schema.ts"
+
+  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    name: Run Drizzle migrations → prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run migrations
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+        run: npm run db:migrate
+
+      - name: Migration complete
+        run: echo "✅ Database migrations applied to production."

@@ -9,3 +9,10 @@ Denne mappen inneholder **lokale notater og historikk** over endringer som gjør
 - **Filnavn** – anbefalt format: `YYYY-MM-DD-kort-beskrivelse.md` slik at rekkefølgen er tydelig
 
 Filer her er ment som **supplement** til commit-meldinger og kan referere til konkrete filer eller moduler i kodebasen.
+
+## Logg
+
+| Fil | Beskrivelse |
+|---|---|
+| `2026-03-02-prod-hardening.md` | Onboarding-bugfix, full prod-skjema-migrering, GitHub Actions-pipeline, indekser, schema-drift hardening |
+| `2025-02-19-import-excel-klink-felter.md` | Excel-import og klink-felter |

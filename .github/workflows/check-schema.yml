@@ -1,0 +1,54 @@
+name: Check schema drift
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/db/schema.ts"
+      - "src/lib/db/migrations/**"
+
+jobs:
+  check:
+    name: Verify schema.ts ↔ migrations are in sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check journal consistency (drizzle-kit check)
+        env:
+          # drizzle-kit check validates the local journal + snapshots — no real DB needed.
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DATABASE_MIGRATION_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+        run: npx drizzle-kit check
+
+      - name: Check for uncommitted migrations (dry-run generate)
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DATABASE_MIGRATION_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+        run: npx drizzle-kit generate --name=ci_drift_check
+
+      - name: Fail if schema.ts has uncommitted changes
+        run: |
+          NEW_FILES=$(git status --porcelain src/lib/db/migrations/ 2>/dev/null)
+          if [ -n "$NEW_FILES" ]; then
+            echo "❌ Schema drift detected!"
+            echo ""
+            echo "schema.ts has changes that are not reflected in a committed migration file."
+            echo "Run 'npm run db:generate' locally, commit the generated files, and push again."
+            echo ""
+            echo "Uncommitted files:"
+            echo "$NEW_FILES"
+            exit 1
+          fi
+          echo "✅ schema.ts and migration files are in sync."
