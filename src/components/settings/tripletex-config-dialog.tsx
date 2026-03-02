@@ -71,6 +71,11 @@ interface Props {
 export function TripletexConfigDialog({ open, onOpenChange }: Props) {
   const [connectionOk, setConnectionOk] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [consumerToken, setConsumerToken] = useState("");
+  const [employeeToken, setEmployeeToken] = useState("");
+  const [isTestEnv, setIsTestEnv] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const [txCompanies, setTxCompanies] = useState<TripletexCompany[]>([]);
   const [txAccounts, setTxAccounts] = useState<TripletexAccount[]>([]);
@@ -109,6 +114,39 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
   useEffect(() => {
     if (open) checkConnection();
   }, [open, checkConnection]);
+
+  const handleConnect = useCallback(async () => {
+    if (!consumerToken.trim() || !employeeToken.trim()) {
+      setConnectError("Begge nøklene er påkrevd.");
+      return;
+    }
+    setConnecting(true);
+    setConnectError(null);
+    try {
+      const res = await fetch("/api/tripletex/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consumerToken: consumerToken.trim(),
+          employeeToken: employeeToken.trim(),
+          isTest: isTestEnv,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setConnectError(data.error ?? "Tilkobling feilet. Sjekk nøklene og prøv igjen.");
+        return;
+      }
+      toast.success(`Koblet til Tripletex${data.company?.name ? ` (${data.company.name})` : ""}`);
+      setConsumerToken("");
+      setEmployeeToken("");
+      setConnectionOk(true);
+    } catch {
+      setConnectError("Nettverksfeil — sjekk tilkoblingen og prøv igjen.");
+    } finally {
+      setConnecting(false);
+    }
+  }, [consumerToken, employeeToken, isTestEnv]);
 
   const loadCompanies = useCallback(async () => {
     setLoadingCompanies(true);
@@ -323,7 +361,7 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
                 ? "Sjekker..."
                 : connectionOk
                   ? "Koblet til Tripletex"
-                  : "Ikke tilkoblet — sjekk miljøvariabler"}
+                  : "Ikke tilkoblet"}
             </span>
             <Button variant="ghost" size="sm" onClick={checkConnection} disabled={checking}>
               <RefreshCw className="h-3.5 w-3.5" />
@@ -331,10 +369,53 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
           </div>
 
           {!connectionOk && !checking && (
-            <p className="text-sm text-muted-foreground">
-              Sett TRIPLETEX_API_BASE_URL, TRIPLETEX_CONSUMER_TOKEN og
-              TRIPLETEX_EMPLOYEE_TOKEN i .env.local for å koble til.
-            </p>
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Koble til Tripletex ved å lime inn dine API-nøkler. Du finner dem
+                under Innstillinger → Integrasjon → API-tilgang i Tripletex.
+              </p>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="tx-consumer">Consumer token</Label>
+                  <Input
+                    id="tx-consumer"
+                    type="password"
+                    value={consumerToken}
+                    onChange={(e) => setConsumerToken(e.target.value)}
+                    placeholder="Lim inn consumer token..."
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="tx-employee">Employee token</Label>
+                  <Input
+                    id="tx-employee"
+                    type="password"
+                    value={employeeToken}
+                    onChange={(e) => setEmployeeToken(e.target.value)}
+                    placeholder="Lim inn employee token..."
+                    autoComplete="off"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={isTestEnv}
+                    onCheckedChange={(checked) => setIsTestEnv(checked === true)}
+                  />
+                  <span className="text-muted-foreground">Bruk testmiljø (api-test.tripletex.tech)</span>
+                </label>
+                {connectError && (
+                  <p className="text-sm text-destructive">{connectError}</p>
+                )}
+                <Button
+                  onClick={handleConnect}
+                  disabled={connecting || !consumerToken.trim() || !employeeToken.trim()}
+                >
+                  {connecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {connecting ? "Kobler til..." : "Koble til Tripletex"}
+                </Button>
+              </div>
+            </div>
           )}
 
           {connectionOk && (
