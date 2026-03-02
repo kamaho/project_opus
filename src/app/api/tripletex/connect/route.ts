@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { tripletexConnections } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createTripletexSession } from "@/lib/tripletex";
+import { encrypt } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -68,12 +69,15 @@ export const POST = withTenant(async (req, { tenantId }) => {
 
     const whoami = await whoamiRes.json();
 
+    const encryptedConsumer = encrypt(paddedConsumer);
+    const encryptedEmployee = encrypt(paddedEmployee);
+
     const [connection] = await db
       .insert(tripletexConnections)
       .values({
         tenantId,
-        consumerToken: paddedConsumer,
-        employeeToken: paddedEmployee,
+        consumerToken: encryptedConsumer,
+        employeeToken: encryptedEmployee,
         baseUrl,
         label: whoami.value?.company?.name ?? null,
         verifiedAt: new Date(),
@@ -81,8 +85,8 @@ export const POST = withTenant(async (req, { tenantId }) => {
       .onConflictDoUpdate({
         target: [tripletexConnections.tenantId],
         set: {
-          consumerToken: paddedConsumer,
-          employeeToken: paddedEmployee,
+          consumerToken: encryptedConsumer,
+          employeeToken: encryptedEmployee,
           baseUrl,
           label: whoami.value?.company?.name ?? null,
           isActive: true,

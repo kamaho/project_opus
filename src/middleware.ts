@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   "/sign-out",
   "/request-access",
   "/api/health",
+  "/api/cron/(.*)",
   "/d/(.*)",
   "/api/document-requests/public/(.*)",
 ]);

@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { tripletexConnections } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { decrypt, isEncrypted } from "@/lib/crypto";
+import { createHash } from "crypto";
 
 const ENV_BASE_URL = process.env.TRIPLETEX_API_BASE_URL;
 const ENV_CONSUMER_TOKEN = process.env.TRIPLETEX_CONSUMER_TOKEN;
@@ -49,7 +51,9 @@ export async function createTripletexSession(
   consumerToken: string,
   employeeToken: string
 ): Promise<string> {
-  const cacheKey = `${baseUrl}:${consumerToken}:${employeeToken}`;
+  const cacheKey = createHash("sha256")
+    .update(`${baseUrl}:${consumerToken}:${employeeToken}`)
+    .digest("hex");
   const cached = getCachedSession(cacheKey);
   if (cached) return cached;
 
@@ -112,8 +116,12 @@ export async function getTripletexCredentials(
     if (conn?.isActive && conn.consumerToken && conn.employeeToken) {
       return {
         baseUrl: conn.baseUrl,
-        consumerToken: conn.consumerToken,
-        employeeToken: conn.employeeToken,
+        consumerToken: isEncrypted(conn.consumerToken)
+          ? decrypt(conn.consumerToken)
+          : conn.consumerToken,
+        employeeToken: isEncrypted(conn.employeeToken)
+          ? decrypt(conn.employeeToken)
+          : conn.employeeToken,
       };
     }
   } catch {
