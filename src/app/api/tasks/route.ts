@@ -6,6 +6,7 @@ import { eq, and, inArray, desc, asc, ilike, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { TaskStatus, TaskPriority } from "@/lib/db/schema";
 import { sendTaskExternalEmail } from "@/lib/resend";
+import { logAudit } from "@/lib/audit";
 
 const createTaskSchema = z.object({
   title: z.string().min(1).max(500),
@@ -173,6 +174,8 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       }).catch((err) => console.error("[tasks/POST] Failed to send external email:", err));
     }
   }
+
+  await logAudit({ tenantId, userId, action: "task.created", entityType: "task", entityId: created.id, metadata: { title: created.title } });
 
   return NextResponse.json(created, { status: 201 });
 });

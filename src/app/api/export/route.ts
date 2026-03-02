@@ -128,9 +128,7 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       },
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Ukjent feil ved eksport";
-    console.error("[export] Error:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[export] Error:", err);
+    return NextResponse.json({ error: "Eksport feilet" }, { status: 500 });
   }
 });

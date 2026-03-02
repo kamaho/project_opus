@@ -5,6 +5,7 @@ import { tasks, contacts, clients, TASK_CATEGORIES } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { sendTaskExternalEmail } from "@/lib/resend";
+import { logAudit } from "@/lib/audit";
 
 const updateTaskSchema = z.object({
   title: z.string().min(1).max(500).optional(),
@@ -97,10 +98,12 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
     }
   }
 
+  await logAudit({ tenantId, userId, action: "task.updated", entityType: "task", entityId: taskId });
+
   return NextResponse.json(updated);
 });
 
-export const DELETE = withTenant(async (_req, { tenantId }, params) => {
+export const DELETE = withTenant(async (_req, { tenantId, userId }, params) => {
   const taskId = params!.taskId;
 
   const [deleted] = await db
@@ -109,6 +112,8 @@ export const DELETE = withTenant(async (_req, { tenantId }, params) => {
     .returning({ id: tasks.id });
 
   if (!deleted) return NextResponse.json({ error: "Oppgave ikke funnet" }, { status: 404 });
+
+  await logAudit({ tenantId, userId, action: "task.deleted", entityType: "task", entityId: taskId });
 
   return NextResponse.json({ success: true });
 });

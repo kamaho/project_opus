@@ -31,7 +31,7 @@ export const GET = withTenant(async (_req, { tenantId }) => {
 
     return NextResponse.json({ accounts: mapped });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 502 });
+    console.error("[tripletex/accounts]", error);
+    return NextResponse.json({ error: "Kunne ikke hente kontoer fra Tripletex" }, { status: 502 });
   }
 });

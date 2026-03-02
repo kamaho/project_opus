@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { transactionAttachments, transactions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { supabase, ATTACHMENTS_BUCKET } from "@/lib/supabase";
+import { validateUploadedFile, sanitizeFilename } from "@/lib/upload-validation";
 
 export const GET = withTenant(async (req, { tenantId }, params) => {
   await verifyClientOwnership(params!.clientId, tenantId);
@@ -50,11 +51,19 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     return NextResponse.json({ error: "Ingen filer mottatt" }, { status: 400 });
   }
 
+  for (const file of files) {
+    const validation = validateUploadedFile(file);
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+  }
+
   const results = [];
 
   for (const file of files) {
+    const safeName = sanitizeFilename(file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storagePath = `${tenantId}/${clientId}/${transactionId}/${Date.now()}-${file.name}`;
+    const storagePath = `${tenantId}/${clientId}/${transactionId}/${Date.now()}-${safeName}`;
 
     const { error: uploadError } = await supabase.storage
       .from(ATTACHMENTS_BUCKET)
@@ -72,7 +81,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
       .values({
         transactionId,
         clientId,
-        filename: file.name,
+        filename: safeName,
         filePath: storagePath,
         fileSize: file.size,
         contentType: file.type || "application/octet-stream",

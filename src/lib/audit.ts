@@ -15,14 +15,40 @@ type AuditAction =
   | "transaction.deleted"
   | "rule.created"
   | "rule.updated"
-  | "rule.deleted";
+  | "rule.deleted"
+  | "client.created"
+  | "client.deleted"
+  | "client.updated"
+  | "company.created"
+  | "contact.created"
+  | "contact.updated"
+  | "contact.deleted"
+  | "group.created"
+  | "group.updated"
+  | "group.deleted"
+  | "task.created"
+  | "task.updated"
+  | "task.deleted"
+  | "tripletex.connected"
+  | "tripletex.disconnected"
+  | "tripletex.synced"
+  | "export.generated"
+  | "settings.updated"
+  | "auto_match.executed";
 
 type AuditEntityType =
   | "import"
   | "transaction"
   | "match"
   | "matching_rule"
-  | "client";
+  | "client"
+  | "company"
+  | "contact"
+  | "client_group"
+  | "task"
+  | "tripletex_connection"
+  | "export"
+  | "settings";
 
 interface AuditEntry {
   tenantId: string;

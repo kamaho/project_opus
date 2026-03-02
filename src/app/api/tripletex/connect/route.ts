@@ -1,10 +1,11 @@
-import { withTenant } from "@/lib/auth";
+import { withTenant, requireAdmin } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexConnections } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createTripletexSession } from "@/lib/tripletex";
 import { encrypt } from "@/lib/crypto";
+import { logAudit } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,9 @@ export const dynamic = "force-dynamic";
  * POST /api/tripletex/connect
  * Verifies Tripletex credentials and saves them for the tenant.
  */
-export const POST = withTenant(async (req, { tenantId }) => {
+export const POST = withTenant(async (req, ctx) => {
+  requireAdmin(ctx);
+  const { tenantId } = ctx;
   const body = await req.json();
   const { consumerToken, employeeToken } = body as {
     consumerToken?: string;
@@ -95,6 +98,8 @@ export const POST = withTenant(async (req, { tenantId }) => {
         },
       })
       .returning();
+
+    await logAudit({ tenantId, userId: ctx.userId, action: "tripletex.connected", entityType: "tripletex_connection", entityId: connection.id, metadata: { label: connection.label } });
 
     return NextResponse.json({
       ok: true,

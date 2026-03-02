@@ -56,7 +56,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   } catch (err) {
     console.error("[auto-match] Failed:", err);
     return NextResponse.json(
-      { error: "Matching feilet", details: String(err) },
+      { error: "Matching feilet" },
       { status: 500 }
     );
   }

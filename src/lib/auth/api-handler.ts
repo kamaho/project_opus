@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireTenant, type TenantContext } from "./tenant";
+import { applyGlobalRateLimit } from "../rate-limit";
 
 type ApiHandler = (
   req: NextRequest,
@@ -10,8 +11,9 @@ type ApiHandler = (
 /**
  * Wrapper for API-ruter som:
  * 1. Kjører requireTenant() automatisk
- * 2. Fanger AuthError og returnerer riktig HTTP-status
- * 3. Fanger uventede feil og returnerer 500 uten å lekke detaljer
+ * 2. Appliserer global rate limiting
+ * 3. Fanger AuthError og returnerer riktig HTTP-status
+ * 4. Fanger uventede feil og returnerer 500 uten å lekke detaljer
  */
 export function withTenant(handler: ApiHandler) {
   return async (
@@ -20,6 +22,14 @@ export function withTenant(handler: ApiHandler) {
   ) => {
     try {
       const tenant = await requireTenant();
+
+      const rateLimitResponse = applyGlobalRateLimit(
+        tenant.userId,
+        req.headers.get("x-forwarded-for")?.split(",")[0] ?? null,
+        req.method
+      );
+      if (rateLimitResponse) return rateLimitResponse;
+
       const params = context?.params ? await context.params : undefined;
       return await handler(req, tenant, params);
     } catch (error) {
@@ -29,7 +39,7 @@ export function withTenant(handler: ApiHandler) {
           { status: error.statusCode }
         );
       }
-      console.error("[api] Unhandled error:", error);
+      console.error("[api] Unhandled error:", error instanceof Error ? error.message : error);
       return NextResponse.json(
         { error: "Internal server error" },
         { status: 500 }

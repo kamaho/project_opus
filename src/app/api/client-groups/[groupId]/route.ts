@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clientGroups, clientGroupMembers, clients, companies } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
+import { logAudit } from "@/lib/audit";
 
-export const DELETE = withTenant(async (_req, { tenantId }, params) => {
+export const DELETE = withTenant(async (_req, { tenantId, userId }, params) => {
   const groupId = params!.groupId;
 
   const [group] = await db
@@ -15,6 +16,8 @@ export const DELETE = withTenant(async (_req, { tenantId }, params) => {
   if (!group) return NextResponse.json({ error: "Gruppe ikke funnet" }, { status: 404 });
 
   await db.delete(clientGroups).where(eq(clientGroups.id, groupId));
+
+  await logAudit({ tenantId, userId, action: "group.deleted", entityType: "client_group", entityId: groupId });
 
   return NextResponse.json({ ok: true });
 });

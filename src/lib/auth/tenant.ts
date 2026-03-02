@@ -1,8 +1,11 @@
 import { auth } from "@clerk/nextjs/server";
 
+export type OrgRole = "org:admin" | "org:member" | "org:viewer";
+
 export type TenantContext = {
   userId: string;
   tenantId: string;
+  role: OrgRole;
 };
 
 export class AuthError extends Error {
@@ -18,11 +21,9 @@ export class AuthError extends Error {
 /**
  * Henter og validerer tenant-kontekst fra Clerk session.
  * Kaster AuthError hvis bruker ikke er autentisert eller mangler organisasjon.
- *
- * Bruk i ALLE API-ruter og server actions som trenger tenant-tilgang.
  */
 export async function requireTenant(): Promise<TenantContext> {
-  const { userId, orgId } = await auth();
+  const { userId, orgId, orgRole } = await auth();
 
   if (!userId) {
     throw new AuthError("Not authenticated", 401);
@@ -31,5 +32,31 @@ export async function requireTenant(): Promise<TenantContext> {
     throw new AuthError("No organization selected", 403);
   }
 
-  return { userId, tenantId: orgId };
+  const role = (orgRole as OrgRole) ?? "org:member";
+
+  return { userId, tenantId: orgId, role };
+}
+
+/**
+ * Sjekker at brukeren har en av de angitte rollene.
+ * Kaster AuthError 403 hvis brukeren ikke har tilstrekkelig tilgang.
+ */
+export function requireRole(ctx: TenantContext, ...allowed: OrgRole[]): void {
+  if (!allowed.includes(ctx.role)) {
+    throw new AuthError("Insufficient permissions", 403);
+  }
+}
+
+/**
+ * Sjekker at brukeren er admin (org:admin).
+ */
+export function requireAdmin(ctx: TenantContext): void {
+  requireRole(ctx, "org:admin");
+}
+
+/**
+ * Sjekker at brukeren er admin eller vanlig medlem (ikke viewer).
+ */
+export function requireMember(ctx: TenantContext): void {
+  requireRole(ctx, "org:admin", "org:member");
 }
