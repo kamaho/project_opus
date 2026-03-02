@@ -3,6 +3,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { InputModeTracker } from "@/components/input-mode-tracker";
 import { Toaster } from "sonner";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -41,6 +42,7 @@ export default function RootLayout({
         >
           <InputModeTracker />
           <Toaster position="top-right" richColors closeButton />
+          <SpeedInsights />
           <TooltipProvider>{children}</TooltipProvider>
         </body>
       </html>

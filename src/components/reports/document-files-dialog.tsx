@@ -115,7 +115,7 @@ export function DocumentFilesDialog({
                         {req.contactName ?? req.contactEmail ?? "Ekstern"}
                       </span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">
+                    <span className="text-[10px] text-muted-foreground shrink-0 whitespace-nowrap">
                       {formatDate(req.createdAt)}
                     </span>
                   </div>

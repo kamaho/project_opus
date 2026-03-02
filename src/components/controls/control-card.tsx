@@ -71,7 +71,7 @@ export function ControlCard({
       </div>
 
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        <span>Kjørt: {dateStr}</span>
+        <span className="whitespace-nowrap">Kjørt: {dateStr}</span>
         {summary.totalDeviationAmount > 0 && (
           <span>Sum avvik: {NOK.format(summary.totalDeviationAmount)} kr</span>
         )}

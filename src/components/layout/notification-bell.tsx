@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useFormatting } from "@/contexts/ui-preferences-context";
 import {
   Bell,
@@ -64,6 +65,7 @@ function NotificationIcon({ type }: { type: string }) {
 }
 
 export function NotificationBell() {
+  const { isSignedIn, isLoaded } = useAuth();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,9 +75,12 @@ export function NotificationBell() {
   const initialLoadRef = useRef(true);
 
   const fetchNotifications = useCallback(async () => {
+    if (!isLoaded || !isSignedIn) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/notifications?limit=30");
+      const res = await fetch("/api/notifications?limit=30", {
+        credentials: "same-origin",
+      });
       if (!res.ok) return;
       const data: Notification[] = await res.json();
       setNotifications(data);
@@ -115,17 +120,18 @@ export function NotificationBell() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 30_000);
     return () => clearInterval(interval);
-  }, [fetchNotifications]);
+  }, [isLoaded, isSignedIn, fetchNotifications]);
 
   useEffect(() => {
-    if (open) fetchNotifications();
-  }, [open, fetchNotifications]);
+    if (open && isLoaded && isSignedIn) fetchNotifications();
+  }, [open, isLoaded, isSignedIn, fetchNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 

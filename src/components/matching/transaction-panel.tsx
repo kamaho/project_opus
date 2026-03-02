@@ -546,7 +546,7 @@ export const TransactionPanel = memo(function TransactionPanel({
     el.textContent = text || "—";
     document.body.appendChild(el);
     const w = el.getBoundingClientRect().width;
-    document.body.removeChild(el);
+    if (el.parentNode === document.body) document.body.removeChild(el);
     return w;
   }, []);
 

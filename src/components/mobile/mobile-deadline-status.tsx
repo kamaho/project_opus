@@ -311,7 +311,7 @@ function DeadlineCard({
           </div>
 
           <div className="flex items-center gap-3 mt-1.5">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
               {dateFmt.format(new Date(d.date + "T00:00:00"))}
             </span>
             <span

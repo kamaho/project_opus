@@ -146,7 +146,7 @@ export function ReportCard({
           </div>
           <div className="mt-3 flex items-center justify-between">
             <p className="text-[11px] text-muted-foreground">
-              Generert {formattedDate}
+              <span className="whitespace-nowrap">Generert {formattedDate}</span>
             </p>
             <div className="flex items-center gap-1">
               {hasWorkspace && (

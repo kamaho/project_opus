@@ -185,7 +185,7 @@ export function ControlDetail({
             <h1 className="text-lg font-semibold">{typeLabel}</h1>
           </div>
           <p className="text-sm text-muted-foreground ml-9">
-            {companyName} &middot; {dateStr} &middot; Kilde: {sourceSystem}
+            <span className="whitespace-nowrap">{companyName} &middot; {dateStr} &middot; Kilde: {sourceSystem}</span>
           </p>
         </div>
         <div className="flex items-center gap-2">

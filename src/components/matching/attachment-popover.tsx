@@ -56,6 +56,7 @@ export function AttachmentPopover({
   const [previewAttachment, setPreviewAttachment] = useState<{ id: string; filename: string; contentType: string | null; url: string } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewBlobUrlRef = useRef<string | null>(null);
 
   const fetchAttachments = useCallback(async () => {
     setLoading(true);
@@ -153,14 +154,25 @@ export function AttachmentPopover({
         return;
       }
       setPreviewLoading(true);
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
       try {
         const inlineUrl = `/api/clients/${clientId}/transactions/${transactionId}/attachments/${attachment.id}/download?inline=1`;
+        const res = await fetch(inlineUrl, { credentials: "include" });
+        if (!res.ok) throw new Error("Kunne ikke laste forhåndsvisning");
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        previewBlobUrlRef.current = blobUrl;
         setPreviewAttachment({
           id: attachment.id,
           filename: attachment.filename,
           contentType: attachment.contentType,
-          url: inlineUrl,
+          url: blobUrl,
         });
+      } catch {
+        setPreviewAttachment(null);
       } finally {
         setPreviewLoading(false);
       }
@@ -168,16 +180,33 @@ export function AttachmentPopover({
     [clientId, transactionId, canPreviewInline, handleDownload]
   );
 
+  const clearPreview = useCallback(() => {
+    if (previewBlobUrlRef.current) {
+      URL.revokeObjectURL(previewBlobUrlRef.current);
+      previewBlobUrlRef.current = null;
+    }
+    setPreviewAttachment(null);
+  }, []);
+
   const hasAttachments = attachments.length > 0;
 
+  useEffect(() => {
+    return () => {
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) setPreviewAttachment(null); onOpenChange(v); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) clearPreview(); onOpenChange(v); }}>
       <DialogContent className={cn("sm:max-w-sm transition-all overflow-hidden", previewAttachment && "sm:max-w-lg")}>
         {previewAttachment ? (
           <>
             <DialogHeader>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={() => setPreviewAttachment(null)}>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 shrink-0" onClick={clearPreview}>
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <DialogTitle className="truncate text-sm">{previewAttachment.filename}</DialogTitle>
