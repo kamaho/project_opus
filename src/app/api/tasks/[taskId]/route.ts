@@ -17,6 +17,8 @@ const updateTaskSchema = z.object({
   externalContactId: z.string().uuid().nullable().optional(),
   notifyExternal: z.boolean().optional(),
   dueDate: z.string().nullable().optional(),
+  linkedDeadlineId: z.string().uuid().nullable().optional(),
+  linkedEventId: z.string().uuid().nullable().optional(),
   resolution: z.string().nullable().optional(),
   metadata: z.any().optional(),
 });
@@ -53,6 +55,8 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
   if (data.externalContactId !== undefined) updates.externalContactId = data.externalContactId;
   if (data.notifyExternal !== undefined) updates.notifyExternal = data.notifyExternal;
   if (data.dueDate !== undefined) updates.dueDate = data.dueDate;
+  if (data.linkedDeadlineId !== undefined) updates.linkedDeadlineId = data.linkedDeadlineId;
+  if (data.linkedEventId !== undefined) updates.linkedEventId = data.linkedEventId;
   if (data.resolution !== undefined) updates.resolution = data.resolution;
   if (data.metadata !== undefined) updates.metadata = data.metadata;
 

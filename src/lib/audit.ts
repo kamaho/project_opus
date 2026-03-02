@@ -34,7 +34,13 @@ type AuditAction =
   | "tripletex.synced"
   | "export.generated"
   | "settings.updated"
-  | "auto_match.executed";
+  | "auto_match.executed"
+  | "control.executed"
+  | "report.generated"
+  | "report.deleted"
+  | "calendar_event.created"
+  | "calendar_event.updated"
+  | "calendar_event.deleted";
 
 type AuditEntityType =
   | "import"
@@ -48,7 +54,10 @@ type AuditEntityType =
   | "task"
   | "tripletex_connection"
   | "export"
-  | "settings";
+  | "settings"
+  | "control_result"
+  | "report"
+  | "calendar_event";
 
 interface AuditEntry {
   tenantId: string;

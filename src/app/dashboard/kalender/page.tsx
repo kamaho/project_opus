@@ -1,6 +1,6 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { tasks, regulatoryDeadlines } from "@/lib/db/schema";
+import { tasks, regulatoryDeadlines, calendarEvents } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { CalendarClient } from "./calendar-client";
 
@@ -15,33 +15,40 @@ export default async function KalenderPage() {
     );
   }
 
-  const deadlines = await db.select().from(regulatoryDeadlines);
+  const [deadlines, activeTasks, events, clerkData] = await Promise.all([
+    db.select().from(regulatoryDeadlines),
+    db
+      .select({
+        id: tasks.id,
+        title: tasks.title,
+        status: tasks.status,
+        priority: tasks.priority,
+        dueDate: tasks.dueDate,
+        clientId: tasks.clientId,
+        assigneeId: tasks.assigneeId,
+      })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.tenantId, orgId),
+          inArray(tasks.status, ["open", "in_progress", "waiting"])
+        )
+      ),
+    db
+      .select()
+      .from(calendarEvents)
+      .where(eq(calendarEvents.tenantId, orgId))
+      .orderBy(calendarEvents.startAt)
+      .limit(1000),
+    clerkClient().then((clerk) =>
+      clerk.organizations.getOrganizationMembershipList({
+        organizationId: orgId,
+        limit: 100,
+      })
+    ),
+  ]);
 
-  const activeTasks = await db
-    .select({
-      id: tasks.id,
-      title: tasks.title,
-      status: tasks.status,
-      priority: tasks.priority,
-      dueDate: tasks.dueDate,
-      clientId: tasks.clientId,
-      assigneeId: tasks.assigneeId,
-    })
-    .from(tasks)
-    .where(
-      and(
-        eq(tasks.tenantId, orgId),
-        inArray(tasks.status, ["open", "in_progress", "waiting"])
-      )
-    );
-
-  const clerk = await clerkClient();
-  const membershipsResponse = await clerk.organizations.getOrganizationMembershipList({
-    organizationId: orgId,
-    limit: 100,
-  });
-
-  const members = membershipsResponse.data.map((m) => {
+  const members = clerkData.data.map((m) => {
     const user = m.publicUserData;
     return {
       userId: user?.userId ?? "",
@@ -101,6 +108,19 @@ export default async function KalenderPage() {
         priority: t.priority,
         dueDate: t.dueDate,
         assigneeId: t.assigneeId,
+      }))}
+      calendarEvents={events.map((e) => ({
+        id: e.id,
+        title: e.title,
+        description: e.description,
+        type: e.type,
+        startAt: e.startAt.toISOString(),
+        endAt: e.endAt?.toISOString() ?? null,
+        allDay: e.allDay ?? false,
+        color: e.color,
+        createdBy: e.createdBy,
+        attendees: e.attendees ?? [],
+        reminderMinutesBefore: e.reminderMinutesBefore,
       }))}
       teamCapacity={teamCapacity}
     />

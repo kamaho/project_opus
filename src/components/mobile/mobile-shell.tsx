@@ -1,22 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Bell, FileText, ListChecks, Monitor } from "lucide-react";
+import { Sparkles, Bell, FileText, Calendar, Monitor } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
 import { RevizoLogo } from "@/components/ui/revizo-logo";
 import { cn } from "@/lib/utils";
 import { MobileAiTab } from "./mobile-ai-tab";
 import { MobileNotificationsTab } from "./mobile-notifications-tab";
 import { MobileReportsTab } from "./mobile-reports-tab";
-import { MobileTasksTeaser } from "./mobile-tasks-teaser";
+import { MobileDeadlineStatus } from "./mobile-deadline-status";
 
-type Tab = "ai" | "notifications" | "reports" | "tasks";
+type Tab = "ai" | "notifications" | "reports" | "deadlines";
 
 const TABS: { id: Tab; label: string; icon: typeof Sparkles }[] = [
   { id: "ai", label: "Revizo AI", icon: Sparkles },
   { id: "notifications", label: "Varsler", icon: Bell },
   { id: "reports", label: "Rapporter", icon: FileText },
-  { id: "tasks", label: "Oppgaver", icon: ListChecks },
+  { id: "deadlines", label: "Frister", icon: Calendar },
 ];
 
 interface MobileShellProps {
@@ -52,7 +52,7 @@ export function MobileShell({ onRequestDesktop }: MobileShellProps) {
         {activeTab === "ai" && <MobileAiTab />}
         {activeTab === "notifications" && <MobileNotificationsTab />}
         {activeTab === "reports" && <MobileReportsTab />}
-        {activeTab === "tasks" && <MobileTasksTeaser />}
+        {activeTab === "deadlines" && <MobileDeadlineStatus />}
       </main>
 
       {/* Bottom tab bar */}

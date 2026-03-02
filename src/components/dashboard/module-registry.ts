@@ -12,8 +12,8 @@ export const moduleRegistry: Record<string, DashboardModuleConfig> = {
   },
   "key-figures": {
     id: "key-figures",
-    title: "Nøkkeltall",
-    description: "Nøkkeltall og KPIer for byrået",
+    title: "Kommende hendelser",
+    description: "Oppgaver, frister og kalenderhendelser som nærmer seg",
     component: lazy(() => import("./modules/key-figures")),
     dashboardType: "agency",
     defaultSize: "medium",

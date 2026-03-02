@@ -9,8 +9,16 @@ import {
   XCircle,
   AlertTriangle,
   Loader2,
+  Download,
+  FileInput,
+  FileOutput,
+  Receipt,
+  Users,
+  Palmtree,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ReportSummary } from "@/lib/reports/types";
 
 interface ReportLog {
   id: string;
@@ -37,8 +45,34 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; className: stri
   partial: { icon: AlertTriangle, className: "text-amber-500", label: "Delvis" },
 };
 
+const TYPE_ICONS: Record<string, LucideIcon> = {
+  accounts_receivable: FileInput,
+  accounts_payable: FileOutput,
+  vat_summary: Receipt,
+  payroll_summary: Users,
+  holiday_pay: Palmtree,
+};
+const TYPE_LABELS: Record<string, string> = {
+  accounts_receivable: "Kundefordringer",
+  accounts_payable: "Leverandørgjeld",
+  vat_summary: "MVA-oppstilling",
+  payroll_summary: "Lønnsoppstilling",
+  holiday_pay: "Feriepenger",
+};
+
+interface GeneratedReport {
+  id: string;
+  reportType: string;
+  title: string;
+  format: string;
+  companyName: string;
+  summary: ReportSummary;
+  generatedAt: string;
+}
+
 export function MobileReportsTab() {
   const [logs, setLogs] = useState<ReportLog[]>([]);
+  const [generatedReports, setGeneratedReports] = useState<GeneratedReport[]>([]);
   const [loading, setLoading] = useState(true);
   const { fmtDate: fmtD } = useFormatting();
   const fetchedRef = useRef(false);
@@ -46,10 +80,18 @@ export function MobileReportsTab() {
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/agent-reports/history?limit=50");
-      if (!res.ok) return;
-      const data: ReportLog[] = await res.json();
-      setLogs(data);
+      const [agentRes, reportsRes] = await Promise.all([
+        fetch("/api/agent-reports/history?limit=50"),
+        fetch("/api/reports?limit=20"),
+      ]);
+      if (agentRes.ok) {
+        const data: ReportLog[] = await agentRes.json();
+        setLogs(data);
+      }
+      if (reportsRes.ok) {
+        const data: GeneratedReport[] = await reportsRes.json();
+        setGeneratedReports(data);
+      }
     } finally {
       setLoading(false);
     }
@@ -93,7 +135,49 @@ export function MobileReportsTab() {
         </span>
       </div>
 
-      {/* Reports list */}
+      {/* Generated reports */}
+      {generatedReports.length > 0 && (
+        <div className="border-b">
+          <div className="px-4 py-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Genererte rapporter</p>
+          </div>
+          {generatedReports.map((r) => {
+            const RIcon = TYPE_ICONS[r.reportType] ?? FileText;
+            return (
+              <div
+                key={r.id}
+                className="flex items-center gap-3 px-4 py-3 border-b last:border-b-0"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <RIcon className="h-4 w-4 text-muted-foreground" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{TYPE_LABELS[r.reportType] ?? r.reportType}</p>
+                  <p className="text-xs text-muted-foreground">{r.companyName} · {r.format.toUpperCase()}</p>
+                </div>
+                <button
+                  className="shrink-0 p-2 text-muted-foreground hover:text-foreground"
+                  onClick={async () => {
+                    const res = await fetch(`/api/reports/${r.id}/download`);
+                    if (!res.ok) return;
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = r.title + (r.format === "pdf" ? ".pdf" : ".xlsx");
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  <Download className="h-4 w-4" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Agent reports list */}
       <div className="flex-1 overflow-y-auto">
         {loading && logs.length === 0 ? (
           <div className="flex items-center justify-center py-16">

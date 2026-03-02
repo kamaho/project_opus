@@ -20,6 +20,7 @@ const createSchema = z.object({
   clientId: z.string().uuid().optional(),
   transactionId: z.string().uuid().optional(),
   message: z.string().max(2000).optional(),
+  metadata: z.any().optional(),
   expiresInDays: z.number().int().min(1).max(90).default(14),
 });
 
@@ -94,21 +95,31 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + data.expiresInDays);
 
-  const [created] = await db
-    .insert(documentRequests)
-    .values({
-      tenantId,
-      token,
-      taskId: data.taskId ?? null,
-      clientId: data.clientId ?? null,
-      transactionId: data.transactionId ?? null,
-      contactId: data.contactId,
-      createdBy: userId,
-      message: data.message ?? null,
-      status: "pending",
-      expiresAt,
-    })
-    .returning();
+  let created;
+  try {
+    [created] = await db
+      .insert(documentRequests)
+      .values({
+        tenantId,
+        token,
+        taskId: data.taskId ?? null,
+        clientId: data.clientId ?? null,
+        transactionId: data.transactionId ?? null,
+        contactId: data.contactId,
+        createdBy: userId,
+        message: data.message ?? null,
+        metadata: data.metadata ?? {},
+        status: "pending",
+        expiresAt,
+      })
+      .returning();
+  } catch (dbErr) {
+    console.error("[document-requests] DB insert failed:", dbErr);
+    return NextResponse.json(
+      { error: "Kunne ikke opprette forespørsel" },
+      { status: 500 },
+    );
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://app.revizo.no";
   const uploadUrl = `${appUrl}/d/${token}`;

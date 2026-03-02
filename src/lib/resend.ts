@@ -434,7 +434,7 @@ export async function sendDocumentRequestEmail(params: DocumentRequestEmailParam
       ${paragraph(`<strong>${fromLabel}</strong> ber om at du laster opp dokumentasjon.`)}
       ${requestMessage ? `
         <div style="background:${T.subtle};border-radius:6px;padding:16px;margin-bottom:16px;border-left:3px solid ${T.brand};">
-          <div style="font-size:14px;color:${T.fg};line-height:1.6;">${requestMessage}</div>
+          <div style="font-size:14px;color:${T.fg};line-height:1.6;">${requestMessage.replace(/\n/g, "<br>")}</div>
         </div>
       ` : ""}
       ${paragraph("Klikk på knappen under for å laste opp filer. Du trenger ikke å logge inn.")}
@@ -473,5 +473,44 @@ export async function sendTaskExternalEmail(params: TaskExternalEmailParams) {
       </div>
       ${mutedText("Vennligst ta kontakt med din regnskapsfører dersom du har spørsmål.")}
     `),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Account statement email (kontoutskrift)
+// ---------------------------------------------------------------------------
+
+export async function sendStatementEmail(params: {
+  to: string;
+  contactName: string;
+  companyName: string;
+  customerName: string;
+  perDato: string;
+  message?: string;
+  pdfBuffer: Buffer;
+  pdfFileName: string;
+}) {
+  if (!resend) return;
+
+  await sendEmail("statement", {
+    from: FROM_ADDRESS,
+    to: params.to,
+    subject: `Kontoutskrift fra ${params.companyName}`,
+    html: emailLayout(`
+      ${heading("Kontoutskrift")}
+      ${paragraph(`Hei ${params.contactName},`)}
+      ${paragraph(params.message || `Vedlagt finner du kontoutskrift for ${params.customerName} per ${params.perDato}.`)}
+      <div style="background:${T.subtle};border-radius:6px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:13px;color:${T.fg};line-height:1.8;">
+          <strong>Kunde:</strong> ${params.customerName}<br>
+          <strong>Per dato:</strong> ${params.perDato}<br>
+          <strong>Selskap:</strong> ${params.companyName}
+        </div>
+      </div>
+      ${mutedText("Kontoutskriften er vedlagt som PDF.")}
+    `),
+    attachments: [
+      { filename: params.pdfFileName, content: params.pdfBuffer },
+    ],
   });
 }

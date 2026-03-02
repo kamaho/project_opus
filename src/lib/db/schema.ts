@@ -309,6 +309,13 @@ export const TASK_CATEGORIES = [
   "needs_approval",
   "follow_up_external",
   "flag_for_later",
+  "clarify",
+  "document",
+  "reconcile",
+  "correct",
+  "follow_up",
+  "control",
+  "report",
   "other",
 ] as const;
 
@@ -341,6 +348,8 @@ export const tasks = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedBy: text("completed_by"),
     resolution: text("resolution"),
+    linkedDeadlineId: uuid("linked_deadline_id").references(() => regulatoryDeadlines.id, { onDelete: "set null" }),
+    linkedEventId: uuid("linked_event_id").references(() => calendarEvents.id, { onDelete: "set null" }),
     metadata: jsonb("metadata").default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -352,6 +361,8 @@ export const tasks = pgTable(
     index("idx_tasks_client").on(t.clientId),
     index("idx_tasks_company").on(t.companyId),
     index("idx_tasks_due_date").on(t.tenantId, t.dueDate),
+    index("idx_tasks_linked_deadline").on(t.tenantId, t.linkedDeadlineId),
+    index("idx_tasks_linked_event").on(t.tenantId, t.linkedEventId),
   ]
 );
 
@@ -694,6 +705,7 @@ export const documentRequests = pgTable(
     contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
     createdBy: text("created_by").notNull(),
     message: text("message"),
+    metadata: jsonb("metadata").default({}),
     status: text("status", { enum: [...DOCUMENT_REQUEST_STATUSES] }).notNull().default("pending"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -742,6 +754,42 @@ export const contacts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [index("idx_contacts_tenant").on(t.tenantId)]
+);
+
+// ---------------------------------------------------------------------------
+// Control Results (kontrollresultater — kundefordringer, leverandørgjeld, etc.)
+// ---------------------------------------------------------------------------
+export const controlResults = pgTable(
+  "control_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    controlType: text("control_type").notNull(),
+    periodYear: integer("period_year"),
+    periodMonth: integer("period_month"),
+    periodQuarter: integer("period_quarter"),
+    asOfDate: timestamp("as_of_date", { withTimezone: true }),
+    overallStatus: text("overall_status").notNull(),
+    summary: jsonb("summary").notNull(),
+    deviations: jsonb("deviations").notNull(),
+    sourceSystem: text("source_system").notNull(),
+    reportPdfUrl: text("report_pdf_url"),
+    reportExcelUrl: text("report_excel_url"),
+    executedAt: timestamp("executed_at", { withTimezone: true }).defaultNow(),
+    executedBy: text("executed_by").notNull(),
+    metadata: jsonb("metadata").default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_control_results_tenant").on(t.tenantId),
+    index("idx_control_results_company").on(t.companyId),
+    index("idx_control_results_type").on(t.controlType),
+    index("idx_control_results_type_period").on(t.controlType, t.periodYear, t.periodMonth),
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -928,5 +976,70 @@ export const dashboardConfigs = pgTable(
       t.dashboardType
     ),
     index("idx_dashboard_configs_tenant").on(t.tenantId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Calendar Events (meetings, reminders, custom deadlines)
+// ---------------------------------------------------------------------------
+export const CALENDAR_EVENT_TYPES = ["meeting", "reminder", "custom_deadline"] as const;
+export type CalendarEventType = (typeof CALENDAR_EVENT_TYPES)[number];
+
+export const calendarEvents = pgTable(
+  "calendar_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    type: text("type", { enum: [...CALENDAR_EVENT_TYPES] }).notNull(),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }),
+    allDay: boolean("all_day").default(false),
+    color: text("color"),
+    createdBy: text("created_by").notNull(),
+    attendees: text("attendees").array().default(sql`'{}'::text[]`),
+    reminderMinutesBefore: integer("reminder_minutes_before"),
+    recurrence: text("recurrence"),
+    metadata: jsonb("metadata").default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_cal_events_tenant").on(t.tenantId),
+    index("idx_cal_events_range").on(t.tenantId, t.startAt, t.endAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Reports (generated financial reports — PDF/Excel)
+// ---------------------------------------------------------------------------
+export const reports = pgTable(
+  "reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    reportType: text("report_type").notNull(),
+    title: text("title").notNull(),
+    format: text("format").notNull(),
+    fileUrl: text("file_url").notNull(),
+    fileName: text("file_name").notNull(),
+    summary: jsonb("summary").notNull(),
+    config: jsonb("config").notNull(),
+    periodYear: integer("period_year"),
+    periodMonth: integer("period_month"),
+    asOfDate: timestamp("as_of_date", { withTimezone: true }),
+    sourceSystem: text("source_system").notNull(),
+    generatedBy: text("generated_by").notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_reports_tenant").on(t.tenantId),
+    index("idx_reports_company").on(t.companyId),
+    index("idx_reports_type").on(t.reportType),
   ]
 );

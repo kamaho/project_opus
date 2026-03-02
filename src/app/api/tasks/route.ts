@@ -21,6 +21,8 @@ const createTaskSchema = z.object({
   companyId: z.string().uuid().optional(),
   clientId: z.string().uuid().optional(),
   dueDate: z.string().optional(),
+  linkedDeadlineId: z.string().uuid().nullable().optional(),
+  linkedEventId: z.string().uuid().nullable().optional(),
   metadata: z.any().optional(),
 });
 
@@ -97,6 +99,8 @@ export const GET = withTenant(async (req, { tenantId, userId }) => {
       metadata: tasks.metadata,
       createdBy: tasks.createdBy,
       createdAt: tasks.createdAt,
+      linkedDeadlineId: tasks.linkedDeadlineId,
+      linkedEventId: tasks.linkedEventId,
       updatedAt: tasks.updatedAt,
       companyName: companies.name,
       clientName: clients.name,
@@ -147,6 +151,8 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       companyId: data.companyId,
       clientId: data.clientId,
       dueDate: data.dueDate,
+      linkedDeadlineId: data.linkedDeadlineId ?? null,
+      linkedEventId: data.linkedEventId ?? null,
       createdBy: userId,
       metadata: data.metadata ?? {},
     })

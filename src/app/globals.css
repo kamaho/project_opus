@@ -1188,3 +1188,21 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
 .data-table-row-with-nav-pill:hover .nav-arrow-btn .nav-arrow-btn__icon {
   color: oklch(0.55 0.25 310);
 }
+
+/* ── Calendar cell pulse (navigate-to-date highlight) ───────────── */
+.calendar-cell-pulse {
+  animation: cal-cell-pulse 1.2s ease-in-out 2;
+}
+@keyframes cal-cell-pulse {
+  0%   { background-color: transparent; box-shadow: inset 0 0 0 0 oklch(0.7 0.15 250 / 0); }
+  40%  { background-color: oklch(0.92 0.08 250 / 0.4); box-shadow: inset 0 0 0 2px oklch(0.7 0.15 250 / 0.5); }
+  100% { background-color: transparent; box-shadow: inset 0 0 0 0 oklch(0.7 0.15 250 / 0); }
+}
+:is(.dark) .calendar-cell-pulse {
+  animation: cal-cell-pulse-dark 1.2s ease-in-out 2;
+}
+@keyframes cal-cell-pulse-dark {
+  0%   { background-color: transparent; box-shadow: inset 0 0 0 0 oklch(0.5 0.15 250 / 0); }
+  40%  { background-color: oklch(0.3 0.08 250 / 0.35); box-shadow: inset 0 0 0 2px oklch(0.5 0.15 250 / 0.4); }
+  100% { background-color: transparent; box-shadow: inset 0 0 0 0 oklch(0.5 0.15 250 / 0); }
+}

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Calendar as CalendarIcon,
   ChevronDown,
@@ -11,10 +12,21 @@ import {
   Pause,
   AlertCircle,
   Scale,
+  Users,
+  Bell,
+  Flag,
+  Copy,
+  Check,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { toast } from "sonner";
+import { DayPopover } from "./day-popover";
+import { CalendarEventDialog, type CalendarEventData } from "./calendar-event-dialog";
+import { CreateTaskDialog } from "@/app/dashboard/oppgaver/create-task-dialog";
 
 interface Deadline {
   id: string;
@@ -40,6 +52,7 @@ interface DayEntry {
   date: Date;
   deadlines: { id: string; title: string; obligation: string }[];
   tasks: TaskItem[];
+  events: CalendarEventData[];
 }
 
 interface TeamMember {
@@ -64,6 +77,21 @@ const PRIORITY_COLOR: Record<string, string> = {
   medium: "bg-blue-500",
   low: "bg-muted-foreground/40",
 };
+
+const EVENT_COLOR_CLASS: Record<string, string> = {
+  blue: "bg-blue-500",
+  green: "bg-green-500",
+  purple: "bg-purple-500",
+  orange: "bg-orange-500",
+  red: "bg-red-500",
+  pink: "bg-pink-500",
+};
+
+const EVENT_TYPE_ICON = {
+  meeting: Users,
+  reminder: Bell,
+  custom_deadline: Flag,
+} as const;
 
 function resolveDeadlineDates(deadline: Deadline, year: number, month: number): Date[] {
   const rule = deadline.deadlineRule;
@@ -113,16 +141,56 @@ function resolveDeadlineDates(deadline: Deadline, year: number, month: number): 
 
 export function CalendarClient({
   deadlines,
-  tasks,
+  tasks: initialTasks,
+  calendarEvents: initialEvents = [],
   teamCapacity = [],
 }: {
   deadlines: Deadline[];
   tasks: TaskItem[];
+  calendarEvents?: CalendarEventData[];
   teamCapacity?: TeamMember[];
 }) {
   const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const searchParams = useSearchParams();
+  const highlightDateParam = searchParams.get("date");
+
+  const initialDate = useMemo(() => {
+    if (highlightDateParam) {
+      const d = new Date(highlightDateParam + "T00:00:00");
+      if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+  }, [highlightDateParam]);
+
+  const [year, setYear] = useState(initialDate?.getFullYear() ?? today.getFullYear());
+  const [month, setMonth] = useState(initialDate?.getMonth() ?? today.getMonth());
+  const [highlightDay, setHighlightDay] = useState<number | null>(initialDate?.getDate() ?? null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (highlightDay !== null) {
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightDay(null);
+      }, 2400);
+      return () => {
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      };
+    }
+  }, [highlightDay]);
+
+  const [tasks, setTasks] = useState(initialTasks);
+  const [events, setEvents] = useState(initialEvents);
+
+  // Dialog states
+  const [eventDialogOpen, setEventDialogOpen] = useState(false);
+  const [eventDialogDate, setEventDialogDate] = useState<string | undefined>();
+  const [eventDialogType, setEventDialogType] = useState<"meeting" | "reminder" | "custom_deadline">("meeting");
+  const [editingEvent, setEditingEvent] = useState<CalendarEventData | null>(null);
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false);
+  const [taskDialogDate, setTaskDialogDate] = useState("");
+  const [icalCopied, setIcalCopied] = useState(false);
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(year);
 
   const goToPrev = () => {
     if (month === 0) { setMonth(11); setYear(year - 1); }
@@ -133,6 +201,94 @@ export function CalendarClient({
     else setMonth(month + 1);
   };
   const goToToday = () => { setMonth(today.getMonth()); setYear(today.getFullYear()); };
+
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await fetch("/api/calendar-events");
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(data.map((e: Record<string, unknown>) => ({
+          id: e.id as string,
+          title: e.title as string,
+          description: e.description as string | null,
+          type: e.type as string,
+          startAt: e.startAt as string,
+          endAt: e.endAt as string | null,
+          allDay: e.allDay as boolean,
+          color: e.color as string | null,
+          createdBy: e.createdBy as string,
+          attendees: (e.attendees as string[]) ?? [],
+          reminderMinutesBefore: e.reminderMinutesBefore as number | null,
+        })));
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const refreshTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tasks?status=open,in_progress,waiting");
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(data.map((t: Record<string, unknown>) => ({
+          id: t.id as string,
+          title: t.title as string,
+          status: t.status as string,
+          priority: t.priority as string,
+          dueDate: t.dueDate as string | null,
+          assigneeId: t.assigneeId as string | null,
+        })));
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  const handleCompleteTask = useCallback(async (taskId: string) => {
+    const res = await fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "completed" }),
+    });
+    if (res.ok) {
+      toast.success("Oppgave fullført");
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    } else {
+      toast.error("Kunne ikke fullføre oppgaven");
+    }
+  }, []);
+
+  const handleDeleteEvent = useCallback(async (eventId: string) => {
+    const res = await fetch(`/api/calendar-events/${eventId}`, { method: "DELETE" });
+    if (res.ok) {
+      toast.success("Hendelse slettet");
+      setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    } else {
+      toast.error("Kunne ikke slette hendelsen");
+    }
+  }, []);
+
+  const handleAddTask = useCallback((date: string) => {
+    setTaskDialogDate(date);
+    setTaskDialogOpen(true);
+  }, []);
+
+  const handleAddEvent = useCallback((date: string, type: "meeting" | "reminder" | "custom_deadline") => {
+    setEventDialogDate(date);
+    setEventDialogType(type);
+    setEditingEvent(null);
+    setEventDialogOpen(true);
+  }, []);
+
+  const handleEditEvent = useCallback((event: CalendarEventData) => {
+    setEditingEvent(event);
+    setEventDialogOpen(true);
+  }, []);
+
+  const handleCopyIcal = useCallback(async () => {
+    const url = `${window.location.origin}/api/calendar/ics`;
+    await navigator.clipboard.writeText(url);
+    setIcalCopied(true);
+    toast.success("Lenke kopiert til utklippstavlen");
+    setTimeout(() => setIcalCopied(false), 3000);
+  }, []);
 
   const calendarDays = useMemo(() => {
     const firstDay = new Date(year, month, 1);
@@ -163,13 +319,18 @@ export function CalendarClient({
         return td.getFullYear() === year && td.getMonth() === month && td.getDate() === d;
       });
 
-      days.push({ date, deadlines: dayDeadlines, tasks: dayTasks });
+      const dayEvents = events.filter((e) => {
+        const ed = new Date(e.startAt);
+        return ed.getFullYear() === year && ed.getMonth() === month && ed.getDate() === d;
+      });
+
+      days.push({ date, deadlines: dayDeadlines, tasks: dayTasks, events: dayEvents });
     }
 
     return days;
-  }, [year, month, deadlines, tasks]);
+  }, [year, month, deadlines, tasks, events]);
 
-  const isToday = (d: Date) =>
+  const isTodayDate = (d: Date) =>
     d.getDate() === today.getDate() &&
     d.getMonth() === today.getMonth() &&
     d.getFullYear() === today.getFullYear();
@@ -212,28 +373,69 @@ export function CalendarClient({
           <h1 className="text-2xl font-semibold">Kalender</h1>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
-          Oversikt over lovpålagte frister og oppgavefrister.
+          Planlegg oppgaver, møter, påminnelser og se lovpålagte frister.
         </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_260px] flex-1 min-h-0">
         {/* Calendar grid */}
         <div className="rounded-lg border bg-card flex flex-col min-h-0">
-          <div className="flex items-center justify-between border-b px-4 py-2.5 shrink-0">
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" className="size-8" onClick={goToPrev}>
-                <ChevronLeft className="size-4" />
-              </Button>
-              <h2 className="text-base font-semibold w-40 text-center">
-                {MONTHS_NO[month]} {year}
-              </h2>
-              <Button variant="ghost" size="icon" className="size-8" onClick={goToNext}>
-                <ChevronRight className="size-4" />
+          <div className="relative flex items-center border-b px-4 py-2.5 shrink-0">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="flex items-center gap-2 pointer-events-auto">
+                <Button variant="ghost" size="icon" className="size-8" onClick={goToPrev}>
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Popover open={monthPickerOpen} onOpenChange={(open) => { setMonthPickerOpen(open); if (open) setPickerYear(year); }}>
+                  <PopoverTrigger asChild>
+                    <button className="text-base font-semibold w-40 text-center rounded-md px-2 py-1 hover:bg-muted transition-colors cursor-pointer">
+                      {MONTHS_NO[month]} {year}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-64 p-3" align="center">
+                    <div className="flex items-center justify-between mb-2">
+                      <Button variant="ghost" size="icon" className="size-7" onClick={() => setPickerYear((y) => y - 1)}>
+                        <ChevronLeft className="size-3.5" />
+                      </Button>
+                      <span className="text-sm font-semibold">{pickerYear}</span>
+                      <Button variant="ghost" size="icon" className="size-7" onClick={() => setPickerYear((y) => y + 1)}>
+                        <ChevronRight className="size-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      {MONTHS_NO.map((mName, mIdx) => {
+                        const isSelected = mIdx === month && pickerYear === year;
+                        const isCurrent = mIdx === today.getMonth() && pickerYear === today.getFullYear();
+                        return (
+                          <button
+                            key={mIdx}
+                            onClick={() => { setMonth(mIdx); setYear(pickerYear); setMonthPickerOpen(false); }}
+                            className={cn(
+                              "rounded-md px-2 py-1.5 text-xs transition-colors",
+                              isSelected
+                                ? "bg-primary text-primary-foreground"
+                                : isCurrent
+                                  ? "bg-primary/10 text-primary font-medium hover:bg-primary/20"
+                                  : "hover:bg-muted text-foreground"
+                            )}
+                          >
+                            {mName.slice(0, 3)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                <Button variant="ghost" size="icon" className="size-8" onClick={goToNext}>
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="ml-auto">
+              <Button variant="outline" size="sm" onClick={goToToday}>
+                I dag
               </Button>
             </div>
-            <Button variant="outline" size="sm" onClick={goToToday}>
-              I dag
-            </Button>
           </div>
           <div className="grid grid-cols-7 shrink-0">
             {WEEKDAYS.map((wd) => (
@@ -246,55 +448,86 @@ export function CalendarClient({
             className="grid grid-cols-7 flex-1 min-h-0"
             style={{ gridTemplateRows: `repeat(${weekCount}, 1fr)` }}
           >
-            {calendarDays.map((entry, i) => (
+            {calendarDays.map((entry, i) => {
+              const isHighlighted = entry !== null && highlightDay !== null && entry.date.getDate() === highlightDay;
+              return (
               <div
                 key={i}
                 className={cn(
-                  "border-b border-r p-1.5 text-xs overflow-hidden",
+                  "border-b border-r text-xs overflow-hidden",
                   !entry && "bg-muted/10",
-                  entry && isToday(entry.date) && "bg-primary/5",
-                  i % 7 === 6 && "border-r-0"
+                  entry && isTodayDate(entry.date) && "bg-primary/5",
+                  i % 7 === 6 && "border-r-0",
+                  isHighlighted && "calendar-cell-pulse"
                 )}
               >
-                {entry && (
-                  <>
-                    <span className={cn(
-                      "inline-flex items-center justify-center size-6 rounded-full text-[11px] font-medium mb-0.5",
-                      isToday(entry.date) && "bg-primary text-primary-foreground"
-                    )}>
-                      {entry.date.getDate()}
-                    </span>
-                    <div className="space-y-0.5 overflow-hidden">
-                      {entry.deadlines.map((dl) => (
-                        <div
-                          key={dl.id}
-                          className={cn(
-                            "flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate",
-                            isPast(entry.date)
-                              ? "bg-red-500/10 text-red-600 dark:text-red-400"
-                              : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                          )}
-                          title={dl.title}
-                        >
-                          <Scale className="size-2.5 shrink-0" />
-                          <span className="truncate">{dl.title}</span>
-                        </div>
-                      ))}
-                      {entry.tasks.map((t) => (
-                        <div
-                          key={t.id}
-                          className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] truncate bg-muted/50"
-                          title={t.title}
-                        >
-                          <span className={cn("size-1.5 rounded-full shrink-0", PRIORITY_COLOR[t.priority])} />
-                          <span className="truncate">{t.title}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
+                {entry ? (
+                  <DayPopover
+                    date={entry.date}
+                    deadlines={entry.deadlines}
+                    tasks={entry.tasks}
+                    events={entry.events}
+                    isToday={isTodayDate(entry.date)}
+                    onAddTask={handleAddTask}
+                    onAddEvent={handleAddEvent}
+                    onEditEvent={handleEditEvent}
+                    onDeleteEvent={handleDeleteEvent}
+                    onCompleteTask={handleCompleteTask}
+                  >
+                    <button className="w-full h-full p-1.5 text-left hover:bg-muted/40 transition-colors cursor-pointer">
+                      <span className={cn(
+                        "inline-flex items-center justify-center size-6 rounded-full text-[11px] font-medium mb-0.5",
+                        isTodayDate(entry.date) && "bg-primary text-primary-foreground"
+                      )}>
+                        {entry.date.getDate()}
+                      </span>
+                      <div className="space-y-0.5 overflow-hidden">
+                        {entry.deadlines.map((dl) => (
+                          <div
+                            key={dl.id}
+                            className={cn(
+                              "flex items-center gap-1 rounded px-1 py-0.5 text-[10px] font-medium truncate transition-colors",
+                              isPast(entry.date)
+                                ? "bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
+                                : "bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20"
+                            )}
+                          >
+                            <Scale className="size-2.5 shrink-0" />
+                            <span className="truncate">{dl.title}</span>
+                          </div>
+                        ))}
+                        {entry.events.map((ev) => {
+                          const Icon = EVENT_TYPE_ICON[ev.type as keyof typeof EVENT_TYPE_ICON] ?? Bell;
+                          const colorClass = ev.color ? EVENT_COLOR_CLASS[ev.color] ?? "bg-blue-500" : "bg-blue-500";
+                          return (
+                            <div
+                              key={ev.id}
+                              className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] truncate bg-muted/50"
+                            >
+                              <span className={cn("size-1.5 rounded-full shrink-0", colorClass)} />
+                              <Icon className="size-2.5 shrink-0 text-muted-foreground" />
+                              <span className="truncate">{ev.title}</span>
+                            </div>
+                          );
+                        })}
+                        {entry.tasks.map((t) => (
+                          <div
+                            key={t.id}
+                            className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] truncate bg-muted/50"
+                          >
+                            <span className={cn("size-1.5 rounded-full shrink-0", PRIORITY_COLOR[t.priority])} />
+                            <span className="truncate">{t.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </button>
+                  </DayPopover>
+                ) : (
+                  <div className="w-full h-full p-1.5" />
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -307,8 +540,18 @@ export function CalendarClient({
                 {overdueTasks.length} forfalte oppgaver
               </div>
               {overdueTasks.slice(0, 5).map((t) => (
-                <div key={t.id} className="text-[11px] text-red-600/80 dark:text-red-400/80 truncate">
-                  {t.title}
+                <div
+                  key={t.id}
+                  className="flex items-center gap-1.5 text-[11px] text-red-600/80 dark:text-red-400/80"
+                >
+                  <button
+                    onClick={() => handleCompleteTask(t.id)}
+                    className="shrink-0 hover:text-green-500 transition-colors"
+                    title="Marker som fullført"
+                  >
+                    <Circle className="size-3" />
+                  </button>
+                  <span className="truncate">{t.title}</span>
                 </div>
               ))}
             </div>
@@ -347,6 +590,18 @@ export function CalendarClient({
                 <span>Forfalt lovpålagt frist</span>
               </div>
               <div className="flex items-center gap-2">
+                <Users className="size-3 text-purple-500" />
+                <span>Møte</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Bell className="size-3 text-blue-500" />
+                <span>Påminnelse</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Flag className="size-3 text-green-500" />
+                <span>Intern frist</span>
+              </div>
+              <div className="flex items-center gap-2">
                 <span className="size-2.5 rounded-full bg-red-500" />
                 <span>Kritisk oppgave</span>
               </div>
@@ -368,7 +623,7 @@ export function CalendarClient({
                 {teamCapacity.map((m) => {
                   const totalActive = m.open + m.inProgress;
                   const capacityPct = Math.min(100, (totalActive / Math.max(1, totalActive + 3)) * 100);
-                  const initials = `${(m.firstName ?? "")[0] ?? ""}${(m.lastName ?? "")[0] ?? ""}`.toUpperCase() || "?";
+                  const ini = `${(m.firstName ?? "")[0] ?? ""}${(m.lastName ?? "")[0] ?? ""}`.toUpperCase() || "?";
                   const fullName = [m.firstName, m.lastName].filter(Boolean).join(" ") || "Ukjent";
                   const isExpanded = expandedMemberId === m.userId;
                   const memberTasks = tasks.filter((t) => t.assigneeId === m.userId);
@@ -383,7 +638,7 @@ export function CalendarClient({
                         <div className="flex items-center gap-2">
                           <Avatar className="size-5 shrink-0">
                             {m.imageUrl && <AvatarImage src={m.imageUrl} alt={fullName} />}
-                            <AvatarFallback className="text-[9px]">{initials}</AvatarFallback>
+                            <AvatarFallback className="text-[9px]">{ini}</AvatarFallback>
                           </Avatar>
                           <span className="text-[11px] font-medium truncate flex-1">{fullName}</span>
                           <span className="text-[10px] text-muted-foreground tabular-nums">{totalActive}</span>
@@ -458,8 +713,61 @@ export function CalendarClient({
               </div>
             </div>
           )}
+
+          {/* iCal subscription */}
+          <div className="rounded-lg border bg-card p-3 space-y-2">
+            <h3 className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <Link2 className="size-3" />
+              Kalender-abonnement
+            </h3>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Abonner på Revizo-kalenderen i Outlook, Google Calendar eller Apple Calendar.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full h-7 text-xs gap-1.5"
+              onClick={handleCopyIcal}
+            >
+              {icalCopied ? (
+                <>
+                  <Check className="size-3 text-green-500" />
+                  Kopiert!
+                </>
+              ) : (
+                <>
+                  <Copy className="size-3" />
+                  Kopier abonnementslenke
+                </>
+              )}
+            </Button>
+            <p className="text-[10px] text-muted-foreground">
+              Lim inn lenken i din kalenderapp under &quot;Abonner på kalender&quot; / &quot;Subscribe to calendar&quot;.
+            </p>
+          </div>
         </div>
       </div>
+
+      {/* Event dialog */}
+      <CalendarEventDialog
+        open={eventDialogOpen}
+        onOpenChange={setEventDialogOpen}
+        defaultDate={eventDialogDate}
+        defaultType={eventDialogType}
+        editingEvent={editingEvent}
+        onSaved={refreshEvents}
+      />
+
+      {/* Task creation dialog (reusing existing) */}
+      <CreateTaskDialog
+        open={taskDialogOpen}
+        onOpenChange={setTaskDialogOpen}
+        companies={[]}
+        clients={[]}
+        editingTask={null}
+        defaultDueDate={taskDialogDate}
+        onSaved={refreshTasks}
+      />
     </div>
   );
 }

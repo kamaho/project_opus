@@ -15,7 +15,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -26,10 +28,16 @@ import {
 } from "@/components/ui/popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
-import { Check, FileUp, Mail, User2, UserPlus, Users, X } from "lucide-react";
+import { Check, FileUp, Link2, Mail, User2, UserPlus, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TASK_CATEGORIES } from "@/lib/db/schema";
-import { TASK_CATEGORY_LABELS } from "@/lib/constants/task-categories";
+import { TASK_CATEGORY_LABELS, TASK_CATEGORY_GROUPS } from "@/lib/constants/task-categories";
+
+interface DeadlineOption {
+  id: string;
+  title: string;
+  date: string;
+  source: "regulatory" | "custom_deadline";
+}
 
 interface TaskRow {
   id: string;
@@ -89,6 +97,7 @@ export function CreateTaskDialog({
   companies,
   clients,
   editingTask,
+  defaultDueDate,
   onSaved,
 }: {
   open: boolean;
@@ -96,6 +105,7 @@ export function CreateTaskDialog({
   companies: CompanyOption[];
   clients: ClientOption[];
   editingTask: TaskRow | null;
+  defaultDueDate?: string;
   onSaved: () => void;
 }) {
   const isEditing = !!editingTask;
@@ -117,6 +127,10 @@ export function CreateTaskDialog({
   const [externalContacts, setExternalContacts] = useState<Contact[]>([]);
   const [contactsLoaded, setContactsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [linkedDeadlineId, setLinkedDeadlineId] = useState<string>("none");
+  const [linkedEventId, setLinkedEventId] = useState<string>("none");
+  const [deadlineOptions, setDeadlineOptions] = useState<DeadlineOption[]>([]);
+  const [deadlinesLoaded, setDeadlinesLoaded] = useState(false);
 
   const currentUserId = user?.id;
 
@@ -140,6 +154,22 @@ export function CreateTaskDialog({
         .catch(() => setContactsLoaded(true));
     }
   }, [open, contactsLoaded]);
+
+  useEffect(() => {
+    if (open && !deadlinesLoaded) {
+      fetch("/api/dashboard/deadline-status")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows: Array<{ deadlineId: string; title: string; date: string; source: string; daysLeft: number }>) => {
+          setDeadlineOptions(
+            rows
+              .filter((r) => r.daysLeft >= -7)
+              .map((r) => ({ id: r.deadlineId, title: r.title, date: r.date, source: r.source as DeadlineOption["source"] }))
+          );
+          setDeadlinesLoaded(true);
+        })
+        .catch(() => setDeadlinesLoaded(true));
+    }
+  }, [open, deadlinesLoaded]);
 
   useEffect(() => {
     if (open && editingTask) {
@@ -167,6 +197,8 @@ export function CreateTaskDialog({
         setAssignee({ type: "none" });
       }
       setNotifyExternal(editingTask.notifyExternal ?? false);
+      setLinkedDeadlineId("none");
+      setLinkedEventId("none");
     } else if (open) {
       setTitle("");
       setDescription("");
@@ -174,13 +206,15 @@ export function CreateTaskDialog({
       setCategory("none");
       setCompanyId("none");
       setClientId("none");
-      setDueDate("");
+      setDueDate(defaultDueDate ?? "");
       setAssignee({ type: "none" });
       setNotifyExternal(true);
       setRequestDocument(false);
       setDocumentMessage("");
+      setLinkedDeadlineId("none");
+      setLinkedEventId("none");
     }
-  }, [open, editingTask, currentUserId, members.length]);
+  }, [open, editingTask, currentUserId, members.length, defaultDueDate]);
 
   const filteredClients = companyId && companyId !== "none"
     ? clients.filter((c) => c.companyId === companyId)
@@ -210,6 +244,8 @@ export function CreateTaskDialog({
       companyId: companyId !== "none" ? companyId : undefined,
       clientId: clientId !== "none" ? clientId : undefined,
       dueDate: dueDate || undefined,
+      linkedDeadlineId: linkedDeadlineId !== "none" ? linkedDeadlineId : null,
+      linkedEventId: linkedEventId !== "none" ? linkedEventId : null,
     };
 
     if (isEditing) {
@@ -244,7 +280,7 @@ export function CreateTaskDialog({
     setSaving(false);
     onOpenChange(false);
     onSaved();
-  }, [title, description, priority, category, assignee, notifyExternal, currentUserId, companyId, clientId, dueDate, isEditing, editingTask, onOpenChange, onSaved]);
+  }, [title, description, priority, category, assignee, notifyExternal, currentUserId, companyId, clientId, dueDate, linkedDeadlineId, linkedEventId, isEditing, editingTask, onOpenChange, onSaved]);
 
   const assigneeLabel =
     assignee.type === "none" ? "Velg person..." :
@@ -291,10 +327,15 @@ export function CreateTaskDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Ingen</SelectItem>
-                  {TASK_CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {TASK_CATEGORY_LABELS[cat]}
-                    </SelectItem>
+                  {TASK_CATEGORY_GROUPS.map((group) => (
+                    <SelectGroup key={group.label}>
+                      <SelectLabel>{group.label}</SelectLabel>
+                      {group.items.map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {TASK_CATEGORY_LABELS[cat]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   ))}
                 </SelectContent>
               </Select>
@@ -501,6 +542,58 @@ export function CreateTaskDialog({
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1">
+                <Link2 className="h-3 w-3" />
+                Koble til frist
+              </Label>
+              <Select
+                value={linkedDeadlineId !== "none" ? `reg:${linkedDeadlineId}` : linkedEventId !== "none" ? `evt:${linkedEventId}` : "none"}
+                onValueChange={(v) => {
+                  if (v === "none") {
+                    setLinkedDeadlineId("none");
+                    setLinkedEventId("none");
+                  } else if (v.startsWith("reg:")) {
+                    setLinkedDeadlineId(v.slice(4));
+                    setLinkedEventId("none");
+                  } else if (v.startsWith("evt:")) {
+                    setLinkedEventId(v.slice(4));
+                    setLinkedDeadlineId("none");
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Ingen kobling" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Ingen</SelectItem>
+                  {deadlineOptions.filter((d) => d.source === "regulatory").length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel>Lovpålagte frister</SelectLabel>
+                      {deadlineOptions
+                        .filter((d) => d.source === "regulatory")
+                        .map((d) => (
+                          <SelectItem key={`reg:${d.id}:${d.date}`} value={`reg:${d.id}`}>
+                            {d.title} ({d.date})
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  )}
+                  {deadlineOptions.filter((d) => d.source === "custom_deadline").length > 0 && (
+                    <SelectGroup>
+                      <SelectLabel>Egendefinerte frister</SelectLabel>
+                      {deadlineOptions
+                        .filter((d) => d.source === "custom_deadline")
+                        .map((d) => (
+                          <SelectItem key={`evt:${d.id}`} value={`evt:${d.id}`}>
+                            {d.title} ({d.date})
+                          </SelectItem>
+                        ))}
+                    </SelectGroup>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

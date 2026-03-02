@@ -16,3 +16,5 @@ export const supabase =
 
 export const UPLOAD_BUCKET = "imports";
 export const ATTACHMENTS_BUCKET = "attachments";
+export const CONTROL_REPORTS_BUCKET = "control-reports";
+export const REPORTS_BUCKET = "reports";

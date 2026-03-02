@@ -4,6 +4,7 @@ import {
   CheckSquare,
   Calendar,
   UserCog,
+  ShieldCheck,
   CalendarCheck,
   FileText,
   Banknote,
@@ -59,6 +60,15 @@ export const NAVIGATION: NavGroup[] = [
         tier: "STARTER",
         status: "ACTIVE",
         smartInfo: "Klienter — administrer klienter og deres avstemminger.",
+      },
+      {
+        id: "controls",
+        label: "Kontroller",
+        icon: ShieldCheck,
+        href: "/dashboard/controls",
+        tier: "STARTER",
+        status: "ACTIVE",
+        smartInfo: "Kontroller — kjør og se kontroller for kundefordringer og leverandørgjeld.",
       },
       {
         id: "tasks",
@@ -160,9 +170,9 @@ export const NAVIGATION: NavGroup[] = [
         label: "Rapporter",
         icon: BarChart3,
         href: "/dashboard/rapporter",
-        tier: "PRO",
-        status: "LOCKED",
-        smartInfo: "Rapporter — fristoverholdelse, produktivitet, kvalitetskontroll, kapasitet.",
+        tier: "STARTER",
+        status: "ACTIVE",
+        smartInfo: "Rapporter — kundefordringer, leverandørgjeld, MVA, lønn, feriepenger.",
       },
       {
         id: "auditor-package",
@@ -224,4 +234,13 @@ export const TIER_ORDER: Record<NavItemTier, number> = {
   STARTER: 0,
   PRO: 1,
   ENTERPRISE: 2,
+};
+
+export const OBLIGATION_ROUTE: Record<string, string> = {
+  mva_termin: "/dashboard/mva-melding",
+  a_melding: "/dashboard/lonn-a-melding",
+  skattemelding_selskap: "/dashboard/skattemelding-naering",
+  aarsregnskap: "/dashboard/arsoppgjor",
+  forskuddsskatt_selskap: "/dashboard/skattemelding-naering",
+  forskuddsskatt_selskap_t2: "/dashboard/skattemelding-naering",
 };

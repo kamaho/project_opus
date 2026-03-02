@@ -15,7 +15,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -28,8 +30,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Check, FileUp, Mail, User2, UserPlus, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TASK_CATEGORIES } from "@/lib/db/schema";
-import { TASK_CATEGORY_LABELS } from "@/lib/constants/task-categories";
+import { TASK_CATEGORY_LABELS, TASK_CATEGORY_GROUPS } from "@/lib/constants/task-categories";
 import { toast } from "sonner";
 
 interface Contact {
@@ -185,10 +186,15 @@ export function FollowUpTaskDialog({
                 <SelectValue placeholder="Velg kategori..." />
               </SelectTrigger>
               <SelectContent>
-                {TASK_CATEGORIES.map((cat) => (
-                  <SelectItem key={cat} value={cat}>
-                    {TASK_CATEGORY_LABELS[cat]}
-                  </SelectItem>
+                {TASK_CATEGORY_GROUPS.map((group) => (
+                  <SelectGroup key={group.label}>
+                    <SelectLabel>{group.label}</SelectLabel>
+                    {group.items.map((cat) => (
+                      <SelectItem key={cat} value={cat}>
+                        {TASK_CATEGORY_LABELS[cat]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>

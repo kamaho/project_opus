@@ -41,6 +41,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useFormatting } from "@/contexts/ui-preferences-context";
 import { CreateTaskDialog } from "./create-task-dialog";
+import { TaskDetailDialog } from "./task-detail-dialog";
 import { TASK_CATEGORY_LABELS, TASK_CATEGORY_COLORS } from "@/lib/constants/task-categories";
 import type { TaskCategory } from "@/lib/db/schema";
 import { toast } from "sonner";
@@ -141,6 +142,7 @@ export function TasksClient({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [editingTask, setEditingTask] = useState<TaskRow | null>(null);
+  const [viewingTask, setViewingTask] = useState<TaskRow | null>(null);
   const [stats, setStats] = useState(initialStats);
 
   const members: OrgMember[] = (memberships?.data ?? []).map((m) => {
@@ -446,12 +448,13 @@ export function TasksClient({
                   return (
                     <tr
                       key={task.id}
+                      onClick={() => setViewingTask(task)}
                       className={cn(
-                        "group hover:bg-muted/30 transition-colors",
+                        "group hover:bg-muted/30 transition-colors cursor-pointer",
                         task.status === "completed" && "opacity-60"
                       )}
                     >
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button className="flex items-center justify-center">
@@ -523,7 +526,7 @@ export function TasksClient({
                           "—"
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right">
+                      <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <button className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-muted">
@@ -577,6 +580,19 @@ export function TasksClient({
           </div>
         )}
       </div>
+
+      <TaskDetailDialog
+        task={viewingTask}
+        open={!!viewingTask}
+        onOpenChange={(v) => { if (!v) setViewingTask(null); }}
+        onEdit={(t) => {
+          setViewingTask(null);
+          setEditingTask(t);
+          setShowCreateDialog(true);
+        }}
+        memberMap={memberMap}
+        fmtDate={fmtDate}
+      />
 
       <CreateTaskDialog
         open={showCreateDialog}
