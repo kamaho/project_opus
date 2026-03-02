@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { contacts } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
+import { logAudit } from "@/lib/audit";
 
 const createContactSchema = z.object({
   name: z.string().min(1).max(200),
@@ -23,7 +24,7 @@ export const GET = withTenant(async (_req, { tenantId }) => {
   return NextResponse.json(rows);
 });
 
-export const POST = withTenant(async (req, { tenantId }) => {
+export const POST = withTenant(async (req, { tenantId, userId }) => {
   const body = await req.json();
   const parsed = createContactSchema.safeParse(body);
   if (!parsed.success) {
@@ -46,10 +47,12 @@ export const POST = withTenant(async (req, { tenantId }) => {
     })
     .returning();
 
+  await logAudit({ tenantId, userId, action: "contact.created", entityType: "contact", entityId: created.id, metadata: { name: created.name } });
+
   return NextResponse.json(created, { status: 201 });
 });
 
-export const PATCH = withTenant(async (req, { tenantId }) => {
+export const PATCH = withTenant(async (req, { tenantId, userId }) => {
   const body = await req.json();
   const { id, ...fields } = body as { id?: string } & Record<string, unknown>;
   if (!id) {
@@ -86,10 +89,12 @@ export const PATCH = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ error: "Kontakt ikke funnet" }, { status: 404 });
   }
 
+  await logAudit({ tenantId, userId, action: "contact.updated", entityType: "contact", entityId: updated.id });
+
   return NextResponse.json(updated);
 });
 
-export const DELETE = withTenant(async (req, { tenantId }) => {
+export const DELETE = withTenant(async (req, { tenantId, userId }) => {
   const url = new URL(req.url);
   const id = url.searchParams.get("id");
   if (!id) {
@@ -107,6 +112,8 @@ export const DELETE = withTenant(async (req, { tenantId }) => {
       { status: 404 }
     );
   }
+
+  await logAudit({ tenantId, userId, action: "contact.deleted", entityType: "contact", entityId: id });
 
   return NextResponse.json({ success: true });
 });

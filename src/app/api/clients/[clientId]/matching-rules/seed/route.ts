@@ -16,7 +16,7 @@ export const POST = withTenant(async (req, { tenantId }, params) => {
   } catch (err) {
     console.error("[seed-rules] Failed:", err);
     return NextResponse.json(
-      { error: "Seeding feilet", details: String(err) },
+      { error: "Seeding feilet" },
       { status: 500 }
     );
   }

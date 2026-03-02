@@ -6,6 +6,7 @@ import { eq, and } from "drizzle-orm";
 import { getClientsByTenant } from "@/lib/db/tenant";
 import { revalidateClients, revalidateAccounts } from "@/lib/revalidate";
 import { seedStandardRules } from "@/lib/matching/seed-rules";
+import { logAudit } from "@/lib/audit";
 
 /** GET: Liste avstemminger for org. Optional ?companyId= for å filtrere på selskap. */
 export const GET = withTenant(async (req, { tenantId }) => {
@@ -17,7 +18,7 @@ export const GET = withTenant(async (req, { tenantId }) => {
 });
 
 /** POST: Opprett avstemming med to kontoer i én transaksjon. */
-export const POST = withTenant(async (req, { tenantId }) => {
+export const POST = withTenant(async (req, { tenantId, userId }) => {
   const body = await req.json();
   const { companyId, name, set1, set2 } = body as {
     companyId?: string;
@@ -78,6 +79,8 @@ export const POST = withTenant(async (req, { tenantId }) => {
 
   revalidateClients();
   revalidateAccounts();
+
+  await logAudit({ tenantId, userId, action: "client.created", entityType: "client", entityId: created.id, metadata: { name: created.name } });
 
   return NextResponse.json(created, { status: 201 });
 });

@@ -11,6 +11,8 @@ import {
 import { eq, and } from "drizzle-orm";
 import { supabase, ATTACHMENTS_BUCKET } from "@/lib/supabase";
 import { createNotification } from "@/lib/notifications";
+import { validateUploadedFile, sanitizeFilename } from "@/lib/upload-validation";
+import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
 type RouteParams = { params: Promise<{ token: string }> };
 
@@ -84,6 +86,16 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
 export async function POST(request: Request, { params }: RouteParams) {
   const { token } = await params;
+
+  const ip = (request.headers.get("x-forwarded-for") ?? "unknown").split(",")[0];
+  const rl = rateLimit(`public-upload:${ip}`, RATE_LIMITS.publicUpload);
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: "For mange forespørsler. Prøv igjen senere." },
+      { status: 429, headers: { "Retry-After": String(Math.ceil(rl.resetMs / 1000)) } }
+    );
+  }
+
   const row = await getValidRequest(token);
 
   if (!row) {
@@ -124,11 +136,19 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
+  for (const file of files) {
+    const validation = validateUploadedFile(file);
+    if (!validation.valid) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+  }
+
   const uploaded: { filename: string; fileSize: number }[] = [];
 
   for (const file of files) {
+    const safeName = sanitizeFilename(file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
-    const storagePath = `${row.tenantId}/document-requests/${row.id}/${Date.now()}-${file.name}`;
+    const storagePath = `${row.tenantId}/document-requests/${row.id}/${Date.now()}-${safeName}`;
 
     const { error: uploadError } = await supabase.storage
       .from(ATTACHMENTS_BUCKET)
@@ -143,7 +163,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     await db.insert(documentRequestFiles).values({
       requestId: row.id,
-      filename: file.name,
+      filename: safeName,
       filePath: storagePath,
       fileSize: file.size,
       contentType: file.type || "application/octet-stream",
@@ -164,7 +184,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         await db.insert(transactionAttachments).values({
           transactionId: row.transactionId,
           clientId: row.clientId,
-          filename: file.name,
+          filename: safeName,
           filePath: storagePath,
           fileSize: file.size,
           contentType: file.type || "application/octet-stream",
@@ -173,7 +193,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    uploaded.push({ filename: file.name, fileSize: file.size });
+    uploaded.push({ filename: safeName, fileSize: file.size });
   }
 
   if (uploaded.length > 0) {

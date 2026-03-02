@@ -66,7 +66,6 @@ export const POST = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ result });
   } catch (error) {
     console.error("[tripletex/sync] Error:", error);
-    const message = error instanceof Error ? error.message : "Sync failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Synkronisering feilet" }, { status: 500 });
   }
 });

@@ -71,7 +71,7 @@ export const GET = withTenant(async (_req, { tenantId }) => {
 
     return NextResponse.json({ companies });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 502 });
+    console.error("[tripletex/companies]", error);
+    return NextResponse.json({ error: "Kunne ikke hente selskaper fra Tripletex" }, { status: 502 });
   }
 });

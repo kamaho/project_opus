@@ -134,7 +134,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   } catch (err) {
     console.error("[group-auto-match] Failed:", err);
     return NextResponse.json(
-      { error: "Gruppe-matching feilet", details: String(err) },
+      { error: "Gruppe-matching feilet" },
       { status: 500 }
     );
   }

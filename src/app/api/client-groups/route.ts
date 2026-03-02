@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clientGroups, clientGroupMembers, clients, companies } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
+import { logAudit } from "@/lib/audit";
 
 export const GET = withTenant(async (_req, { tenantId }) => {
   const groups = await db
@@ -91,6 +92,8 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
   await db.insert(clientGroupMembers).values(
     clientIds.map((cid) => ({ groupId: group.id, clientId: cid }))
   );
+
+  await logAudit({ tenantId, userId, action: "group.created", entityType: "client_group", entityId: group.id, metadata: { name: group.name } });
 
   return NextResponse.json(group, { status: 201 });
 });
