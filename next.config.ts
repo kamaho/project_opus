@@ -21,7 +21,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://clerk.revizo.ai https://challenges.cloudflare.com https://*.sentry.io https://vercel.live",
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.com",
+              "img-src 'self' data: blob: https://*.supabase.co https://img.clerk.com https://*.clerk.com https://images.clerk.dev",
               "font-src 'self'",
               "connect-src 'self' https://*.clerk.accounts.dev https://clerk.revizo.ai https://*.clerk.com https://*.supabase.co https://*.sentry.io https://*.ingest.sentry.io wss://*.supabase.co",
               "frame-src https://challenges.cloudflare.com https://*.clerk.accounts.dev https://clerk.revizo.ai",

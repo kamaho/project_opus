@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useOrganization } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { useUiPreferences } from "@/contexts/ui-preferences-context";
 import {
   formatNumber,
@@ -107,6 +108,7 @@ export default function OnboardingPage() {
     () => new Set(["dashboard", "avstemming"])
   );
   const { user, isLoaded: userLoaded } = useUser();
+  const { organization, isLoaded: orgLoaded } = useOrganization();
   const router = useRouter();
 
   const steps = useMemo(() => getSteps(path), [path]);
@@ -146,6 +148,10 @@ export default function OnboardingPage() {
   }
 
   async function handleFinish() {
+    if (!organization) {
+      toast.error("Velg eller opprett en organisasjon først. Bruk organisasjonsvelgeren i headeren.");
+      return;
+    }
     try {
       await fetch("/api/onboarding/complete", {
         method: "POST",
@@ -156,8 +162,9 @@ export default function OnboardingPage() {
           erpConnected: !!erpResult,
         }),
       });
-    } finally {
       router.push("/dashboard");
+    } catch {
+      // leave user on page on error
     }
   }
 
@@ -255,22 +262,41 @@ export default function OnboardingPage() {
         {/* Manual path */}
         {currentStepId === "manual-setup" && (
           <div className="space-y-4">
-            <SetupWizard
-              mode="fullscreen"
-              hideProgress
-              onComplete={(result) => {
-                setSetupResult(result);
-                goToStepId("preferences");
-              }}
-            />
-            <div className="text-center">
-              <button
-                onClick={() => goToStepId("preferences")}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Hopp over — jeg setter opp avstemming senere
-              </button>
-            </div>
+            {!orgLoaded ? (
+              <div className="flex justify-center py-12">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-foreground border-t-transparent" />
+              </div>
+            ) : !organization ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/40 p-6 text-center space-y-3">
+                <Building2 className="h-10 w-10 mx-auto text-amber-600 dark:text-amber-400" />
+                <h3 className="font-semibold text-foreground">Velg eller opprett organisasjon</h3>
+                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                  Du må ha en organisasjon for å sette opp avstemming. Bruk organisasjonsvelgeren i headeren (ved ditt navn) for å opprette eller velge en organisasjon.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Har du slått på organisasjonsbruk i Clerk? Etter at du har organisasjon, last siden på nytt eller gå tilbake og inn hit igjen.
+                </p>
+              </div>
+            ) : (
+              <>
+                <SetupWizard
+                  mode="fullscreen"
+                  hideProgress
+                  onComplete={(result) => {
+                    setSetupResult(result);
+                    goToStepId("preferences");
+                  }}
+                />
+                <div className="text-center">
+                  <button
+                    onClick={() => goToStepId("preferences")}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Hopp over — jeg setter opp avstemming senere
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -288,7 +314,7 @@ export default function OnboardingPage() {
         )}
 
         {currentStepId === "ready" && (
-          <StepReady onFinish={handleFinish} />
+          <StepReady onFinish={handleFinish} canFinish={!!organization} />
         )}
       </div>
     </div>
@@ -897,7 +923,7 @@ function StepPreferences({
 /* Step: Ready                                                         */
 /* ------------------------------------------------------------------ */
 
-function StepReady({ onFinish }: { onFinish: () => void }) {
+function StepReady({ onFinish, canFinish = true }: { onFinish: () => void; canFinish?: boolean }) {
   return (
     <div className="text-center space-y-6">
       <div className="flex justify-center">
@@ -912,7 +938,12 @@ function StepReady({ onFinish }: { onFinish: () => void }) {
           dataene flyte automatisk.
         </p>
       </div>
-      <Button size="lg" onClick={onFinish} className="gap-2">
+      {!canFinish && (
+        <p className="text-sm text-amber-600 dark:text-amber-400">
+          Velg eller opprett en organisasjon i headeren for å fullføre.
+        </p>
+      )}
+      <Button size="lg" onClick={onFinish} className="gap-2" disabled={!canFinish}>
         Start avstemming
         <ArrowRight className="h-4 w-4" />
       </Button>

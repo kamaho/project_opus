@@ -127,6 +127,20 @@ Sesjonstimeout (maks 8 timer for finansdata) konfigureres i **Clerk Dashboard** 
 2. Bruker ble fjernet fra organisasjonen
 3. Se Clerk Dashboard → Organizations
 
+### Microsoft-innlogging (AADSTS900144 / «client_id» mangler)
+
+Feilmeldingen «The request body must contain the following parameter: 'client_id'» betyr at
+Microsoft OAuth-forespørselen mangler Azure Application (client) ID. Dette konfigureres **ikke**
+i koden, men i Clerk Dashboard:
+
+1. Gå til [Clerk Dashboard](https://dashboard.clerk.com) → **User & Authentication** → **Social connections**.
+2. Slå på **Microsoft** og fyll inn:
+   - **Application (client) ID** fra Azure Portal (App registrations → din app → Overview).
+   - **Client secret** (Value fra Certificates & secrets).
+3. I Azure Portal: under **Authentication** må du ha lagt til Clerk sin redirect URI (f.eks. `https://clerk.revizo.ai/...` eller den som står i Clerk-instillingene).
+
+Uten korrekt Application (client) ID og secret i Clerk vil Microsoft-innlogging returnere AADSTS900144.
+
 ### Webhook-problemer (hvis brukt)
 
 Clerk webhooks brukes ikke direkte i koden per nå. Brukerdata hentes on-demand via

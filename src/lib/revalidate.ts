@@ -1,26 +1,44 @@
 import { revalidateTag } from "next/cache";
 
-const IMMEDIATE = { expire: 0 };
-
 export function revalidateCompanies() {
-  revalidateTag("companies", IMMEDIATE);
+  try {
+    revalidateTag("companies");
+  } catch {
+    // revalidation is best-effort; do not fail the request
+  }
 }
 
 export function revalidateClients() {
-  revalidateTag("clients", IMMEDIATE);
+  try {
+    revalidateTag("clients");
+  } catch {
+    // revalidation is best-effort; do not fail the request
+  }
 }
 
 export function revalidateAccounts() {
-  revalidateTag("accounts", IMMEDIATE);
+  try {
+    revalidateTag("accounts");
+  } catch {
+    // revalidation is best-effort; do not fail the request
+  }
 }
 
 export function revalidateMatchingRules() {
-  revalidateTag("matching-rules", IMMEDIATE);
+  try {
+    revalidateTag("matching-rules");
+  } catch {
+    // revalidation is best-effort; do not fail the request
+  }
 }
 
 export function revalidateAll() {
-  revalidateTag("companies", IMMEDIATE);
-  revalidateTag("clients", IMMEDIATE);
-  revalidateTag("accounts", IMMEDIATE);
-  revalidateTag("matching-rules", IMMEDIATE);
+  try {
+    revalidateTag("companies");
+    revalidateTag("clients");
+    revalidateTag("accounts");
+    revalidateTag("matching-rules");
+  } catch {
+    // revalidation is best-effort
+  }
 }
