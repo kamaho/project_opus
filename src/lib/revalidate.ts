@@ -1,8 +1,11 @@
 import { revalidateTag } from "next/cache";
 
+/** Next.js 16 requires a second argument (revalidation profile). */
+const REVALIDATE_PROFILE = "max" as const;
+
 export function revalidateCompanies() {
   try {
-    revalidateTag("companies");
+    revalidateTag("companies", REVALIDATE_PROFILE);
   } catch {
     // revalidation is best-effort; do not fail the request
   }
@@ -10,7 +13,7 @@ export function revalidateCompanies() {
 
 export function revalidateClients() {
   try {
-    revalidateTag("clients");
+    revalidateTag("clients", REVALIDATE_PROFILE);
   } catch {
     // revalidation is best-effort; do not fail the request
   }
@@ -18,7 +21,7 @@ export function revalidateClients() {
 
 export function revalidateAccounts() {
   try {
-    revalidateTag("accounts");
+    revalidateTag("accounts", REVALIDATE_PROFILE);
   } catch {
     // revalidation is best-effort; do not fail the request
   }
@@ -26,7 +29,7 @@ export function revalidateAccounts() {
 
 export function revalidateMatchingRules() {
   try {
-    revalidateTag("matching-rules");
+    revalidateTag("matching-rules", REVALIDATE_PROFILE);
   } catch {
     // revalidation is best-effort; do not fail the request
   }
@@ -34,10 +37,10 @@ export function revalidateMatchingRules() {
 
 export function revalidateAll() {
   try {
-    revalidateTag("companies");
-    revalidateTag("clients");
-    revalidateTag("accounts");
-    revalidateTag("matching-rules");
+    revalidateTag("companies", REVALIDATE_PROFILE);
+    revalidateTag("clients", REVALIDATE_PROFILE);
+    revalidateTag("accounts", REVALIDATE_PROFILE);
+    revalidateTag("matching-rules", REVALIDATE_PROFILE);
   } catch {
     // revalidation is best-effort
   }
