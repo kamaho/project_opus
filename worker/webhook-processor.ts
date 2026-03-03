@@ -66,7 +66,7 @@ async function claimPendingEvents(db: Db): Promise<{
   events: RawWebhookRow[];
   groups: WebhookGroup[];
 }> {
-  const now = new Date();
+  const now = new Date().toISOString();
 
   const events = await db.execute<RawWebhookRow>(sql`
     UPDATE webhook_inbox
@@ -74,7 +74,7 @@ async function claimPendingEvents(db: Db): Promise<{
     WHERE id IN (
       SELECT id FROM webhook_inbox
       WHERE status = 'pending'
-        AND process_after <= ${now}
+        AND process_after <= ${now}::timestamptz
         AND attempts < ${MAX_ATTEMPTS}
       ORDER BY process_after ASC
       LIMIT ${BATCH_LIMIT}
