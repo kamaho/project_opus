@@ -169,13 +169,17 @@ export interface AccountsAndBalancesResult {
   duration: number;
 }
 
-export async function syncAccountsAndBalances(
+/**
+ * Phase 1 only: fetch account list from Tripletex and insert into DB.
+ * Returns in seconds — no balance fetching.
+ */
+export async function syncAccountList(
   tripletexCompanyId: number,
   companyId: string,
   tenantId: string
-): Promise<AccountsAndBalancesResult> {
+): Promise<{ accountCount: number; duration: number }> {
   const t0 = Date.now();
-  console.log(`[sync] syncAccountsAndBalances: company=${tripletexCompanyId} tenant=${tenantId}`);
+  console.log(`[sync] syncAccountList: company=${tripletexCompanyId} tenant=${tenantId}`);
 
   const allAccounts = await fetchAllPages<TxAccount>("/ledger/account", {
     fields: "id,number,name,isBankAccount,currency(*)",
@@ -184,10 +188,9 @@ export async function syncAccountsAndBalances(
   console.log(`[sync] Fetched ${allAccounts.length} accounts from Tripletex in ${Date.now() - t0}ms`);
 
   if (allAccounts.length === 0) {
-    return { accountCount: 0, balancesUpdated: 0, duration: Date.now() - t0 };
+    return { accountCount: 0, duration: Date.now() - t0 };
   }
 
-  // Phase 1: Insert all accounts WITHOUT balances so UI shows immediately
   const now = new Date();
   const year = new Date().getFullYear();
 
@@ -217,35 +220,59 @@ export async function syncAccountsAndBalances(
       });
   }
 
-  console.log(`[sync] Phase 1 done: ${allAccounts.length} accounts inserted in ${Date.now() - t0}ms`);
-
-  // Also update the accounts table (existing behavior)
-  await syncAccounts(tripletexCompanyId, companyId, tenantId).catch((err) => {
+  syncAccounts(tripletexCompanyId, companyId, tenantId).catch((err) => {
     console.error("[sync] syncAccounts failed (non-blocking):", err);
   });
 
-  // Phase 2: Fetch balances for key accounts (1xxx-9xxx range, skip 0xxx system accounts)
-  const keyAccounts = allAccounts.filter((a) => {
-    const num = a.number ?? 0;
-    return num >= 1000 && num <= 9999;
+  const duration = Date.now() - t0;
+  console.log(`[sync] syncAccountList done: ${allAccounts.length} accounts in ${duration}ms`);
+  return { accountCount: allAccounts.length, duration };
+}
+
+/**
+ * Phase 2: fetch balances for key accounts (1000-9999) and update DB.
+ * Can be slow — run in background (after() or Worker).
+ */
+export async function syncBalancesForAccounts(
+  companyId: string,
+  tenantId: string
+): Promise<{ balancesUpdated: number; duration: number }> {
+  const t0 = Date.now();
+  const year = new Date().getFullYear();
+
+  const rows = await db
+    .select({
+      tripletexAccountId: accountSyncSettings.tripletexAccountId,
+      accountNumber: accountSyncSettings.accountNumber,
+    })
+    .from(accountSyncSettings)
+    .where(
+      and(
+        eq(accountSyncSettings.tenantId, tenantId),
+        eq(accountSyncSettings.companyId, companyId),
+      )
+    );
+
+  const keyAccounts = rows.filter((r) => {
+    const num = parseInt(r.accountNumber, 10);
+    return num >= 1000 && num <= 9999 && r.tripletexAccountId;
   });
 
-  console.log(`[sync] Phase 2: fetching balances for ${keyAccounts.length} key accounts`);
+  console.log(`[sync] syncBalances: ${keyAccounts.length} key accounts out of ${rows.length} total`);
 
   let balancesUpdated = 0;
-  const BALANCE_BATCH = 20;
-  for (let i = 0; i < keyAccounts.length; i += BALANCE_BATCH) {
-    const batch = keyAccounts.slice(i, i + BALANCE_BATCH);
-    const results = await Promise.allSettled(
+  const BATCH = 20;
+  for (let i = 0; i < keyAccounts.length; i += BATCH) {
+    const batch = keyAccounts.slice(i, i + BATCH);
+    await Promise.allSettled(
       batch.map(async (acc) => {
         try {
           const balRes = await fetchAllPages<TxBalance>("/balance", {
-            accountId: acc.id,
+            accountId: acc.tripletexAccountId,
             year,
             fields: "balanceIn,balanceOut",
           }, tenantId);
           if (balRes.length > 0) {
-            const mapped = mapAccount(acc);
             await db
               .update(accountSyncSettings)
               .set({
@@ -259,7 +286,7 @@ export async function syncAccountsAndBalances(
                 and(
                   eq(accountSyncSettings.tenantId, tenantId),
                   eq(accountSyncSettings.companyId, companyId),
-                  eq(accountSyncSettings.accountNumber, mapped.accountNumber),
+                  eq(accountSyncSettings.accountNumber, acc.accountNumber),
                 )
               );
             balancesUpdated++;
@@ -272,9 +299,30 @@ export async function syncAccountsAndBalances(
   }
 
   const duration = Date.now() - t0;
-  console.log(`[sync] syncAccountsAndBalances completed: ${allAccounts.length} accounts, ${balancesUpdated} balances in ${duration}ms`);
+  console.log(`[sync] syncBalances done: ${balancesUpdated} balances in ${duration}ms`);
+  return { balancesUpdated, duration };
+}
 
-  return { accountCount: allAccounts.length, balancesUpdated, duration };
+/**
+ * Full sync: Phase 1 (accounts) + Phase 2 (balances).
+ * Use syncAccountList + syncBalancesForAccounts separately when you need
+ * to return after Phase 1 and run Phase 2 in background.
+ */
+export async function syncAccountsAndBalances(
+  tripletexCompanyId: number,
+  companyId: string,
+  tenantId: string
+): Promise<AccountsAndBalancesResult> {
+  const phase1 = await syncAccountList(tripletexCompanyId, companyId, tenantId);
+  if (phase1.accountCount === 0) {
+    return { accountCount: 0, balancesUpdated: 0, duration: phase1.duration };
+  }
+  const phase2 = await syncBalancesForAccounts(companyId, tenantId);
+  return {
+    accountCount: phase1.accountCount,
+    balancesUpdated: phase2.balancesUpdated,
+    duration: phase1.duration + phase2.duration,
+  };
 }
 
 // ---------------------------------------------------------------------------

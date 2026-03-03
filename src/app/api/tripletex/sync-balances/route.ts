@@ -10,10 +10,8 @@ export const maxDuration = 120;
 /**
  * POST /api/tripletex/sync-balances
  *
- * Level 1 sync: fetches chart of accounts + balances for all accounts
- * in a Tripletex company. Fast operation (~3-5 seconds).
- *
- * Used by the simplified onboarding flow — no clients or transaction sync.
+ * Phase 1 (accounts) runs inline (~3-5s). Phase 2 (balances) runs via after().
+ * UI gets data immediately; balances trickle in.
  */
 export const POST = withTenant(async (req, { tenantId }) => {
   const body = await req.json();
@@ -39,43 +37,48 @@ export const POST = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
   }
 
-  after(async () => {
-    try {
-      console.log(`[tripletex/sync-balances] Starting sync for company=${companyId} tripletex=${tripletexCompanyId} tenant=${tenantId}`);
-      const { syncAccountsAndBalances } = await import(
-        "@/lib/tripletex/sync"
-      );
-      const result = await syncAccountsAndBalances(
-        tripletexCompanyId,
-        companyId,
-        tenantId
-      );
-      console.log(
-        `[tripletex/sync-balances] Done: ${result.accountCount} accounts, ${result.balancesUpdated} balances in ${result.duration}ms`
-      );
-    } catch (err) {
-      console.error("[tripletex/sync-balances] Failed:", err);
-    }
-  });
+  try {
+    const { syncAccountList, syncBalancesForAccounts } = await import(
+      "@/lib/tripletex/sync"
+    );
+    const phase1 = await syncAccountList(tripletexCompanyId, companyId, tenantId);
+    console.log(`[tripletex/sync-balances] Phase 1 done: ${phase1.accountCount} accounts in ${phase1.duration}ms`);
 
-  return NextResponse.json(
-    { status: "syncing", message: "Kontoliste og saldoer synkroniseres" },
-    { status: 202 }
-  );
+    after(async () => {
+      try {
+        const result = await syncBalancesForAccounts(companyId, tenantId);
+        console.log(`[tripletex/sync-balances] Phase 2 done: ${result.balancesUpdated} balances in ${result.duration}ms`);
+      } catch (err) {
+        console.error("[tripletex/sync-balances] Phase 2 failed:", err);
+      }
+    });
+
+    return NextResponse.json({
+      status: "ok",
+      accountCount: phase1.accountCount,
+      message: `${phase1.accountCount} kontoer lagret. Saldoer hentes i bakgrunnen.`,
+    });
+  } catch (err) {
+    console.error("[tripletex/sync-balances] Phase 1 failed:", err);
+    return NextResponse.json(
+      { error: "Sync feilet", message: err instanceof Error ? err.message : String(err) },
+      { status: 500 }
+    );
+  }
 });
 
 /**
  * GET /api/tripletex/sync-balances?companyId=X&tripletexCompanyId=Y
  *
- * Diagnostic: runs sync synchronously and returns result/error.
+ * Diagnostic: runs Phase 1 (accounts) synchronously, Phase 2 (balances) via after().
+ * Returns after ~3-5 seconds with account count.
  */
 export const GET = withTenant(async (req, { tenantId }) => {
   const url = new URL(req.url);
-  const companyId = url.searchParams.get("companyId");
-  const tripletexCompanyId = url.searchParams.get("tripletexCompanyId");
+  let companyId = url.searchParams.get("companyId");
+  let txId = url.searchParams.get("tripletexCompanyId");
 
-  if (!companyId || !tripletexCompanyId) {
-    // If no params, look up from DB
+  if (!companyId || !txId) {
     const companyRows = await db
       .select({ id: companies.id, tripletexCompanyId: companies.tripletexCompanyId })
       .from(companies)
@@ -95,32 +98,28 @@ export const GET = withTenant(async (req, { tenantId }) => {
       }, { status: 400 });
     }
 
-    try {
-      const { syncAccountsAndBalances } = await import("@/lib/tripletex/sync");
-      const result = await syncAccountsAndBalances(
-        Number(c.tripletexCompanyId),
-        c.id,
-        tenantId
-      );
-      return NextResponse.json({ status: "ok", result });
-    } catch (err) {
-      console.error("[tripletex/sync-balances] Diagnostic failed:", err);
-      return NextResponse.json({
-        error: "Sync feilet",
-        message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack?.split("\n").slice(0, 5) : undefined,
-      }, { status: 500 });
-    }
+    companyId = c.id;
+    txId = String(c.tripletexCompanyId);
   }
 
   try {
-    const { syncAccountsAndBalances } = await import("@/lib/tripletex/sync");
-    const result = await syncAccountsAndBalances(
-      Number(tripletexCompanyId),
-      companyId,
-      tenantId
-    );
-    return NextResponse.json({ status: "ok", result });
+    const { syncAccountList, syncBalancesForAccounts } = await import("@/lib/tripletex/sync");
+    const phase1 = await syncAccountList(Number(txId), companyId, tenantId);
+
+    after(async () => {
+      try {
+        const phase2 = await syncBalancesForAccounts(companyId!, tenantId);
+        console.log(`[tripletex/sync-balances] GET Phase 2 done: ${phase2.balancesUpdated} balances in ${phase2.duration}ms`);
+      } catch (err) {
+        console.error("[tripletex/sync-balances] GET Phase 2 failed:", err);
+      }
+    });
+
+    return NextResponse.json({
+      status: "ok",
+      phase1,
+      message: `${phase1.accountCount} kontoer lagret på ${phase1.duration}ms. Saldoer hentes i bakgrunnen.`,
+    });
   } catch (err) {
     console.error("[tripletex/sync-balances] Diagnostic failed:", err);
     return NextResponse.json({
