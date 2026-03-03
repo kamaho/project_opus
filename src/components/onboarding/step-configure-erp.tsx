@@ -742,13 +742,9 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
             <>
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               <div className="space-y-1 text-center">
-                <p className="text-sm font-medium">Setter opp alt...</p>
-                {createProgress ? (
+                <p className="text-sm font-medium">Setter opp kontoer...</p>
+                {createProgress && (
                   <p className="text-xs text-muted-foreground">{createProgress}</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Oppretter selskap, kontoer og starter synkronisering i bakgrunnen.
-                  </p>
                 )}
               </div>
             </>
@@ -757,9 +753,9 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/30">
                 <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium">Tilkobling opprettet</p>
+              <p className="text-sm font-medium">Kontoer opprettet</p>
               <p className="text-xs text-muted-foreground text-center max-w-sm">
-                Synkronisering av transaksjoner kjører i bakgrunnen. Du kan gå videre — statusen vises på dashbordet.
+                Transaksjoner synkroniseres i bakgrunnen. Du kan se status på dashbordet — du får en varsling når alt er klart.
               </p>
             </div>
           )}

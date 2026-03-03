@@ -26,6 +26,8 @@ export default async function ClientsPage() {
       set1AccountNumber: accounts.accountNumber,
       assignedUserId: clients.assignedUserId,
       txSyncActive: tripletexSyncConfigs.isActive,
+      syncStatus: tripletexSyncConfigs.syncStatus,
+      syncError: tripletexSyncConfigs.syncError,
     })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
@@ -123,6 +125,8 @@ export default async function ClientsPage() {
       lastRecon: null as string | null,
       assignedUserId: c.assignedUserId,
       integrationSource: c.txSyncActive ? "tripletex" as const : null,
+      syncStatus: c.syncStatus as string | null,
+      syncError: c.syncError as string | null,
     };
   });
 

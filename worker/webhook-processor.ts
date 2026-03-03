@@ -191,6 +191,21 @@ async function processGroup(db: Db, group: WebhookGroup): Promise<void> {
       batchSize: String(eventIds.length),
     });
     await markFailed(db, eventIds, msg);
+
+    if (eventPrefix === "sync") {
+      try {
+        await db.insert(notifications).values({
+          tenantId,
+          userId: "system",
+          type: "system",
+          title: "Synkronisering feilet",
+          body: "Kunne ikke importere transaksjoner fra Tripletex. Systemet prøver igjen automatisk.",
+          link: "/dashboard/settings",
+        });
+      } catch {
+        log(`Failed to create failure notification for tenant=${tenantId}`);
+      }
+    }
   }
 }
 
@@ -204,6 +219,52 @@ async function processTripletexGroup(
   eventIds: string[]
 ): Promise<void> {
   switch (eventPrefix) {
+    case "sync": {
+      const { runFullSync } = await import("../src/lib/tripletex/sync");
+
+      for (const id of eventIds) {
+        const [evt] = await db
+          .select({ payload: webhookInbox.payload })
+          .from(webhookInbox)
+          .where(eq(webhookInbox.id, id))
+          .limit(1);
+
+        const configId = (evt?.payload as { configId?: string } | null)?.configId;
+        if (!configId) {
+          log(`sync event ${id}: no configId in payload, skipping`);
+          continue;
+        }
+
+        log(`Running initial sync for config=${configId}`);
+        const result = await runFullSync(configId);
+        log(`Initial sync done for config=${configId}: postings=${result.postings.inserted}, bankTx=${result.bankTransactions.inserted}`);
+
+        const [config] = await db
+          .select({ clientId: tripletexSyncConfigs.clientId })
+          .from(tripletexSyncConfigs)
+          .where(eq(tripletexSyncConfigs.id, configId))
+          .limit(1);
+
+        if (config) {
+          const clientRow = await db.execute<{ name: string }>(sql`
+            SELECT name FROM clients WHERE id = ${config.clientId} LIMIT 1
+          `);
+          const clientName = Array.from(clientRow)[0]?.name ?? "Klient";
+          const total = result.postings.inserted + result.bankTransactions.inserted;
+
+          await db.insert(notifications).values({
+            tenantId,
+            userId: "system",
+            type: "system",
+            title: "Synkronisering fullført",
+            body: `${clientName}: ${total} transaksjoner importert fra Tripletex.`,
+            link: `/dashboard/clients/${config.clientId}`,
+          });
+        }
+      }
+      break;
+    }
+
     case "transaction": {
       const configs = await db
         .select()

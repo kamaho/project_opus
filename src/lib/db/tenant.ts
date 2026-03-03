@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { clients, companies, accounts } from "@/lib/db/schema";
+import { clients, companies, accounts, tripletexSyncConfigs } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
 /**
@@ -47,9 +47,12 @@ export async function getClientsByTenant(
       id: clients.id,
       name: clients.name,
       companyId: clients.companyId,
+      syncStatus: tripletexSyncConfigs.syncStatus,
+      syncError: tripletexSyncConfigs.syncError,
     })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
+    .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
     .where(
       companyId
         ? and(eq(companies.tenantId, tenantId), eq(clients.companyId, companyId))

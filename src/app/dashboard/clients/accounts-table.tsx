@@ -37,6 +37,8 @@ export interface AccountRow {
   lastRecon: string | null;
   assignedUserId: string | null;
   integrationSource: string | null;
+  syncStatus?: string | null;
+  syncError?: string | null;
 }
 
 export interface ClientGroup {
@@ -180,12 +182,34 @@ export function AccountsTable({
         header: "Klient",
         accessorFn: (row) => row.matchGroup,
         cell: (row) => (
-          <Link
-            href={`/dashboard/clients/${row.id}/matching`}
-            className="font-medium hover:underline"
-          >
-            {row.matchGroup}
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/dashboard/clients/${row.id}/matching`}
+              className="font-medium hover:underline"
+            >
+              {row.matchGroup}
+            </Link>
+            {row.syncStatus === "pending" || row.syncStatus === "syncing" ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+                    Synkroniserer
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Transaksjoner hentes fra Tripletex i bakgrunnen</TooltipContent>
+              </Tooltip>
+            ) : row.syncStatus === "failed" ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                    Sync feilet
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{row.syncError ?? "Ukjent feil"}</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
         ),
       },
       {

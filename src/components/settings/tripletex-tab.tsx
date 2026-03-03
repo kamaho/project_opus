@@ -87,7 +87,10 @@ export function TripletexTab() {
   const checkConnection = useCallback(async () => {
     setChecking(true);
     try {
-      const res = await fetch("/api/tripletex/connect");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch("/api/tripletex/connect", { signal: controller.signal });
+      clearTimeout(timeout);
       if (res.ok) {
         const data = await res.json();
         setConnectionOk(!!data.connection?.isActive);

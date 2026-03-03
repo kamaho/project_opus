@@ -1,9 +1,8 @@
 import { withTenant } from "@/lib/auth";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tripletexSyncConfigs, clients, companies } from "@/lib/db/schema";
+import { tripletexSyncConfigs, webhookInbox, clients, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { runFullSync } from "@/lib/tripletex/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -121,10 +120,21 @@ export const POST = withTenant(async (req, { tenantId }) => {
       })
       .returning();
 
-    console.log(`[tripletex/sync-config] Config ${config.id} created in ${Date.now() - t0}ms, queueing background sync`);
+    console.log(`[tripletex/sync-config] Config ${config.id} created in ${Date.now() - t0}ms, queueing to Worker`);
 
-    runFullSync(config.id).catch((err) => {
-      console.error(`[tripletex/sync-config] Background sync failed for config=${config.id}:`, err);
+    after(async () => {
+      try {
+        await db.insert(webhookInbox).values({
+          tenantId,
+          source: "tripletex",
+          eventType: "sync.initial",
+          externalId: config.id,
+          payload: { configId: config.id, clientId },
+        });
+        console.log(`[tripletex/sync-config] Queued sync.initial for config=${config.id}`);
+      } catch (err) {
+        console.error(`[tripletex/sync-config] Failed to queue sync job for config=${config.id}:`, err);
+      }
     });
 
     return NextResponse.json({ config }, { status: 201 });

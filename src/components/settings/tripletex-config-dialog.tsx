@@ -55,6 +55,8 @@ interface SyncConfig {
   lastSyncAt: string | null;
   syncIntervalMinutes: number;
   isActive: boolean;
+  syncStatus?: string | null;
+  syncError?: string | null;
 }
 
 interface ClientOption {
@@ -104,7 +106,10 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
   const checkConnection = useCallback(async () => {
     setChecking(true);
     try {
-      const res = await fetch("/api/tripletex/whoami");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch("/api/tripletex/whoami", { signal: controller.signal });
+      clearTimeout(timeout);
       setConnectionOk(res.ok);
     } catch {
       setConnectionOk(false);
@@ -303,10 +308,7 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
       const data = await res.json();
       setExistingConfig(data.config);
 
-      const r = data.syncResult;
-      toast.success(
-        `Synkronisering fullført: ${r.postings.inserted} posteringer, ${r.bankTransactions.inserted} banktransaksjoner`
-      );
+      toast.success("Konfigurasjon lagret. Synkronisering kjører i bakgrunnen.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ukjent feil");
     } finally {
@@ -360,10 +362,10 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
             )}
             <span className="text-sm flex-1">
               {checking
-                ? "Sjekker..."
+                ? "Sjekker tilkobling..."
                 : connectionOk
                   ? "Koblet til Tripletex"
-                  : "Ikke tilkoblet"}
+                  : "Ikke tilkoblet — sjekk API-nøkler"}
             </span>
             <Button variant="ghost" size="sm" onClick={checkConnection} disabled={checking}>
               <RefreshCw className="h-3.5 w-3.5" />
@@ -633,6 +635,23 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
                         <span className="font-medium text-foreground">Status:</span>{" "}
                         {existingConfig.isActive ? "Aktiv" : "Pauset"}
                       </p>
+                      <p>
+                        <span className="font-medium text-foreground">Synkronisering:</span>{" "}
+                        {existingConfig.syncStatus === "pending" || existingConfig.syncStatus === "syncing" ? (
+                          <span className="text-blue-600 dark:text-blue-400">Pågår...</span>
+                        ) : existingConfig.syncStatus === "completed" ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">Fullført</span>
+                        ) : existingConfig.syncStatus === "failed" ? (
+                          <span className="text-destructive">Feilet</span>
+                        ) : (
+                          <span>Venter</span>
+                        )}
+                      </p>
+                      {existingConfig.syncStatus === "failed" && existingConfig.syncError && (
+                        <p className="text-destructive text-xs">
+                          {existingConfig.syncError}
+                        </p>
+                      )}
                       {existingConfig.lastSyncAt && (
                         <p>
                           <span className="font-medium text-foreground">Siste synk:</span>{" "}
