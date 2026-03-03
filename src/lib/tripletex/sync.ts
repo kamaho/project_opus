@@ -187,84 +187,94 @@ export async function syncAccountsAndBalances(
     return { accountCount: 0, balancesUpdated: 0, duration: Date.now() - t0 };
   }
 
-  // Also update the accounts table (existing behavior)
-  await syncAccounts(tripletexCompanyId, companyId, tenantId);
-
+  // Phase 1: Insert all accounts WITHOUT balances so UI shows immediately
+  const now = new Date();
   const year = new Date().getFullYear();
-  let balancesUpdated = 0;
 
-  // Fetch balances per account (Tripletex requires accountId per call)
-  const balanceMap = new Map<number, { balanceIn: number | null; balanceOut: number | null }>();
-  const BALANCE_BATCH = 10;
-  for (let i = 0; i < allAccounts.length; i += BALANCE_BATCH) {
-    const batch = allAccounts.slice(i, i + BALANCE_BATCH);
+  for (const txAcc of allAccounts) {
+    const mapped = mapAccount(txAcc);
+    await db
+      .insert(accountSyncSettings)
+      .values({
+        tenantId,
+        companyId,
+        accountNumber: mapped.accountNumber,
+        accountName: mapped.name,
+        tripletexAccountId: txAcc.id,
+        accountType: mapped.accountType,
+        syncLevel: "balance_only",
+        balanceYear: year,
+        lastBalanceSyncAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [accountSyncSettings.tenantId, accountSyncSettings.companyId, accountSyncSettings.accountNumber],
+        set: {
+          accountName: mapped.name,
+          tripletexAccountId: txAcc.id,
+          accountType: mapped.accountType,
+          updatedAt: now,
+        },
+      });
+  }
+
+  console.log(`[sync] Phase 1 done: ${allAccounts.length} accounts inserted in ${Date.now() - t0}ms`);
+
+  // Also update the accounts table (existing behavior)
+  await syncAccounts(tripletexCompanyId, companyId, tenantId).catch((err) => {
+    console.error("[sync] syncAccounts failed (non-blocking):", err);
+  });
+
+  // Phase 2: Fetch balances for key accounts (1xxx-9xxx range, skip 0xxx system accounts)
+  const keyAccounts = allAccounts.filter((a) => {
+    const num = a.number ?? 0;
+    return num >= 1000 && num <= 9999;
+  });
+
+  console.log(`[sync] Phase 2: fetching balances for ${keyAccounts.length} key accounts`);
+
+  let balancesUpdated = 0;
+  const BALANCE_BATCH = 20;
+  for (let i = 0; i < keyAccounts.length; i += BALANCE_BATCH) {
+    const batch = keyAccounts.slice(i, i + BALANCE_BATCH);
     const results = await Promise.allSettled(
       batch.map(async (acc) => {
         try {
           const balRes = await fetchAllPages<TxBalance>("/balance", {
             accountId: acc.id,
             year,
-            fields: "*",
+            fields: "balanceIn,balanceOut",
           }, tenantId);
           if (balRes.length > 0) {
-            balanceMap.set(acc.id, {
-              balanceIn: balRes[0].balanceIn ?? null,
-              balanceOut: balRes[0].balanceOut ?? null,
-            });
+            const mapped = mapAccount(acc);
+            await db
+              .update(accountSyncSettings)
+              .set({
+                balanceIn: balRes[0].balanceIn?.toFixed(2) ?? null,
+                balanceOut: balRes[0].balanceOut?.toFixed(2) ?? null,
+                balanceYear: year,
+                lastBalanceSyncAt: new Date(),
+                updatedAt: new Date(),
+              })
+              .where(
+                and(
+                  eq(accountSyncSettings.tenantId, tenantId),
+                  eq(accountSyncSettings.companyId, companyId),
+                  eq(accountSyncSettings.accountNumber, mapped.accountNumber),
+                )
+              );
+            balancesUpdated++;
           }
         } catch {
           // Balance endpoint may not be available for all account types
         }
       })
     );
-    balancesUpdated += results.filter((r) => r.status === "fulfilled").length;
-  }
-
-  console.log(`[sync] Fetched balances for ${balanceMap.size} accounts in ${Date.now() - t0}ms`);
-
-  // Upsert account_sync_settings for all accounts
-  const now = new Date();
-  for (let i = 0; i < allAccounts.length; i += 500) {
-    const batch = allAccounts.slice(i, i + 500);
-    for (const txAcc of batch) {
-      const mapped = mapAccount(txAcc);
-      const balance = balanceMap.get(txAcc.id);
-
-      await db
-        .insert(accountSyncSettings)
-        .values({
-          tenantId,
-          companyId,
-          accountNumber: mapped.accountNumber,
-          accountName: mapped.name,
-          tripletexAccountId: txAcc.id,
-          accountType: mapped.accountType,
-          syncLevel: "balance_only",
-          balanceIn: balance?.balanceIn?.toFixed(2) ?? null,
-          balanceOut: balance?.balanceOut?.toFixed(2) ?? null,
-          balanceYear: year,
-          lastBalanceSyncAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [accountSyncSettings.tenantId, accountSyncSettings.companyId, accountSyncSettings.accountNumber],
-          set: {
-            accountName: mapped.name,
-            tripletexAccountId: txAcc.id,
-            accountType: mapped.accountType,
-            balanceIn: balance?.balanceIn?.toFixed(2) ?? null,
-            balanceOut: balance?.balanceOut?.toFixed(2) ?? null,
-            balanceYear: year,
-            lastBalanceSyncAt: now,
-            updatedAt: now,
-          },
-        });
-    }
   }
 
   const duration = Date.now() - t0;
-  console.log(`[sync] syncAccountsAndBalances completed: ${allAccounts.length} accounts, ${balanceMap.size} balances in ${duration}ms`);
+  console.log(`[sync] syncAccountsAndBalances completed: ${allAccounts.length} accounts, ${balancesUpdated} balances in ${duration}ms`);
 
-  return { accountCount: allAccounts.length, balancesUpdated: balanceMap.size, duration };
+  return { accountCount: allAccounts.length, balancesUpdated, duration };
 }
 
 // ---------------------------------------------------------------------------
