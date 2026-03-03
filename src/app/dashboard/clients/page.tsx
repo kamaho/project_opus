@@ -156,24 +156,52 @@ export default async function ClientsPage() {
         .groupBy(transactions.clientId, transactions.setNumber)
     : [];
 
+  // Total balance per client/set (ALL transactions, not just unmatched)
+  const totalBalances = clientIds.length > 0
+    ? await db
+        .select({
+          clientId: transactions.clientId,
+          setNumber: transactions.setNumber,
+          sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
+        })
+        .from(transactions)
+        .where(inArray(transactions.clientId, clientIds))
+        .groupBy(transactions.clientId, transactions.setNumber)
+    : [];
+
+  // IB lookup: accountNumber -> balanceIn (integration-agnostic)
+  const ibByAccount = new Map<string, number>();
+  for (const r of accountSyncRows) {
+    if (r.balanceIn) {
+      ibByAccount.set(r.accountNumber, parseFloat(r.balanceIn));
+    }
+  }
+
   const byClient = new Map<
     string,
     { openSet1: number; openSet2: number; leftBalance: number; rightBalance: number }
   >();
   for (const c of list) {
-    byClient.set(c.id, { openSet1: 0, openSet2: 0, leftBalance: 0, rightBalance: 0 });
+    const ib = ibByAccount.get(c.set1AccountNumber ?? "") ?? 0;
+    byClient.set(c.id, { openSet1: 0, openSet2: 0, leftBalance: ib, rightBalance: 0 });
   }
   for (const r of unmatchedCounts) {
     const cur = byClient.get(r.clientId);
     if (!cur) continue;
-    const cnt = Number(r.count) ?? 0;
+    if (r.setNumber === 1) {
+      cur.openSet1 = Number(r.count) ?? 0;
+    } else {
+      cur.openSet2 = Number(r.count) ?? 0;
+    }
+  }
+  for (const r of totalBalances) {
+    const cur = byClient.get(r.clientId);
+    if (!cur) continue;
     const sum = parseFloat(r.sum ?? "0");
     if (r.setNumber === 1) {
-      cur.openSet1 = cnt;
-      cur.leftBalance = sum;
+      cur.leftBalance += sum;
     } else {
-      cur.openSet2 = cnt;
-      cur.rightBalance = sum;
+      cur.rightBalance += sum;
     }
   }
 
