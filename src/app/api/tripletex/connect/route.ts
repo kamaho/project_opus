@@ -73,8 +73,18 @@ export const POST = withTenant(async (req, ctx) => {
 
     const whoami = await whoamiRes.json();
 
-    const encryptedConsumer = encrypt(paddedConsumer);
-    const encryptedEmployee = encrypt(paddedEmployee);
+    let encryptedConsumer: string;
+    let encryptedEmployee: string;
+    try {
+      encryptedConsumer = encrypt(paddedConsumer);
+      encryptedEmployee = encrypt(paddedEmployee);
+    } catch (encErr) {
+      console.error("[tripletex/connect] Encryption failed:", encErr instanceof Error ? encErr.message : encErr);
+      return NextResponse.json(
+        { error: "Serverfeil: Krypteringsnøkkel mangler eller er ugyldig. Kontakt administrator." },
+        { status: 500 }
+      );
+    }
 
     const [connection] = await db
       .insert(tripletexConnections)

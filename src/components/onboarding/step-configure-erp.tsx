@@ -136,7 +136,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     } finally {
       setVerifying(false);
     }
-  }, [consumerToken, employeeToken]);
+  }, [consumerToken, employeeToken, isTest]);
 
   async function loadCompanies() {
     setLoadingCompanies(true);
