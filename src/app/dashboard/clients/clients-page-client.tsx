@@ -35,6 +35,16 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
   /** When set, Grupper tab shows this group's table instead of the card grid */
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
+  const hasSyncing = rows.some(
+    (r) => r.syncStatus === "pending" || r.syncStatus === "syncing"
+  );
+
+  useEffect(() => {
+    if (!hasSyncing) return;
+    const interval = setInterval(() => router.refresh(), 10_000);
+    return () => clearInterval(interval);
+  }, [hasSyncing, router]);
+
   // If selected group was deleted, return to card grid
   const groupStillExists = !selectedGroupId || groups.some((g) => g.id === selectedGroupId);
   if (!groupStillExists && selectedGroupId) {

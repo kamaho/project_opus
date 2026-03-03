@@ -106,11 +106,13 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
   const checkConnection = useCallback(async () => {
     setChecking(true);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch("/api/tripletex/whoami", { signal: controller.signal });
-      clearTimeout(timeout);
-      setConnectionOk(res.ok);
+      const res = await fetch("/api/tripletex/connect");
+      if (res.ok) {
+        const data = await res.json();
+        setConnectionOk(!!data.connection?.isActive);
+      } else {
+        setConnectionOk(false);
+      }
     } catch {
       setConnectionOk(false);
     } finally {
