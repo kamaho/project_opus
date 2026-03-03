@@ -40,14 +40,21 @@ export const GET = withTenant(async (req, { tenantId }) => {
     account: acct,
   };
 
-  const year = 2026;
+  const year = new Date().getFullYear();
+  const dateFrom = `${year}-01-01`;
+  const dateTo = `${year}-12-31`;
+
   const tests: Array<{ name: string; path: string; params: Record<string, string | number | boolean> }> = [
-    { name: "balance_query", path: "/balance", params: { accountId: acct.tripletexAccountId, year, fields: "*" } },
-    { name: "balance_id", path: `/balance/${acct.tripletexAccountId}`, params: { year, fields: "*" } },
-    { name: "ledger_account_fields", path: "/ledger/account", params: { id: acct.tripletexAccountId, fields: "id,number,name,openingBalance,closingBalance,balanceIn,balanceOut" } },
-    { name: "ledger_account_id", path: `/ledger/account/${acct.tripletexAccountId}`, params: { fields: "*" } },
-    { name: "balance_sheet", path: "/balanceSheet", params: { accountNumberFrom: acct.accountNumber, accountNumberTo: acct.accountNumber, fields: "*" } },
-    { name: "ledger_posting_openPost", path: "/ledger/posting/openPost", params: { accountId: acct.tripletexAccountId, fields: "*", count: 1 } },
+    {
+      name: "balanceSheet_single",
+      path: "/balanceSheet",
+      params: { dateFrom, dateTo, accountNumberFrom: acct.accountNumber, accountNumberTo: acct.accountNumber, fields: "*" },
+    },
+    {
+      name: "balanceSheet_all_1000_1999",
+      path: "/balanceSheet",
+      params: { dateFrom, dateTo, accountNumberFrom: "1000", accountNumberTo: "1999", fields: "*" },
+    },
   ];
 
   for (const ep of tests) {
