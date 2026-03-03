@@ -40,16 +40,22 @@ export const GET = withTenant(async (req, { tenantId }) => {
     account: acct,
   };
 
-  for (const year of [2024, 2025, 2026]) {
+  const year = 2026;
+  const endpoints = [
+    { name: "balance_query", path: "/balance", params: { accountId: acct.tripletexAccountId, year, fields: "*" } },
+    { name: "balance_id", path: `/balance/${acct.tripletexAccountId}`, params: { year, fields: "*" } },
+    { name: "ledger_account_fields", path: "/ledger/account", params: { id: acct.tripletexAccountId, fields: "id,number,name,openingBalance,closingBalance,balanceIn,balanceOut" } },
+    { name: "ledger_account_id", path: `/ledger/account/${acct.tripletexAccountId}`, params: { fields: "*" } },
+    { name: "balance_sheet", path: "/balanceSheet", params: { accountNumberFrom: acct.accountNumber, accountNumberTo: acct.accountNumber, fields: "*" } },
+    { name: "ledger_posting_openPost", path: "/ledger/posting/openPost", params: { accountId: acct.tripletexAccountId, fields: "*", count: 1 } },
+  ];
+
+  for (const ep of endpoints) {
     try {
-      const raw = await tripletexGet<unknown>("/balance", {
-        accountId: acct.tripletexAccountId,
-        year,
-        fields: "*",
-      }, tenantId);
-      results[`year_${year}`] = raw;
+      const raw = await tripletexGet<unknown>(ep.path, ep.params, tenantId);
+      results[ep.name] = raw;
     } catch (err) {
-      results[`year_${year}`] = {
+      results[ep.name] = {
         error: err instanceof Error ? err.message : String(err),
       };
     }
