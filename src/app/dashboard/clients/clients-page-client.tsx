@@ -34,9 +34,7 @@ interface ClientsPageClientProps {
 export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: ClientsPageClientProps) {
   const router = useRouter();
   const hasAccountSync = (accountSyncRows?.length ?? 0) > 0;
-  const [tab, setTab] = useState<"klienter" | "grupper" | "kontoplan">(
-    hasAccountSync ? "kontoplan" : "klienter"
-  );
+  const [tab, setTab] = useState<"klienter" | "grupper" | "kontoplan">("klienter");
   const [initialActiveGroupId, setInitialActiveGroupId] = useState<string | null>(null);
   /** When set, Grupper tab shows this group's table instead of the card grid */
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -219,19 +217,10 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
         }}
       >
         <TabsList className="w-fit">
-          {hasAccountSync && <TabsTrigger value="kontoplan">Kontoplan</TabsTrigger>}
           <TabsTrigger value="klienter">Klient avstemming</TabsTrigger>
           <TabsTrigger value="grupper">Grupper</TabsTrigger>
+          {hasAccountSync && <TabsTrigger value="kontoplan">Kontoplan</TabsTrigger>}
         </TabsList>
-
-        {hasAccountSync && companyId && (
-          <TabsContent value="kontoplan" className="mt-4">
-            <CompanyAccountsView
-              accounts={accountSyncRows!}
-              companyId={companyId}
-            />
-          </TabsContent>
-        )}
 
         <TabsContent value="klienter" className="mt-4">
           <AccountsTable
@@ -291,6 +280,15 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
             </>
           )}
         </TabsContent>
+
+        {hasAccountSync && companyId && (
+          <TabsContent value="kontoplan" className="mt-4">
+            <CompanyAccountsView
+              accounts={accountSyncRows!}
+              companyId={companyId}
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* All dialogs rendered outside Tabs to avoid removeChild crash */}

@@ -266,6 +266,7 @@ export async function syncBalancesForAccounts(
   console.log(`[sync] syncBalances: ${keyAccounts.length} key accounts out of ${rows.length} total`);
 
   let balancesUpdated = 0;
+  let errors = 0;
   const BATCH = 20;
   for (let i = 0; i < keyAccounts.length; i += BATCH) {
     const batch = keyAccounts.slice(i, i + BATCH);
@@ -275,7 +276,7 @@ export async function syncBalancesForAccounts(
           const balRes = await fetchAllPages<TxBalance>("/balance", {
             accountId: acc.tripletexAccountId,
             year,
-            fields: "balanceIn,balanceOut",
+            fields: "*",
           }, tenantId);
           if (balRes.length > 0) {
             await db
@@ -296,11 +297,17 @@ export async function syncBalancesForAccounts(
               );
             balancesUpdated++;
           }
-        } catch {
-          // Balance endpoint may not be available for all account types
+        } catch (err) {
+          errors++;
+          if (errors <= 3) {
+            console.error(`[sync] Balance fetch failed for account ${acc.accountNumber} (txId=${acc.tripletexAccountId}):`, err);
+          }
         }
       })
     );
+    if ((i + BATCH) % 100 === 0 || i + BATCH >= keyAccounts.length) {
+      console.log(`[sync] Balance progress: ${Math.min(i + BATCH, keyAccounts.length)}/${keyAccounts.length} processed, ${balancesUpdated} updated, ${errors} errors`);
+    }
   }
 
   const duration = Date.now() - t0;

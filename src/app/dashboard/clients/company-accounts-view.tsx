@@ -91,7 +91,7 @@ export function CompanyAccountsView({
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [activating, setActivating] = useState<Set<string>>(new Set());
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const activeCount = accounts.filter(
     (a) => a.syncLevel === "transactions"
@@ -153,7 +153,7 @@ export function CompanyAccountsView({
         }
         const data = await res.json();
         toast.success(
-          `Konto ${accountNumber} aktivert. Transaksjoner hentes i bakgrunnen.`
+          `Konto ${accountNumber} importert. Transaksjoner hentes i bakgrunnen.`
         );
         if (data.clientId) {
           router.refresh();
@@ -196,7 +196,7 @@ export function CompanyAccountsView({
           data.results as Array<{ status: string }>
         ).filter((r) => r.status === "activated").length;
         toast.success(
-          `${activated} ${activated === 1 ? "konto" : "kontoer"} aktivert. Transaksjoner hentes i bakgrunnen.`
+          `${activated} ${activated === 1 ? "konto" : "kontoer"} importert. Transaksjoner hentes i bakgrunnen.`
         );
         router.refresh();
       } catch (e) {
@@ -210,8 +210,8 @@ export function CompanyAccountsView({
     [companyId, router]
   );
 
-  const toggleGroupCollapse = (prefix: string) => {
-    setCollapsedGroups((prev) => {
+  const toggleGroupExpand = (prefix: string) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
       if (next.has(prefix)) next.delete(prefix);
       else next.add(prefix);
@@ -236,8 +236,8 @@ export function CompanyAccountsView({
         <div className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{accounts.length}</span>{" "}
           kontoer totalt ·{" "}
-          <span className="font-medium text-foreground">{activeCount}</span> under
-          avstemming
+          <span className="font-medium text-foreground">{activeCount}</span>{" "}
+          importert
         </div>
         <div className="relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -254,9 +254,9 @@ export function CompanyAccountsView({
       {recommendedAccounts.length > 0 && !search && (
         <div className="rounded-lg border bg-card p-4 space-y-3">
           <div>
-            <p className="text-sm font-medium">Anbefalte kontoer for avstemming</p>
+            <p className="text-sm font-medium">Anbefalte kontoer</p>
             <p className="text-xs text-muted-foreground">
-              De fleste regnskapsførere avstemmer disse kontoene. Aktiver alle med
+              De fleste regnskapsførere bruker disse kontoene. Importer alle med
               ett klikk.
             </p>
           </div>
@@ -291,7 +291,7 @@ export function CompanyAccountsView({
             ) : (
               <PlayCircle className="h-3.5 w-3.5" />
             )}
-            Aktiver {Math.min(recommendedAccounts.length, 20)} anbefalte kontoer
+            Importer {Math.min(recommendedAccounts.length, 20)} anbefalte kontoer
           </Button>
         </div>
       )}
@@ -306,19 +306,19 @@ export function CompanyAccountsView({
         </div>
 
         {groups.map((group) => {
-          const isCollapsed = collapsedGroups.has(group.prefix);
+          const isExpanded = expandedGroups.has(group.prefix);
 
           return (
             <div key={group.prefix}>
               <button
                 type="button"
-                onClick={() => toggleGroupCollapse(group.prefix)}
+                onClick={() => toggleGroupExpand(group.prefix)}
                 className="flex items-center gap-2 w-full px-3 py-2 bg-muted/30 border-b text-left hover:bg-muted/50 transition-colors"
               >
-                {isCollapsed ? (
-                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                ) : (
+                {isExpanded ? (
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
                 <span className="text-xs font-mono tabular-nums text-muted-foreground">
                   {group.prefix}xx
@@ -329,7 +329,7 @@ export function CompanyAccountsView({
                 </span>
               </button>
 
-              {!isCollapsed &&
+              {isExpanded &&
                 group.accounts.map((acct) => {
                   const isActive = acct.syncLevel === "transactions";
                   const isActivating = activating.has(acct.accountNumber);
@@ -369,7 +369,7 @@ export function CompanyAccountsView({
                             className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors"
                           >
                             <CheckCircle2 className="h-3 w-3" />
-                            Avstemming
+                            Importert
                             {acct.txCount > 0 && (
                               <span className="text-emerald-600/70">
                                 ({acct.txCount})
@@ -389,7 +389,7 @@ export function CompanyAccountsView({
                             ) : (
                               <PlayCircle className="h-3 w-3" />
                             )}
-                            Start avstemming
+                            Importer konto
                           </Button>
                         )}
                       </div>
