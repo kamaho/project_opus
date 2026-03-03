@@ -41,7 +41,7 @@ export const GET = withTenant(async (req, { tenantId }) => {
   };
 
   const year = 2026;
-  const endpoints = [
+  const tests: Array<{ name: string; path: string; params: Record<string, string | number | boolean> }> = [
     { name: "balance_query", path: "/balance", params: { accountId: acct.tripletexAccountId, year, fields: "*" } },
     { name: "balance_id", path: `/balance/${acct.tripletexAccountId}`, params: { year, fields: "*" } },
     { name: "ledger_account_fields", path: "/ledger/account", params: { id: acct.tripletexAccountId, fields: "id,number,name,openingBalance,closingBalance,balanceIn,balanceOut" } },
@@ -50,7 +50,7 @@ export const GET = withTenant(async (req, { tenantId }) => {
     { name: "ledger_posting_openPost", path: "/ledger/posting/openPost", params: { accountId: acct.tripletexAccountId, fields: "*", count: 1 } },
   ];
 
-  for (const ep of endpoints) {
+  for (const ep of tests) {
     try {
       const raw = await tripletexGet<unknown>(ep.path, ep.params, tenantId);
       results[ep.name] = raw;
