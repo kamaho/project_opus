@@ -1,9 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, accountSyncSettings } from "@/lib/db/schema";
+import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, accountSyncSettings, tripletexConnections } from "@/lib/db/schema";
 import { eq, and, sql, inArray, asc, desc } from "drizzle-orm";
 import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
+import { SyncInProgressView } from "./sync-in-progress-view";
 
 export default async function ClientsPage() {
   const { orgId } = await auth();
@@ -91,6 +92,17 @@ export default async function ClientsPage() {
   }
 
   if (clientIds.length === 0 && accountSyncRows.length === 0) {
+    // Check if there's an active Tripletex connection — sync may be in progress
+    const [txConn] = await db
+      .select({ id: tripletexConnections.id })
+      .from(tripletexConnections)
+      .where(and(eq(tripletexConnections.tenantId, orgId), eq(tripletexConnections.isActive, true)))
+      .limit(1);
+
+    if (txConn) {
+      return <SyncInProgressView />;
+    }
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
