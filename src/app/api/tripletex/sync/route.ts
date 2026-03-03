@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { tripletexSyncConfigs } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { runFullSync } from "@/lib/tripletex/sync";
+import { TripletexError } from "@/lib/tripletex";
 
 /**
  * POST /api/tripletex/sync
@@ -66,7 +67,6 @@ export const POST = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ result });
   } catch (error) {
     console.error("[tripletex/sync] Error:", error);
-    const { TripletexError } = await import("@/lib/tripletex");
     const message = error instanceof TripletexError
       ? error.userMessage
       : "Synkronisering feilet. Prøv igjen senere.";

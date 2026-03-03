@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexSyncConfigs, clients, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { TripletexError } from "@/lib/tripletex";
 import { syncCompany, syncAccounts, runFullSync } from "@/lib/tripletex/sync";
 
 export const dynamic = "force-dynamic";
@@ -83,28 +84,15 @@ export const POST = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
   }
 
-  // Sync company + accounts into Revizo DB (pass tenantId for per-tenant credentials)
-  const companyId = await syncCompany(tripletexCompanyId, tenantId);
-  await syncAccounts(tripletexCompanyId, companyId, tenantId);
+  try {
+    const companyId = await syncCompany(tripletexCompanyId, tenantId);
+    await syncAccounts(tripletexCompanyId, companyId, tenantId);
 
-  // Create sync config
-  const [config] = await db
-    .insert(tripletexSyncConfigs)
-    .values({
-      clientId,
-      tenantId,
-      tripletexCompanyId,
-      set1TripletexAccountId: resolvedSet1Ids[0] ?? null,
-      set2TripletexAccountId: resolvedSet2Ids[0] ?? null,
-      set1TripletexAccountIds: resolvedSet1Ids,
-      set2TripletexAccountIds: resolvedSet2Ids,
-      enabledFields: enabledFields ?? undefined,
-      dateFrom,
-      syncIntervalMinutes: syncIntervalMinutes ?? 60,
-    })
-    .onConflictDoUpdate({
-      target: [tripletexSyncConfigs.clientId],
-      set: {
+    const [config] = await db
+      .insert(tripletexSyncConfigs)
+      .values({
+        clientId,
+        tenantId,
         tripletexCompanyId,
         set1TripletexAccountId: resolvedSet1Ids[0] ?? null,
         set2TripletexAccountId: resolvedSet2Ids[0] ?? null,
@@ -113,16 +101,35 @@ export const POST = withTenant(async (req, { tenantId }) => {
         enabledFields: enabledFields ?? undefined,
         dateFrom,
         syncIntervalMinutes: syncIntervalMinutes ?? 60,
-        isActive: true,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
+      })
+      .onConflictDoUpdate({
+        target: [tripletexSyncConfigs.clientId],
+        set: {
+          tripletexCompanyId,
+          set1TripletexAccountId: resolvedSet1Ids[0] ?? null,
+          set2TripletexAccountId: resolvedSet2Ids[0] ?? null,
+          set1TripletexAccountIds: resolvedSet1Ids,
+          set2TripletexAccountIds: resolvedSet2Ids,
+          enabledFields: enabledFields ?? undefined,
+          dateFrom,
+          syncIntervalMinutes: syncIntervalMinutes ?? 60,
+          isActive: true,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
 
-  // Run initial sync
-  const result = await runFullSync(config.id);
+    const result = await runFullSync(config.id);
 
-  return NextResponse.json({ config, syncResult: result }, { status: 201 });
+    return NextResponse.json({ config, syncResult: result }, { status: 201 });
+  } catch (error) {
+    console.error("[tripletex/sync-config] POST error:", error);
+    const message = error instanceof TripletexError
+      ? error.userMessage
+      : "Kunne ikke synkronisere med Tripletex. Sjekk tilkoblingen og prøv igjen.";
+    const status = error instanceof TripletexError ? Math.max(error.statusCode, 400) : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
 });
 
 /**

@@ -111,11 +111,18 @@ export async function syncAccounts(
     tripletexAccountId: number;
   }> = [];
 
+  const toUpdate: Array<{ id: string; accountNumber: string; name: string; accountType: "ledger" | "bank" }> = [];
+
   for (const txAcc of all) {
     const mapped = mapAccount(txAcc);
 
     if (existingByTxId.has(txAcc.id)) {
-      // Update in batch below — skip for now, individual updates are rare
+      toUpdate.push({
+        id: existingByTxId.get(txAcc.id)!,
+        accountNumber: mapped.accountNumber,
+        name: mapped.name,
+        accountType: mapped.accountType,
+      });
     } else {
       toInsert.push({
         companyId,
@@ -127,12 +134,18 @@ export async function syncAccounts(
     }
   }
 
-  // Batch insert new accounts (500 at a time)
   for (let i = 0; i < toInsert.length; i += 500) {
     await db.insert(accounts).values(toInsert.slice(i, i + 500));
   }
 
-  return toInsert.length + existingByTxId.size;
+  for (const upd of toUpdate) {
+    await db
+      .update(accounts)
+      .set({ accountNumber: upd.accountNumber, name: upd.name, accountType: upd.accountType })
+      .where(eq(accounts.id, upd.id));
+  }
+
+  return toInsert.length + toUpdate.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,20 +223,33 @@ export async function syncPostings(
   let totalFetched = 0;
   let totalInserted = 0;
 
+  const lastId = config.lastSyncPostingId ?? 0;
+
   for (const accountId of accountIds) {
-    const allPostings = await fetchAllPages<TxPosting>("/ledger/posting", {
-      dateFrom: config.dateFrom,
+    const params: Record<string, string | number | boolean> = {
       dateTo: today,
       accountId,
       fields: "*,account(*),voucher(*),currency(*)",
-    }, config.tenantId);
+    };
+
+    if (lastId > 0) {
+      params.id = `>${lastId}`;
+    } else {
+      params.dateFrom = config.dateFrom;
+    }
+
+    const allPostings = await fetchAllPages<TxPosting>(
+      "/ledger/posting",
+      params,
+      config.tenantId
+    );
 
     const mapped = allPostings.map((p) => mapPosting(p, enabledFields));
     const inserted = await insertTransactionsBatch(config.clientId, mapped);
     totalFetched += allPostings.length;
     totalInserted += inserted;
 
-    const maxId = allPostings.reduce((max, p) => Math.max(max, p.id), config.lastSyncPostingId ?? 0);
+    const maxId = allPostings.reduce((max, p) => Math.max(max, p.id), lastId);
     if (maxId > (config.lastSyncPostingId ?? 0)) {
       config = { ...config, lastSyncPostingId: maxId };
     }
@@ -261,15 +287,24 @@ export async function syncBankTransactions(
   let totalFetched = 0;
   let totalInserted = 0;
 
+  const lastId = config.lastSyncBankTxId ?? 0;
+
   for (const accountId of accountIds) {
+    const params: Record<string, string | number | boolean> = {
+      transactionDateTo: today,
+      accountId,
+      fields: "*,account(*)",
+    };
+
+    if (lastId > 0) {
+      params.id = `>${lastId}`;
+    } else {
+      params.transactionDateFrom = config.dateFrom;
+    }
+
     const allTx = await fetchAllPages<TxBankTransaction>(
       "/bank/statement/transaction",
-      {
-        transactionDateFrom: config.dateFrom,
-        transactionDateTo: today,
-        accountId,
-        fields: "*,account(*)",
-      },
+      params,
       config.tenantId
     );
 
@@ -278,7 +313,7 @@ export async function syncBankTransactions(
     totalFetched += allTx.length;
     totalInserted += inserted;
 
-    const maxId = allTx.reduce((max, t) => Math.max(max, t.id), config.lastSyncBankTxId ?? 0);
+    const maxId = allTx.reduce((max, t) => Math.max(max, t.id), lastId);
     if (maxId > (config.lastSyncBankTxId ?? 0)) {
       config = { ...config, lastSyncBankTxId: maxId };
     }

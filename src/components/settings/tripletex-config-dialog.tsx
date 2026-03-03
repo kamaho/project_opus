@@ -92,7 +92,9 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
   const [enabledFields, setEnabledFields] = useState<Record<string, boolean>>({
     ...DEFAULT_ENABLED_FIELDS,
   });
-  const [dateFrom, setDateFrom] = useState("2025-01-01");
+  const [dateFrom, setDateFrom] = useState(
+    `${new Date().getFullYear()}-01-01`
+  );
   const [syncInterval, setSyncInterval] = useState(60);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);

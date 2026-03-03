@@ -1,6 +1,6 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import { tripletexGet } from "@/lib/tripletex";
+import { tripletexGet, TripletexError } from "@/lib/tripletex";
 import type { TxCompany } from "@/lib/tripletex/types";
 
 export const dynamic = "force-dynamic";
@@ -72,6 +72,10 @@ export const GET = withTenant(async (_req, { tenantId }) => {
     return NextResponse.json({ companies });
   } catch (error) {
     console.error("[tripletex/companies]", error);
-    return NextResponse.json({ error: "Kunne ikke hente selskaper fra Tripletex" }, { status: 502 });
+    const message = error instanceof TripletexError
+      ? error.userMessage
+      : "Kunne ikke hente selskaper fra Tripletex. Sjekk tilkoblingen.";
+    const status = error instanceof TripletexError ? Math.max(error.statusCode, 400) : 502;
+    return NextResponse.json({ error: message }, { status });
   }
 });

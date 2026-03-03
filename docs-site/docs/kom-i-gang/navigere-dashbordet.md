@@ -12,7 +12,8 @@ Kort oversikt over hovedområdene i Revizo.
 - **Dashboard** — Oversikt og oppgaver
 - **Klienter** — Liste over klienter og kontoer
 - **Avstemming** — Per klient: mengde 1 og 2, matching, notater
-- **Innstillinger** — Organisasjon, Tripletex, team
+- **Innstillinger** — Organisasjon, team, preferanser
+- **Integrasjoner** — Tripletex og andre tilkoblinger ([guide](../guider/integrasjoner/oversikt))
 
 ## Klient-sider
 
