@@ -22,15 +22,21 @@ import {
 import { ComparisonOverlay } from "@/components/clients/comparison-overlay";
 import { ClientGroupDialog, type ClientOption } from "@/components/clients/client-group-dialog";
 import { GroupAutoMatchDialog } from "@/components/clients/group-auto-match-dialog";
+import { CompanyAccountsView, type AccountSyncRow } from "./company-accounts-view";
 
 interface ClientsPageClientProps {
   rows: AccountRow[];
   groups: ClientGroup[];
+  accountSyncRows?: AccountSyncRow[];
+  companyId?: string | null;
 }
 
-export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
+export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: ClientsPageClientProps) {
   const router = useRouter();
-  const [tab, setTab] = useState<"klienter" | "grupper">("klienter");
+  const hasAccountSync = (accountSyncRows?.length ?? 0) > 0;
+  const [tab, setTab] = useState<"klienter" | "grupper" | "kontoplan">(
+    hasAccountSync ? "kontoplan" : "klienter"
+  );
   const [initialActiveGroupId, setInitialActiveGroupId] = useState<string | null>(null);
   /** When set, Grupper tab shows this group's table instead of the card grid */
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -207,15 +213,25 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
       <Tabs
         value={tab}
         onValueChange={(v) => {
-          setTab(v as "klienter" | "grupper");
+          setTab(v as "klienter" | "grupper" | "kontoplan");
           if (v === "klienter") setInitialActiveGroupId(null);
           if (v !== "grupper") setSelectedGroupId(null);
         }}
       >
         <TabsList className="w-fit">
+          {hasAccountSync && <TabsTrigger value="kontoplan">Kontoplan</TabsTrigger>}
           <TabsTrigger value="klienter">Klient avstemming</TabsTrigger>
           <TabsTrigger value="grupper">Grupper</TabsTrigger>
         </TabsList>
+
+        {hasAccountSync && companyId && (
+          <TabsContent value="kontoplan" className="mt-4">
+            <CompanyAccountsView
+              accounts={accountSyncRows!}
+              companyId={companyId}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="klienter" className="mt-4">
           <AccountsTable

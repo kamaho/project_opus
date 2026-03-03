@@ -861,12 +861,52 @@ export const tripletexSyncConfigs = pgTable(
     }).default("pending"),
     syncError: text("sync_error"),
     isActive: boolean("is_active").notNull().default(true),
+    initialSyncCompleted: boolean("initial_sync_completed").default(false),
+    accountCount: integer("account_count").default(0),
+    lastBalanceSyncAt: timestamp("last_balance_sync_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [
     uniqueIndex("idx_tripletex_sync_client").on(t.clientId),
     index("idx_tripletex_sync_active").on(t.isActive, t.lastSyncAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Account Sync Settings (per-account sync level + balance data)
+// ---------------------------------------------------------------------------
+export const accountSyncSettings = pgTable(
+  "account_sync_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    accountNumber: text("account_number").notNull(),
+    accountName: text("account_name").notNull(),
+    tripletexAccountId: bigint("tripletex_account_id", { mode: "number" }).notNull(),
+    accountType: text("account_type", { enum: ["ledger", "bank"] }).notNull().default("ledger"),
+    syncLevel: text("sync_level", {
+      enum: ["balance_only", "transactions"],
+    }).notNull().default("balance_only"),
+    balanceIn: numeric("balance_in", { precision: 18, scale: 2 }),
+    balanceOut: numeric("balance_out", { precision: 18, scale: 2 }),
+    balanceYear: integer("balance_year"),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    activatedBy: text("activated_by"),
+    lastBalanceSyncAt: timestamp("last_balance_sync_at", { withTimezone: true }),
+    lastTxSyncAt: timestamp("last_tx_sync_at", { withTimezone: true }),
+    txCount: integer("tx_count").default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_account_sync_unique").on(t.tenantId, t.companyId, t.accountNumber),
+    index("idx_account_sync_company").on(t.companyId),
+    index("idx_account_sync_active").on(t.tenantId, t.companyId, t.syncLevel),
   ]
 );
 

@@ -377,6 +377,8 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
     "initial" | "swap" | "wipe" | "brand" | "done"
   >("initial");
   const containerRef = useRef<HTMLDivElement>(null);
+  const revisorRef = useRef<HTMLSpanElement>(null);
+  const [logoPos, setLogoPos] = useState<{ left: number; top: number } | null>(null);
 
   const advance = useCallback(() => {
     setPhase((p) => {
@@ -402,6 +404,16 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     if (phase === "done") onComplete();
   }, [phase, onComplete]);
+
+  useEffect(() => {
+    if (phase === "swap" && revisorRef.current) {
+      const rect = revisorRef.current.getBoundingClientRect();
+      setLogoPos({
+        left: rect.left + rect.width / 2,
+        top: rect.top + rect.height / 2,
+      });
+    }
+  }, [phase]);
 
   const showSwapped = phase === "swap" || phase === "wipe" || phase === "brand" || phase === "done";
   const showWipe    = phase === "wipe" || phase === "brand" || phase === "done";
@@ -443,32 +455,27 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
             )}
           </span>
 
-          {/* "revisor" */}
+          {/* "revisor?" */}
           <span
+            ref={revisorRef}
             className="inline-flex relative overflow-hidden items-center"
             style={{ height: "1.2em" }}
           >
             <span className={cn("intro-word inline-block", showWipe && "intro-exit-up")}>
-              revisor
-            </span>
-          </span>
-
-          {/* "?" */}
-          <span
-            className="inline-flex relative overflow-hidden items-center"
-            style={{ height: "1.2em" }}
-          >
-            <span className={cn("intro-word inline-block", showWipe && "intro-exit-up")}>
-              ?
+              revisor?
             </span>
           </span>
         </div>
       </div>
 
-      {/* Brand reveal */}
-      {showBrand && (
+      {/* Brand reveal — positioned at "revisor?" location */}
+      {showBrand && logoPos && (
         <div
-          className="intro-brand-active absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+          className="intro-brand-active fixed"
+          style={{
+            left: `${logoPos.left}px`,
+            top: `${logoPos.top}px`,
+          }}
         >
           <Image
             src="/logo-revizo.svg"

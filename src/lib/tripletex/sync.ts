@@ -4,6 +4,7 @@ import {
   accounts,
   transactions,
   tripletexSyncConfigs,
+  accountSyncSettings,
   clients,
 } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
@@ -24,6 +25,16 @@ import type {
   TxBankTransaction,
   TxBalance,
 } from "./types";
+
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
+
+export interface SyncResult {
+  postings: { fetched: number; inserted: number };
+  bankTransactions: { fetched: number; inserted: number };
+  balancesUpdated: boolean;
+}
 
 // ---------------------------------------------------------------------------
 // syncCompany — upsert a Tripletex company into Revizo
@@ -146,6 +157,193 @@ export async function syncAccounts(
   }
 
   return toInsert.length + toUpdate.length;
+}
+
+// ---------------------------------------------------------------------------
+// syncAccountsAndBalances — Level 1: chart of accounts + balances (seconds)
+// ---------------------------------------------------------------------------
+
+export interface AccountsAndBalancesResult {
+  accountCount: number;
+  balancesUpdated: number;
+  duration: number;
+}
+
+export async function syncAccountsAndBalances(
+  tripletexCompanyId: number,
+  companyId: string,
+  tenantId: string
+): Promise<AccountsAndBalancesResult> {
+  const t0 = Date.now();
+  console.log(`[sync] syncAccountsAndBalances: company=${tripletexCompanyId} tenant=${tenantId}`);
+
+  const allAccounts = await fetchAllPages<TxAccount>("/ledger/account", {
+    fields: "id,number,name,isBankAccount,currency(*)",
+  }, tenantId);
+
+  console.log(`[sync] Fetched ${allAccounts.length} accounts from Tripletex in ${Date.now() - t0}ms`);
+
+  if (allAccounts.length === 0) {
+    return { accountCount: 0, balancesUpdated: 0, duration: Date.now() - t0 };
+  }
+
+  // Also update the accounts table (existing behavior)
+  await syncAccounts(tripletexCompanyId, companyId, tenantId);
+
+  const year = new Date().getFullYear();
+  let balancesUpdated = 0;
+
+  // Fetch balances per account (Tripletex requires accountId per call)
+  const balanceMap = new Map<number, { balanceIn: number | null; balanceOut: number | null }>();
+  const BALANCE_BATCH = 10;
+  for (let i = 0; i < allAccounts.length; i += BALANCE_BATCH) {
+    const batch = allAccounts.slice(i, i + BALANCE_BATCH);
+    const results = await Promise.allSettled(
+      batch.map(async (acc) => {
+        try {
+          const balRes = await fetchAllPages<TxBalance>("/balance", {
+            accountId: acc.id,
+            year,
+            fields: "*",
+          }, tenantId);
+          if (balRes.length > 0) {
+            balanceMap.set(acc.id, {
+              balanceIn: balRes[0].balanceIn ?? null,
+              balanceOut: balRes[0].balanceOut ?? null,
+            });
+          }
+        } catch {
+          // Balance endpoint may not be available for all account types
+        }
+      })
+    );
+    balancesUpdated += results.filter((r) => r.status === "fulfilled").length;
+  }
+
+  console.log(`[sync] Fetched balances for ${balanceMap.size} accounts in ${Date.now() - t0}ms`);
+
+  // Upsert account_sync_settings for all accounts
+  const now = new Date();
+  for (let i = 0; i < allAccounts.length; i += 500) {
+    const batch = allAccounts.slice(i, i + 500);
+    for (const txAcc of batch) {
+      const mapped = mapAccount(txAcc);
+      const balance = balanceMap.get(txAcc.id);
+
+      await db
+        .insert(accountSyncSettings)
+        .values({
+          tenantId,
+          companyId,
+          accountNumber: mapped.accountNumber,
+          accountName: mapped.name,
+          tripletexAccountId: txAcc.id,
+          accountType: mapped.accountType,
+          syncLevel: "balance_only",
+          balanceIn: balance?.balanceIn?.toFixed(2) ?? null,
+          balanceOut: balance?.balanceOut?.toFixed(2) ?? null,
+          balanceYear: year,
+          lastBalanceSyncAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [accountSyncSettings.tenantId, accountSyncSettings.companyId, accountSyncSettings.accountNumber],
+          set: {
+            accountName: mapped.name,
+            tripletexAccountId: txAcc.id,
+            accountType: mapped.accountType,
+            balanceIn: balance?.balanceIn?.toFixed(2) ?? null,
+            balanceOut: balance?.balanceOut?.toFixed(2) ?? null,
+            balanceYear: year,
+            lastBalanceSyncAt: now,
+            updatedAt: now,
+          },
+        });
+    }
+  }
+
+  const duration = Date.now() - t0;
+  console.log(`[sync] syncAccountsAndBalances completed: ${allAccounts.length} accounts, ${balanceMap.size} balances in ${duration}ms`);
+
+  return { accountCount: allAccounts.length, balancesUpdated: balanceMap.size, duration };
+}
+
+// ---------------------------------------------------------------------------
+// syncTransactionsForAccount — Level 2: on-demand transaction sync for one account
+// ---------------------------------------------------------------------------
+
+export async function syncTransactionsForAccount(
+  configId: string
+): Promise<SyncResult> {
+  const [config] = await db
+    .select()
+    .from(tripletexSyncConfigs)
+    .where(eq(tripletexSyncConfigs.id, configId))
+    .limit(1);
+
+  if (!config) {
+    throw new Error(`Sync config not found: ${configId}`);
+  }
+
+  const t0 = Date.now();
+  console.log(`[sync] syncTransactionsForAccount: config=${configId} client=${config.clientId}`);
+
+  await db
+    .update(tripletexSyncConfigs)
+    .set({ syncStatus: "syncing", syncError: null, updatedAt: new Date() })
+    .where(eq(tripletexSyncConfigs.id, configId));
+
+  try {
+    const [postings, bankTransactions] = await Promise.all([
+      syncPostings(config),
+      syncBankTransactions(config),
+    ]);
+
+    let balancesUpdated = false;
+    try {
+      await syncBalances(config);
+      balancesUpdated = true;
+    } catch {
+      // non-fatal
+    }
+
+    // Update account_sync_settings tx_count
+    const totalTx = postings.inserted + bankTransactions.inserted;
+    const accountIds = [
+      ...(config.set1TripletexAccountIds ?? []),
+      ...(config.set2TripletexAccountIds ?? []),
+    ];
+    if (accountIds.length > 0) {
+      for (const txAccId of accountIds) {
+        await db
+          .update(accountSyncSettings)
+          .set({ lastTxSyncAt: new Date(), txCount: totalTx, updatedAt: new Date() })
+          .where(
+            and(
+              eq(accountSyncSettings.tenantId, config.tenantId),
+              eq(accountSyncSettings.tripletexAccountId, txAccId)
+            )
+          );
+      }
+    }
+
+    await db
+      .update(tripletexSyncConfigs)
+      .set({ syncStatus: "completed", syncError: null, updatedAt: new Date() })
+      .where(eq(tripletexSyncConfigs.id, configId));
+
+    console.log(`[sync] syncTransactionsForAccount config=${configId} completed in ${Date.now() - t0}ms: postings=${postings.inserted}, bankTx=${bankTransactions.inserted}`);
+    return { postings, bankTransactions, balancesUpdated };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[sync] syncTransactionsForAccount config=${configId} FAILED after ${Date.now() - t0}ms:`, msg);
+
+    await db
+      .update(tripletexSyncConfigs)
+      .set({ syncStatus: "failed", syncError: msg.slice(0, 2000), updatedAt: new Date() })
+      .where(eq(tripletexSyncConfigs.id, configId));
+
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -395,14 +593,8 @@ export async function syncBalances(
 }
 
 // ---------------------------------------------------------------------------
-// runFullSync — orchestrator for a single client sync config
+// runFullSync — orchestrator for a single client sync config (backward compat)
 // ---------------------------------------------------------------------------
-
-export interface SyncResult {
-  postings: { fetched: number; inserted: number };
-  bankTransactions: { fetched: number; inserted: number };
-  balancesUpdated: boolean;
-}
 
 export async function runFullSync(
   configId: string

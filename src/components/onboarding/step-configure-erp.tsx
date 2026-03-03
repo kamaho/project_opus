@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,9 +17,6 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
-  ChevronDown,
-  ChevronRight,
-  CalendarDays,
 } from "lucide-react";
 
 interface TxCompany {
@@ -28,27 +25,10 @@ interface TxCompany {
   orgNumber: string | null;
 }
 
-interface TxAccount {
-  id: number;
-  number: number;
-  name: string;
-  displayName: string;
-  isBankAccount: boolean;
-  requireReconciliation: boolean;
-}
-
-export interface ERPSetupClient {
-  clientId: string;
-  clientName: string;
-  accountNumber: number;
-  syncConfigId: string;
-}
-
 export interface ERPSetupResult {
   companyId: string;
   companyName: string;
   tripletexCompanyId: number;
-  clients: ERPSetupClient[];
 }
 
 interface StepConfigureERPProps {
@@ -56,105 +36,12 @@ interface StepConfigureERPProps {
   onComplete: (result: ERPSetupResult) => void;
 }
 
-interface AccountGroup {
-  prefix: string;
-  label: string;
-  accounts: TxAccount[];
-}
-
-type Phase = "credentials" | "verifying" | "select-company" | "select-accounts" | "creating";
-
-const ACCOUNT_CLASS_NAMES: Record<string, string> = {
-  "10": "Immaterielle eiendeler",
-  "11": "Tomter og bygninger",
-  "12": "Transportmidler, inventar mv.",
-  "13": "Finansielle anleggsmidler",
-  "14": "Varelager",
-  "15": "Kundefordringer",
-  "16": "Andre fordringer",
-  "17": "Forskuddsbetalinger",
-  "18": "Finansielle omløpsmidler",
-  "19": "Bankinnskudd, kontanter",
-  "20": "Egenkapital",
-  "21": "Avsetning for forpliktelser",
-  "22": "Annen langsiktig gjeld",
-  "23": "Kortsiktig konvertibel gjeld",
-  "24": "Leverandørgjeld",
-  "25": "Betalbar skatt",
-  "26": "Skattetrekk og avgifter",
-  "27": "Skyldige offentlige avgifter",
-  "28": "Utbytte",
-  "29": "Annen kortsiktig gjeld",
-  "30": "Salgsinntekter, avgiftspliktig",
-  "31": "Salgsinntekter, avgiftsfri",
-  "32": "Salgsinntekter, utenfor avg.omr.",
-  "33": "Offentlige tilskudd/refusjoner",
-  "34": "Andre driftsinntekter",
-  "35": "Uopptjent inntekt",
-  "36": "Leieinntekt",
-  "37": "Provisjonsinntekt",
-  "38": "Gevinst ved avgang",
-  "39": "Andre inntekter",
-  "40": "Forbruk av innkjøpte varer",
-  "41": "Varekostnad",
-  "42": "Fremmedtjenester og underentreprise",
-  "43": "Annen fremmedtjeneste",
-  "44": "Underentreprise",
-  "45": "Fremmedytelse og underentreprise",
-  "46": "Innkjøp, forskning og utvikling",
-  "47": "Spesielle driftskostnader",
-  "49": "Endring i beholdning",
-  "50": "Lønn til ansatte",
-  "51": "Feriepenger",
-  "52": "Fordel i arbeidsforhold",
-  "53": "Annen opptjent godtgjørelse",
-  "54": "Arbeidsgiveravgift og pensjon",
-  "55": "Andre ytelser til personalet",
-  "56": "Arbeidsgiveravgift",
-  "57": "Offentlige tilskudd vedr. arbeidskraft",
-  "58": "Offentlige refusjoner vedr. arbeidskraft",
-  "59": "Annen personalkostnad",
-  "60": "Avskrivning",
-  "61": "Frakt og transportkostnad",
-  "62": "Energi, brensel",
-  "63": "Kostnad lokaler",
-  "64": "Leie maskiner, inventar o.l.",
-  "65": "Verktøy, inventar driftsmateriale",
-  "66": "Reparasjon og vedlikehold",
-  "67": "Fremmedtjenester (kontorkostnader)",
-  "68": "Kontorkostnad, telefon, porto",
-  "69": "Kostnad transportmidler",
-  "70": "Kostnad reise, diett, bil",
-  "71": "Provisjonskostnad",
-  "72": "Salgs-/reklamekostnad",
-  "73": "Representasjon",
-  "74": "Kontingenter og gaver",
-  "75": "Forsikringspremie",
-  "76": "Lisens, patenter, royalty",
-  "77": "Annen kostnad",
-  "78": "Tap og liknende",
-  "79": "Annen driftskostnad",
-  "80": "Finansinntekter",
-  "81": "Renteinntekter",
-  "82": "Annen finansinntekt",
-  "83": "Valutagevins",
-  "84": "Gevinst verdipapirer",
-  "85": "Finanskostnader",
-  "86": "Rentekostnad",
-  "87": "Annen finanskostnad",
-  "88": "Valutatap",
-  "89": "Tap verdipapirer",
-};
-
-function getGroupLabel(prefix: string): string {
-  return ACCOUNT_CLASS_NAMES[prefix] ?? `${prefix}xx`;
-}
+type Phase = "credentials" | "verifying" | "select-company" | "creating";
 
 export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
   const [phase, setPhase] = useState<Phase>("credentials");
   const [error, setError] = useState<string | null>(null);
 
-  // Credentials
   const [consumerToken, setConsumerToken] = useState("");
   const [employeeToken, setEmployeeToken] = useState("");
   const [showConsumer, setShowConsumer] = useState(false);
@@ -162,26 +49,13 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
   const [isTest, setIsTest] = useState(false);
   const [verifying, setVerifying] = useState(false);
 
-  // Companies
   const [txCompanies, setTxCompanies] = useState<TxCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
 
-  // Accounts
-  const [txAccounts, setTxAccounts] = useState<TxAccount[]>([]);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(new Set());
-  const [accountSearch, setAccountSearch] = useState("");
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  // Date
-  const [dateFrom, setDateFrom] = useState(`${new Date().getFullYear()}-01-01`);
-
-  // Creating
   const [creating, setCreating] = useState(false);
   const [createProgress, setCreateProgress] = useState<string | null>(null);
 
-  // Check if tenant already has a connection
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -194,7 +68,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
           loadCompanies();
         }
       } catch {
-        // No existing connection — stay on credentials
+        // No existing connection
       }
     })();
     return () => { cancelled = true; };
@@ -251,101 +125,18 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     }
   }
 
-  const handleCompanySelect = useCallback(async (companyId: string) => {
-    setSelectedCompanyId(companyId);
+  const handleCompanySelect = useCallback(async (companyIdStr: string) => {
+    setSelectedCompanyId(companyIdStr);
     setError(null);
-    setLoadingAccounts(true);
-    try {
-      const res = await fetch("/api/tripletex/accounts");
-      if (!res.ok) throw new Error("Kunne ikke hente kontoplan.");
-      const data = await res.json();
-      setTxAccounts(data.accounts ?? []);
-      setPhase("select-accounts");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Feil ved henting av kontoer");
-    } finally {
-      setLoadingAccounts(false);
-    }
-  }, []);
-
-  const toggleAccount = (id: number) => {
-    setSelectedAccountIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleGroup = (accounts: TxAccount[]) => {
-    setSelectedAccountIds((prev) => {
-      const next = new Set(prev);
-      const ids = accounts.map((a) => a.id);
-      const allSelected = ids.every((id) => next.has(id));
-      if (allSelected) {
-        ids.forEach((id) => next.delete(id));
-      } else {
-        ids.forEach((id) => next.add(id));
-      }
-      return next;
-    });
-  };
-
-  const toggleGroupCollapse = (prefix: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(prefix)) next.delete(prefix);
-      else next.add(prefix);
-      return next;
-    });
-  };
-
-  // Group and filter accounts
-  const filteredAccounts = useMemo(() => {
-    const list = accountSearch
-      ? txAccounts.filter((a) =>
-          a.displayName.toLowerCase().includes(accountSearch.toLowerCase()) ||
-          a.number.toString().includes(accountSearch)
-        )
-      : txAccounts;
-
-    return list.sort((a, b) => a.number - b.number);
-  }, [txAccounts, accountSearch]);
-
-  const accountGroups = useMemo((): AccountGroup[] => {
-    const groups = new Map<string, TxAccount[]>();
-
-    for (const account of filteredAccounts) {
-      const prefix = String(account.number).slice(0, 2).padStart(2, "0");
-      if (!groups.has(prefix)) groups.set(prefix, []);
-      groups.get(prefix)!.push(account);
-    }
-
-    return Array.from(groups.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([prefix, accounts]) => ({
-        prefix,
-        label: getGroupLabel(prefix),
-        accounts,
-      }));
-  }, [filteredAccounts]);
-
-  const handleCreate = useCallback(async () => {
-    if (selectedAccountIds.size === 0) {
-      setError("Velg minst én konto.");
-      return;
-    }
-
     setCreating(true);
     setPhase("creating");
-    setError(null);
     setCreateProgress("Oppretter selskap...");
 
-    const txCompanyId = Number(selectedCompanyId);
+    const txCompanyId = Number(companyIdStr);
     const txCompany = txCompanies.find((c) => c.id === txCompanyId);
-    const selectedAccounts = txAccounts.filter((a) => selectedAccountIds.has(a.id));
 
     try {
+      // Create company in Revizo
       const companyRes = await fetch("/api/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -359,88 +150,41 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
       const companyBody = await companyRes.json().catch(() => ({}));
       if (!companyRes.ok) {
         const msg = (companyBody as { error?: string }).error || "Kunne ikke opprette selskap";
-        throw new Error(`Selskap: ${msg}`);
+        throw new Error(msg);
       }
       const company = companyBody as { id: string; name: string };
 
-      setCreateProgress(`Oppretter ${selectedAccounts.length} kontoer parallelt...`);
+      setCreateProgress("Synkroniserer kontoliste og saldoer...");
 
-      const clientResults = await Promise.all(
-        selectedAccounts.map(async (account) => {
-          const clientName = `${account.number} ${account.name}`;
-          const accountType = account.isBankAccount ? "bank" : "ledger";
+      // Trigger Level 1 sync (accounts + balances)
+      const syncRes = await fetch("/api/tripletex/sync-balances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyId: company.id,
+          tripletexCompanyId: txCompanyId,
+        }),
+      });
 
-          const clientRes = await fetch("/api/clients", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              companyId: company.id,
-              name: clientName,
-              set1: {
-                accountNumber: account.number.toString(),
-                name: account.name,
-                type: accountType,
-              },
-              set2: {
-                accountNumber: account.number.toString(),
-                name: `${account.name} (motkonto)`,
-                type: accountType === "bank" ? "ledger" : "bank",
-              },
-            }),
-            credentials: "include",
-          });
-          const clientBody = await clientRes.json().catch(() => ({}));
-          if (!clientRes.ok) {
-            const msg = (clientBody as { error?: string }).error || "Ukjent feil";
-            throw new Error(`Konto ${account.number}: ${msg}`);
-          }
-          return { client: clientBody as { id: string; name: string }, account };
-        })
-      );
-
-      setCreateProgress("Starter synkronisering i bakgrunnen...");
-
-      const syncResults = await Promise.allSettled(
-        clientResults.map(async ({ client, account }) => {
-          const syncRes = await fetch("/api/tripletex/sync-config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              clientId: client.id,
-              tripletexCompanyId: txCompanyId,
-              set1TripletexAccountIds: [account.id],
-              set2TripletexAccountIds: [],
-              dateFrom,
-              syncIntervalMinutes: 60,
-            }),
-          });
-          const syncData = syncRes.ok ? await syncRes.json() : null;
-          return syncData?.config?.id ?? "";
-        })
-      );
-
-      const createdClients: ERPSetupClient[] = clientResults.map(({ client, account }, i) => ({
-        clientId: client.id,
-        clientName: client.name ?? `${account.number} ${account.name}`,
-        accountNumber: account.number,
-        syncConfigId: syncResults[i].status === "fulfilled" ? syncResults[i].value : "",
-      }));
+      if (!syncRes.ok) {
+        console.warn("[onboarding] sync-balances returned non-ok, continuing anyway");
+      }
 
       setCreateProgress(null);
+      setCreating(false);
+
       onComplete({
         companyId: company.id,
         companyName: company.name,
         tripletexCompanyId: txCompanyId,
-        clients: createdClients,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Noe gikk galt under opprettelsen. Prøv igjen.");
-      setPhase("select-accounts");
+      setPhase("select-company");
       setCreateProgress(null);
-    } finally {
       setCreating(false);
     }
-  }, [selectedCompanyId, txCompanies, txAccounts, selectedAccountIds, dateFrom, onComplete]);
+  }, [txCompanies, onComplete]);
 
   return (
     <div className="space-y-6">
@@ -449,15 +193,13 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
           {phase === "credentials" && "Koble til Tripletex"}
           {phase === "verifying" && "Verifiserer tilkobling"}
           {phase === "select-company" && "Velg selskap"}
-          {phase === "select-accounts" && "Velg kontoer"}
-          {phase === "creating" && "Setter opp avstemming"}
+          {phase === "creating" && "Setter opp tilkobling"}
         </h2>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
           {phase === "credentials" && "Oppgi API-nøklene fra din Tripletex-konto for å koble til."}
           {phase === "verifying" && "Tester tilkoblingen mot Tripletex..."}
-          {phase === "select-company" && "Velg selskapet du vil sette opp avstemming for."}
-          {phase === "select-accounts" && "Velg kontoene du vil sette opp i Revizo. Du kan velge hele kontoserier."}
-          {phase === "creating" && "Oppretter kontoer og starter synkronisering i bakgrunnen..."}
+          {phase === "select-company" && "Velg selskapet du vil koble til Revizo."}
+          {phase === "creating" && "Henter kontoliste og saldoer fra Tripletex..."}
         </p>
       </div>
 
@@ -589,6 +331,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
                   key={company.id}
                   type="button"
                   onClick={() => handleCompanySelect(company.id.toString())}
+                  disabled={creating}
                   className={cn(
                     "group flex w-full items-center gap-3 rounded-lg border p-4 text-left transition-all",
                     "hover:border-foreground/30 hover:bg-foreground/[0.02]",
@@ -604,7 +347,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
                       <p className="text-xs text-muted-foreground">Org.nr: {company.orgNumber}</p>
                     )}
                   </div>
-                  {loadingAccounts && selectedCompanyId === company.id.toString() ? (
+                  {creating && selectedCompanyId === company.id.toString() ? (
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   ) : (
                     <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -616,125 +359,6 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
         </div>
       )}
 
-      {/* Account selection phase */}
-      {phase === "select-accounts" && (
-        <div className="space-y-4">
-          <Input
-            placeholder="Søk kontoer (navn eller nummer)..."
-            value={accountSearch}
-            onChange={(e) => setAccountSearch(e.target.value)}
-            className="h-9"
-          />
-
-          <div className="rounded-lg border max-h-[400px] overflow-y-auto">
-            {accountGroups.length === 0 ? (
-              <p className="p-4 text-xs text-muted-foreground text-center">
-                {accountSearch ? "Ingen treff" : "Ingen kontoer funnet"}
-              </p>
-            ) : (
-              accountGroups.map((group) => {
-                const isCollapsed = collapsedGroups.has(group.prefix);
-                const groupIds = group.accounts.map((a) => a.id);
-                const allSelected = groupIds.length > 0 && groupIds.every((id) => selectedAccountIds.has(id));
-                const someSelected = groupIds.some((id) => selectedAccountIds.has(id));
-
-                return (
-                  <div key={group.prefix}>
-                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 border-b sticky top-0 z-10">
-                      <button
-                        type="button"
-                        onClick={() => toggleGroupCollapse(group.prefix)}
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {isCollapsed
-                          ? <ChevronRight className="h-3.5 w-3.5" />
-                          : <ChevronDown className="h-3.5 w-3.5" />
-                        }
-                      </button>
-                      <Checkbox
-                        checked={allSelected ? true : someSelected ? "indeterminate" : false}
-                        onCheckedChange={() => toggleGroup(group.accounts)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => toggleGroupCollapse(group.prefix)}
-                        className="flex-1 text-left"
-                      >
-                        <span className="text-xs font-mono tabular-nums text-muted-foreground mr-1.5">
-                          {group.prefix}xx
-                        </span>
-                        <span className="text-xs font-medium">
-                          {group.label}
-                        </span>
-                        <span className="text-xs text-muted-foreground ml-1.5">
-                          ({group.accounts.length})
-                        </span>
-                      </button>
-                    </div>
-                    {!isCollapsed && group.accounts.map((a) => (
-                      <label
-                        key={a.id}
-                        className="flex items-center gap-2.5 px-3 pl-10 py-2 hover:bg-muted/50 cursor-pointer transition-colors border-b last:border-b-0"
-                      >
-                        <Checkbox
-                          checked={selectedAccountIds.has(a.id)}
-                          onCheckedChange={() => toggleAccount(a.id)}
-                        />
-                        <span className="text-xs font-mono tabular-nums w-12 shrink-0 text-muted-foreground">
-                          {a.number}
-                        </span>
-                        <span className="text-sm truncate">{a.name}</span>
-                        {a.isBankAccount && (
-                          <span className="ml-auto text-[10px] rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 shrink-0">
-                            Bank
-                          </span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Date picker */}
-          <div className="rounded-lg border bg-card p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <Label htmlFor="date-from" className="text-sm font-medium">Startdato for synkronisering</Label>
-            </div>
-            <div className="flex items-center gap-3">
-              <Input
-                id="date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-9 w-44"
-              />
-              <p className="text-xs text-muted-foreground">
-                Transaksjoner fra denne datoen og fremover blir hentet fra Tripletex.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border bg-card p-3">
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">{selectedAccountIds.size}</span>
-              {" "}konto{selectedAccountIds.size !== 1 ? "er" : ""} valgt
-            </div>
-            <Button
-              size="sm"
-              onClick={handleCreate}
-              disabled={selectedAccountIds.size === 0}
-              className="gap-1.5"
-            >
-              Opprett og synkroniser
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Creating phase */}
       {phase === "creating" && (
         <div className="flex flex-col items-center gap-4 py-12">
@@ -742,7 +366,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
             <>
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               <div className="space-y-1 text-center">
-                <p className="text-sm font-medium">Setter opp kontoer...</p>
+                <p className="text-sm font-medium">Kobler til Tripletex...</p>
                 {createProgress && (
                   <p className="text-xs text-muted-foreground">{createProgress}</p>
                 )}
@@ -753,9 +377,11 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/30">
                 <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium">Kontoer opprettet</p>
+              <p className="text-sm font-medium">Tilkobling opprettet</p>
               <p className="text-xs text-muted-foreground text-center max-w-sm">
-                Transaksjoner synkroniseres i bakgrunnen. Du kan se status på dashbordet — du får en varsling når alt er klart.
+                Kontoliste og saldoer synkroniseres i bakgrunnen.
+                Du kan begynne å jobbe med en gang — aktiver kontoer
+                for avstemming fra dashbordet.
               </p>
             </div>
           )}
@@ -772,11 +398,6 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
               {(/tilgang|permission|organisation|organization|403/i.test(error)) && (
                 <p className="text-foreground/70">
                   Velg riktig organisasjon i headeren og prøv igjen.
-                </p>
-              )}
-              {(/duplikat|allerede|kontoene|duplicate|unique/i.test(error)) && (
-                <p className="text-foreground/70">
-                  Denne kontoen er allerede satt opp. Velg en annen konto, eller gå til dashbordet.
                 </p>
               )}
             </div>

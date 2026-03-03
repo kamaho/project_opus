@@ -220,66 +220,102 @@ async function processTripletexGroup(
 ): Promise<void> {
   switch (eventPrefix) {
     case "sync": {
-      const { runFullSync } = await import("../src/lib/tripletex/sync");
-
       for (const id of eventIds) {
         const [evt] = await db
-          .select({ payload: webhookInbox.payload })
+          .select({ payload: webhookInbox.payload, eventType: webhookInbox.eventType })
           .from(webhookInbox)
           .where(eq(webhookInbox.id, id))
           .limit(1);
 
-        const configId = (evt?.payload as { configId?: string } | null)?.configId;
+        const payload = evt?.payload as Record<string, unknown> | null;
+        const eventType = evt?.eventType ?? "";
+        const configId = (payload?.configId as string) ?? null;
+
         if (!configId) {
           log(`sync event ${id}: no configId in payload, skipping`);
           continue;
         }
 
-        log(`Running initial sync for config=${configId}`);
-        const result = await runFullSync(configId);
-        log(`Initial sync done for config=${configId}: postings=${result.postings.inserted}, bankTx=${result.bankTransactions.inserted}`);
-
-        const [config] = await db
-          .select({ clientId: tripletexSyncConfigs.clientId })
-          .from(tripletexSyncConfigs)
-          .where(eq(tripletexSyncConfigs.id, configId))
-          .limit(1);
-
-        if (config) {
-          const clientRow = await db.execute<{ name: string }>(sql`
-            SELECT name FROM clients WHERE id = ${config.clientId} LIMIT 1
-          `);
-          const clientName = Array.from(clientRow)[0]?.name ?? "Klient";
+        if (eventType === "sync.account.activated") {
+          // Level 2: on-demand transaction sync for a single account
+          const { syncTransactionsForAccount } = await import("../src/lib/tripletex/sync");
+          log(`Running transaction sync for config=${configId} (account activated)`);
+          const result = await syncTransactionsForAccount(configId);
           const total = result.postings.inserted + result.bankTransactions.inserted;
+          log(`Account sync done for config=${configId}: ${total} transactions`);
 
-          await db.insert(notifications).values({
-            tenantId,
-            userId: "system",
-            type: "system",
-            title: "Synkronisering fullført",
-            body: `${clientName}: ${total} transaksjoner importert fra Tripletex.`,
-            link: `/dashboard/clients/${config.clientId}`,
-          });
+          const accountNumber = (payload?.accountNumber as string) ?? "";
+          const [config] = await db
+            .select({ clientId: tripletexSyncConfigs.clientId })
+            .from(tripletexSyncConfigs)
+            .where(eq(tripletexSyncConfigs.id, configId))
+            .limit(1);
+
+          if (config) {
+            await db.insert(notifications).values({
+              tenantId,
+              userId: "system",
+              type: "system",
+              title: "Konto klar for avstemming",
+              body: `Konto ${accountNumber}: ${total} transaksjoner importert fra Tripletex.`,
+              link: `/dashboard/clients/${config.clientId}`,
+            });
+          }
+        } else {
+          // sync.initial — full sync for backward compatibility
+          const { runFullSync } = await import("../src/lib/tripletex/sync");
+          log(`Running initial sync for config=${configId}`);
+          const result = await runFullSync(configId);
+          log(`Initial sync done for config=${configId}: postings=${result.postings.inserted}, bankTx=${result.bankTransactions.inserted}`);
+
+          const [config] = await db
+            .select({ clientId: tripletexSyncConfigs.clientId })
+            .from(tripletexSyncConfigs)
+            .where(eq(tripletexSyncConfigs.id, configId))
+            .limit(1);
+
+          if (config) {
+            const clientRow = await db.execute<{ name: string }>(sql`
+              SELECT name FROM clients WHERE id = ${config.clientId} LIMIT 1
+            `);
+            const clientName = Array.from(clientRow)[0]?.name ?? "Klient";
+            const total = result.postings.inserted + result.bankTransactions.inserted;
+
+            await db.insert(notifications).values({
+              tenantId,
+              userId: "system",
+              type: "system",
+              title: "Synkronisering fullført",
+              body: `${clientName}: ${total} transaksjoner importert fra Tripletex.`,
+              link: `/dashboard/clients/${config.clientId}`,
+            });
+          }
         }
       }
       break;
     }
 
     case "transaction": {
+      // Only sync transactions for configs with activated accounts (sync_level = "transactions")
       const configs = await db
         .select()
         .from(tripletexSyncConfigs)
-        .where(eq(tripletexSyncConfigs.tenantId, tenantId));
+        .where(
+          and(
+            eq(tripletexSyncConfigs.tenantId, tenantId),
+            eq(tripletexSyncConfigs.isActive, true)
+          )
+        );
 
       if (configs.length === 0) {
-        log(`No sync configs for tenant=${tenantId}, skipping transaction sync`);
+        log(`No active sync configs for tenant=${tenantId}, skipping transaction sync`);
         return;
       }
 
-      const { runFullSync } = await import("../src/lib/tripletex/sync");
+      const { syncTransactionsForAccount } = await import("../src/lib/tripletex/sync");
       for (const config of configs) {
         log(`Running incremental sync for config=${config.id}`);
-        await runFullSync(config.id);
+        await syncTransactionsForAccount(config.id);
       }
       break;
     }

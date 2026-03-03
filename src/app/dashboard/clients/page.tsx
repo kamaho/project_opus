@@ -1,7 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs } from "@/lib/db/schema";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, accountSyncSettings } from "@/lib/db/schema";
+import { eq, and, sql, inArray, asc, desc } from "drizzle-orm";
 import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
 
@@ -36,7 +36,61 @@ export default async function ClientsPage() {
     .where(eq(companies.tenantId, orgId));
 
   const clientIds = list.map((c) => c.id);
-  if (clientIds.length === 0) {
+
+  // Fetch account_sync_settings for the company accounts view (needed even when no clients)
+  const companyRows = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(eq(companies.tenantId, orgId));
+
+  const companyIds = companyRows.map((c) => c.id);
+  let accountSyncRows: {
+    id: string;
+    accountNumber: string;
+    accountName: string;
+    accountType: "ledger" | "bank";
+    syncLevel: "balance_only" | "transactions";
+    balanceIn: string | null;
+    balanceOut: string | null;
+    balanceYear: number | null;
+    clientId: string | null;
+    txCount: number;
+    lastTxSyncAt: string | null;
+    companyId: string;
+  }[] = [];
+
+  if (companyIds.length > 0) {
+    const rawAcctRows = await db
+      .select()
+      .from(accountSyncSettings)
+      .where(
+        and(
+          eq(accountSyncSettings.tenantId, orgId),
+          inArray(accountSyncSettings.companyId, companyIds)
+        )
+      )
+      .orderBy(
+        desc(accountSyncSettings.syncLevel),
+        asc(accountSyncSettings.accountNumber)
+      );
+
+    accountSyncRows = rawAcctRows.map((r) => ({
+      id: r.id,
+      accountNumber: r.accountNumber,
+      accountName: r.accountName,
+      accountType: r.accountType as "ledger" | "bank",
+      syncLevel: r.syncLevel as "balance_only" | "transactions",
+      balanceIn: r.balanceIn,
+      balanceOut: r.balanceOut,
+      balanceYear: r.balanceYear,
+      clientId: r.clientId,
+      txCount: r.txCount ?? 0,
+      lastTxSyncAt: r.lastTxSyncAt?.toISOString() ?? null,
+      companyId: r.companyId,
+    }));
+  }
+
+  if (clientIds.length === 0 && accountSyncRows.length === 0) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -72,21 +126,23 @@ export default async function ClientsPage() {
     );
   }
 
-  const unmatchedCounts = await db
-    .select({
-      clientId: transactions.clientId,
-      setNumber: transactions.setNumber,
-      count: sql<number>`count(*)::int`,
-      sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
-    })
-    .from(transactions)
-    .where(
-      and(
-        inArray(transactions.clientId, clientIds),
-        eq(transactions.matchStatus, "unmatched")
-      )
-    )
-    .groupBy(transactions.clientId, transactions.setNumber);
+  const unmatchedCounts = clientIds.length > 0
+    ? await db
+        .select({
+          clientId: transactions.clientId,
+          setNumber: transactions.setNumber,
+          count: sql<number>`count(*)::int`,
+          sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
+        })
+        .from(transactions)
+        .where(
+          and(
+            inArray(transactions.clientId, clientIds),
+            eq(transactions.matchStatus, "unmatched")
+          )
+        )
+        .groupBy(transactions.clientId, transactions.setNumber)
+    : [];
 
   const byClient = new Map<
     string,
@@ -187,5 +243,12 @@ export default async function ClientsPage() {
     }));
   }
 
-  return <ClientsPageClient rows={rows} groups={groups} />;
+  return (
+    <ClientsPageClient
+      rows={rows}
+      groups={groups}
+      accountSyncRows={accountSyncRows}
+      companyId={companyIds[0] ?? null}
+    />
+  );
 }
