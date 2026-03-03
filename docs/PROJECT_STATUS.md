@@ -1,6 +1,6 @@
 # Revizo — Prosjektstatus
 
-> **Sist oppdatert:** 2. mars 2026  
+> **Sist oppdatert:** 3. mars 2026  
 > **Oppdatert av:** kmh0751 + Claude (AI-agent)  
 > Hold dette dokumentet oppdatert ved større endringer.
 
@@ -20,10 +20,10 @@ SaaS-plattform for regnskapsbyråer. Lar regnskapsførere importere filer fra ho
 | Komponent | Status | Detaljer |
 |---|---|---|
 | **Vercel (web)** | ✅ Live | revizo.ai, automatisk deploy fra `main` |
-| **Supabase Prod** | ✅ Synkronisert | `pejkokemdzsekboaebmy`, 37 tabeller, migrert 02.03.2026 |
+| **Supabase Prod** | ✅ Synkronisert | `pejkokemdzsekboaebmy`, 40 tabeller, migrert 03.03.2026 |
 | **Supabase Dev** | ✅ OK | `oafqbvtagjcdvhgxjghw` ("project opus"), lokal utvikling |
-| **Railway Worker** | ✅ Kjører | Smart Match + rapportering i bakgrunnen |
-| **GitHub Actions** | ✅ Satt opp | `migrate.yml` (auto db:migrate ved push) + `check-schema.yml` (PR-sjekk) |
+| **Railway Worker** | ✅ Kjører | Smart Match + rapportering + webhook-prosessering i bakgrunnen |
+| **GitHub Actions** | ✅ Satt opp | `ci.yml` (lint + build), `migrate.yml` (auto db:migrate), `check-schema.yml` (PR-sjekk) |
 | **DATABASE_MIGRATION_URL** | ✅ Satt | GitHub Secret, Session Pooler prod (port 5432) |
 | **Sentry** | ✅ Aktiv | Klient + server feilsporing |
 | **Resend** | ✅ Aktiv | E-postvarsler |
@@ -57,7 +57,8 @@ schema.ts endret → npm run db:generate → commit + push → GitHub Actions kj
 | Kontakter (eksterne personer for dokumentforespørsler) | ✅ |
 | Dokumentforespørsler (magic link til ekstern part) | ✅ |
 | Kalender + norske frister | ✅ |
-| Tripletex-integrasjon (synkronisering av transaksjoner) | ✅ |
+| Tripletex-integrasjon (inkrementell synk, retry, krypterte tokens) | ✅ |
+| Webhook Inbox System (sanntidsoppdateringer fra Tripletex) | ✅ |
 | Klientgrupper | ✅ |
 | Agent-system (bakgrunnsjobber, automatiske rapporter) | ✅ |
 | Eksport (PDF, XLSX, CSV) | ✅ |
@@ -78,6 +79,9 @@ schema.ts endret → npm run db:generate → commit + push → GitHub Actions kj
 | Caching (unstable_cache med revalidering) | ✅ |
 | Virtuell scrolling på store lister | ✅ |
 | Sentry feilsporing | ✅ |
+| CI-pipeline (lint, typecheck, build) | ✅ |
+| E2E smoke-tester (Playwright) | ✅ |
+| Kryptert token-lagring (AES-256-GCM) | ✅ |
 | 5-års dataretensjon (norsk regnskapslov) | ✅ |
 
 ---
@@ -100,44 +104,53 @@ schema.ts endret → npm run db:generate → commit + push → GitHub Actions kj
 
 ## Veien videre — prioritert backlog
 
-### ✅ Fullført (2026-03-02)
+### ✅ Fullført (2026-03-02 – 03)
 
-1. ~~Fiks Drizzle-journalen~~ — journal reparert, snapshots og `__drizzle_migrations` synkronisert i dev + prod
+1. ~~Fiks Drizzle-journalen~~ — journal reparert, snapshots synkronisert
 2. ~~`drizzle-kit check` som blokkerende CI~~ — `check-schema.yml` oppdatert
-3. ~~Catch-up-migrasjon for 15 manglende tabeller~~ — `0004_catchup_missing_tables.sql` i journal
+3. ~~Catch-up-migrasjon for 15 manglende tabeller~~ — `0004_catchup_missing_tables.sql`
 4. ~~`NEXT_PUBLIC_ENV=production` i Vercel~~ — satt manuelt
+5. ~~Memoize matching-engine~~ — `TooManyTransactionsError` ved >10 000 uavstemte
+6. ~~Forbedre onboarding-feilmeldinger~~ — steg-kontekst, progress, 403-hint
+7. ~~Pre-pilot audit~~ — sikkerhet, SQL-injection, filvalidering, norske meldinger
+8. ~~CI-pipeline~~ — `ci.yml` med lint, typecheck, build
+9. ~~E2E smoke-tester~~ — Playwright, 5 tester
+10. ~~Tripletex-hardening~~ — inkrementell synk, retry, TripletexError, multi-konto
+11. ~~Webhook Inbox System~~ — sanntidsoppdateringer, debounce, subscription manager
+12. ~~sync_cursors-tabell~~ — generisk bookmark-lagring for fremtidige kilder
+13. ~~Cron-intervall 30 → 15 min~~ — bedre fallback-SLA for webhooks
 
 ---
 
 ### 🟡 Viktig (neste sprint)
 
-**~~Memoize matching-engine for store datasett~~ ✅ FERDIG (2026-03-02)**
+**Unit-tester og testdekning**
 
-`TooManyTransactionsError` kastes ved >10 000 uavstemte transaksjoner per sett. Count-sjekk kjøres FØR data lastes inn i minnet. API-routes returnerer `code: "TOO_MANY_TRANSACTIONS"` med 400. Worker skiper matching og fortsetter til rapport-generering.
+Ingen unit-/integrasjonstester eksisterer. Prioriter: matching-motor, webhook-receiver, Tripletex-mappers, API-ruter (tenant isolation). Sett opp Vitest.
 
-**~~Forbedre onboarding-feilmeldinger~~ ✅ FERDIG (2026-03-02)**
+**Staging-miljø**
 
-Begge onboarding-wizards (`setup-wizard.tsx`, `step-configure-erp.tsx`) viser nå:
-- `AlertCircle`-ikon i feilboks
-- Steg-spesifikk kontekst i feilmeldingen ("Selskap X: ...", "Konto 1920: ...")
-- Progress-tekst under innlasting ("Oppretter selskap 1 av 2...")
-- Handlingshenvisning for 403-feil ("Velg organisasjon i headeren") og duplikat-feil
+Eget Supabase-prosjekt + Vercel preview-branch for å teste endringer før prod-deploy.
+
+**Worker health-check og overvåking**
+
+Railway Worker mangler health-check, Sentry-init og strukturert logging.
 
 ---
 
 ### 🟢 Ønskelig (fremtidig)
 
-**Staging-miljø**
+**Visma NXT-integrasjon**
 
-Sett opp et dedikert staging-miljø (eget Supabase-prosjekt + Vercel preview-branch) for å teste endringer før prod-deploy.
+Andre regnskapskilde. Bruker `sync_cursors` og `WebhookSourceAdapter` for generisk tilnærming.
 
 **Push-varsler (mobil)**
 
-Produktfilosofien er "åpne appen, se grønt, lukk igjen". Push-varsler er det manglende leddet for mobil-opplevelsen.
+Produktfilosofien er "åpne appen, se grønt, lukk igjen". Push-varsler er det manglende leddet.
 
 **AI-agent med matcheforslag**
 
-Bruke historiske matchedata til å foreslå matchingregler automatisk, i stedet for manuell konfigurasjon.
+Bruke historiske matchedata til å foreslå matchingregler automatisk.
 
 ---
 
@@ -182,6 +195,7 @@ Bruke historiske matchedata til å foreslå matchingregler automatisk, i stedet 
 | `docs/NOTIFICATIONS.md` | Varslingssystem |
 | `docs/PRODUCTION_READINESS_AUDIT.md` | Sikkerhets- og ytelsesaudit (Feb 2026) |
 | `docs/DESIGN_SYSTEM.md` | Designsystem, farger, typografi, komponenter |
+| `docs/integrations/tripletex.md` | Tripletex: synk, webhooks, auth, feilsøking |
 | `docs/endringer/` | Kronologisk endringslogg |
 | `docs/incidents/` | Post-mortems for produksjonsfeil |
 | `docs/migrations/` | SQL-migreringsskript kjørt mot prod |
