@@ -142,6 +142,52 @@ export async function getTripletexCredentials(
 }
 
 // ---------------------------------------------------------------------------
+// Retry + error mapping
+// ---------------------------------------------------------------------------
+
+const MAX_RETRIES = 3;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function retryDelay(attempt: number): number {
+  return Math.min(1000 * 2 ** attempt, 8000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export class TripletexError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+    public readonly userMessage: string
+  ) {
+    super(message);
+    this.name = "TripletexError";
+  }
+}
+
+const STATUS_MESSAGES: Record<number, string> = {
+  400: "Ugyldig forespørsel til Tripletex. Sjekk konfigurasjonen.",
+  401: "Tripletex-autentisering feilet. Sjekk at tokenene er korrekte.",
+  403: "Ingen tilgang. Sjekk at brukerrettigheter er satt opp i Tripletex.",
+  404: "Ressursen ble ikke funnet i Tripletex. Sjekk kontokonfigurasjonen.",
+  429: "For mange forespørsler til Tripletex. Prøv igjen om litt.",
+  500: "Tripletex-serveren svarte med en feil. Prøv igjen senere.",
+  502: "Kunne ikke nå Tripletex. Prøv igjen senere.",
+  503: "Tripletex er midlertidig utilgjengelig. Prøv igjen senere.",
+};
+
+function mapTripletexError(status: number, path: string, body: string): TripletexError {
+  const userMessage = STATUS_MESSAGES[status] ?? "Noe gikk galt med Tripletex-tilkoblingen.";
+  return new TripletexError(
+    `Tripletex ${path} failed (${status}): ${body.slice(0, 500)}`,
+    status,
+    userMessage
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Generic request helper
 // ---------------------------------------------------------------------------
 
@@ -160,6 +206,7 @@ interface TripletexRequestOptions {
 
 /**
  * Authenticated request to the Tripletex API.
+ * Retries transient errors (429, 5xx) with exponential backoff (max 3 attempts).
  * Resolves credentials per-tenant if tenantId is provided.
  */
 export async function tripletexRequest<T = unknown>(
@@ -205,18 +252,49 @@ export async function tripletexRequest<T = unknown>(
     "Content-Type": "application/json",
   };
 
-  const res = await fetch(url.toString(), {
-    method: opts.method ?? "GET",
-    headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  const method = opts.method ?? "GET";
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Tripletex ${opts.method ?? "GET"} ${opts.path} failed (${res.status}): ${body}`);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url.toString(), {
+        method,
+        headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+
+      if (res.ok) {
+        return res.json() as Promise<T>;
+      }
+
+      const body = await res.text();
+
+      if (RETRYABLE_STATUS.has(res.status) && attempt < MAX_RETRIES) {
+        lastError = mapTripletexError(res.status, opts.path, body);
+        await sleep(retryDelay(attempt));
+        continue;
+      }
+
+      throw mapTripletexError(res.status, opts.path, body);
+    } catch (err) {
+      if (err instanceof TripletexError) throw err;
+
+      // Network-level errors (DNS, timeout, connection refused)
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_RETRIES) {
+        await sleep(retryDelay(attempt));
+        continue;
+      }
+
+      throw new TripletexError(
+        `Tripletex ${method} ${opts.path} network error: ${lastError.message}`,
+        0,
+        "Kunne ikke koble til Tripletex. Sjekk internettforbindelsen og prøv igjen."
+      );
+    }
   }
 
-  return res.json() as Promise<T>;
+  throw lastError ?? new Error("Tripletex request failed after retries");
 }
 
 // ---------------------------------------------------------------------------

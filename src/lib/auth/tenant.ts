@@ -26,10 +26,10 @@ export async function requireTenant(): Promise<TenantContext> {
   const { userId, orgId, orgRole } = await auth();
 
   if (!userId) {
-    throw new AuthError("Not authenticated", 401);
+    throw new AuthError("Ikke autentisert. Logg inn på nytt.", 401);
   }
   if (!orgId) {
-    throw new AuthError("No organization selected", 403);
+    throw new AuthError("Ingen organisasjon valgt. Velg en organisasjon i headeren.", 403);
   }
 
   const role = (orgRole as OrgRole) ?? "org:member";
@@ -43,7 +43,7 @@ export async function requireTenant(): Promise<TenantContext> {
  */
 export function requireRole(ctx: TenantContext, ...allowed: OrgRole[]): void {
   if (!allowed.includes(ctx.role)) {
-    throw new AuthError("Insufficient permissions", 403);
+    throw new AuthError("Utilstrekkelige tilgangsrettigheter.", 403);
   }
 }
 

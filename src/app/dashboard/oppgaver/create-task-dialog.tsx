@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization, useUser } from "@clerk/nextjs";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -249,11 +250,18 @@ export function CreateTaskDialog({
     };
 
     if (isEditing) {
-      await fetch(`/api/tasks/${editingTask.id}`, {
+      const res = await fetch(`/api/tasks/${editingTask.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (res.ok) {
+        toast.success("Oppgave oppdatert");
+      } else {
+        toast.error("Kunne ikke oppdatere oppgaven. Prøv igjen.");
+        setSaving(false);
+        return;
+      }
     } else {
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -261,19 +269,26 @@ export function CreateTaskDialog({
         body: JSON.stringify(payload),
       });
 
-      if (res.ok && shouldRequestDoc && externalContactId) {
-        const task = await res.json();
-        await fetch("/api/document-requests", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contactId: externalContactId,
-            taskId: task.id,
-            clientId: clientId !== "none" ? clientId : undefined,
-            message: documentMessage.trim() || undefined,
-            expiresInDays: 14,
-          }),
-        });
+      if (res.ok) {
+        toast.success("Oppgave opprettet");
+        if (shouldRequestDoc && externalContactId) {
+          const task = await res.json();
+          await fetch("/api/document-requests", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contactId: externalContactId,
+              taskId: task.id,
+              clientId: clientId !== "none" ? clientId : undefined,
+              message: documentMessage.trim() || undefined,
+              expiresInDays: 14,
+            }),
+          });
+        }
+      } else {
+        toast.error("Kunne ikke opprette oppgaven. Prøv igjen.");
+        setSaving(false);
+        return;
       }
     }
 

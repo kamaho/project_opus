@@ -188,13 +188,26 @@ export function TasksClient({
     fetchTasks();
   }, [fetchTasks]);
 
+  const STATUS_LABELS: Record<string, string> = {
+    open: "Åpen",
+    in_progress: "Under arbeid",
+    completed: "Fullført",
+    cancelled: "Avbrutt",
+    on_hold: "På vent",
+  };
+
   const handleStatusChange = async (taskId: string, newStatus: string) => {
     const res = await fetch(`/api/tasks/${taskId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     });
-    if (res.ok) fetchTasks();
+    if (res.ok) {
+      toast.success(`Status endret til ${STATUS_LABELS[newStatus] ?? newStatus}`);
+      fetchTasks();
+    } else {
+      toast.error("Kunne ikke endre status. Prøv igjen.");
+    }
   };
 
   const handleAssignToMe = async (taskId: string) => {
@@ -206,14 +219,19 @@ export function TasksClient({
     if (res.ok) {
       toast.success("Oppgave tildelt deg");
       fetchTasks();
+    } else {
+      toast.error("Kunne ikke tildele oppgaven. Prøv igjen.");
     }
   };
 
   const handleDeleteTask = async (taskId: string) => {
     const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
     if (res.ok) {
+      toast.success("Oppgave slettet");
       setStats((s) => ({ ...s, total: s.total - 1 }));
       fetchTasks();
+    } else {
+      toast.error("Kunne ikke slette oppgaven. Prøv igjen.");
     }
   };
 

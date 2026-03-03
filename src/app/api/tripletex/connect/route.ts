@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexConnections } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createTripletexSession } from "@/lib/tripletex";
+import { createTripletexSession, TripletexError } from "@/lib/tripletex";
 import { encrypt } from "@/lib/crypto";
 import { logAudit } from "@/lib/audit";
 
@@ -111,9 +111,10 @@ export const POST = withTenant(async (req, ctx) => {
       company: whoami.value?.company ?? null,
     });
   } catch (error) {
-    const raw = error instanceof Error ? error.message : "Ukjent feil";
-    console.error("[tripletex/connect] Connection failed:", raw);
-    const friendly = parseTripletexError(raw);
+    console.error("[tripletex/connect] Connection failed:", error instanceof Error ? error.message : error);
+    const friendly = error instanceof TripletexError
+      ? error.userMessage
+      : parseTripletexError(error instanceof Error ? error.message : "Ukjent feil");
     return NextResponse.json({ error: friendly }, { status: 400 });
   }
 });

@@ -45,12 +45,12 @@ export const NAVIGATION: NavGroup[] = [
     items: [
       {
         id: "dashboard",
-        label: "Dashboard",
+        label: "Oversikt",
         icon: LayoutDashboard,
         href: "/dashboard",
         tier: "STARTER",
         status: "ACTIVE",
-        smartInfo: "Dashboard — oversikt over klienter, status og snarveier.",
+        smartInfo: "Oversikt — dashbord med klienter, status og snarveier.",
       },
       {
         id: "clients",

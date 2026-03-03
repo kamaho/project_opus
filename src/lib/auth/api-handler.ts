@@ -41,7 +41,7 @@ export function withTenant(handler: ApiHandler) {
       }
       console.error("[api] Unhandled error:", error instanceof Error ? error.message : error);
       return NextResponse.json(
-        { error: "Internal server error" },
+        { error: "En uventet feil oppstod. Prøv igjen senere." },
         { status: 500 }
       );
     }

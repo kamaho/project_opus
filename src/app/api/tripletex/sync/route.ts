@@ -31,7 +31,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
 
     if (!config) {
       return NextResponse.json(
-        { error: "No sync config found for this client" },
+        { error: "Ingen synkroniseringskonfigurasjon funnet for denne klienten." },
         { status: 404 }
       );
     }
@@ -40,7 +40,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
 
   if (!configId) {
     return NextResponse.json(
-      { error: "clientId or syncConfigId required" },
+      { error: "Klient-ID eller synk-konfigurasjon-ID er påkrevd." },
       { status: 400 }
     );
   }
@@ -58,7 +58,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
     .limit(1);
 
   if (!config) {
-    return NextResponse.json({ error: "Config not found" }, { status: 404 });
+    return NextResponse.json({ error: "Konfigurasjon ikke funnet." }, { status: 404 });
   }
 
   try {
@@ -66,6 +66,11 @@ export const POST = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ result });
   } catch (error) {
     console.error("[tripletex/sync] Error:", error);
-    return NextResponse.json({ error: "Synkronisering feilet" }, { status: 500 });
+    const { TripletexError } = await import("@/lib/tripletex");
+    const message = error instanceof TripletexError
+      ? error.userMessage
+      : "Synkronisering feilet. Prøv igjen senere.";
+    const status = error instanceof TripletexError ? Math.max(error.statusCode, 400) : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 });

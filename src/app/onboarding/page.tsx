@@ -532,7 +532,7 @@ interface ServiceItem {
 const SERVICES: ServiceItem[] = [
   {
     id: "dashboard",
-    name: "Dashboard",
+    name: "Oversikt",
     description: "Oversikt over alle avstemminger, status og nøkkeltall for organisasjonen.",
     price: 0,
     icon: LayoutDashboard,
