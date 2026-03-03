@@ -234,9 +234,16 @@ export async function syncAccountList(
   return { accountCount: allAccounts.length, duration };
 }
 
+interface BalanceSheetRow {
+  account: { id: number };
+  balanceIn?: number;
+  balanceOut?: number;
+  balanceChange?: number;
+}
+
 /**
- * Phase 2: fetch balances for key accounts (1000-9999) and update DB.
- * Can be slow — run in background (after() or Worker).
+ * Phase 2: fetch balances via /balanceSheet (single API call for all accounts).
+ * Replaces the old per-account /balance approach that returned 404s.
  */
 export async function syncBalancesForAccounts(
   companyId: string,
@@ -244,6 +251,32 @@ export async function syncBalancesForAccounts(
 ): Promise<{ balancesUpdated: number; duration: number }> {
   const t0 = Date.now();
   const year = new Date().getFullYear();
+  const dateFrom = `${year}-01-01`;
+  const dateTo = `${year}-12-31`;
+
+  console.log(`[sync] syncBalances: fetching /balanceSheet for ${dateFrom} to ${dateTo}`);
+
+  const balanceRows = await fetchAllPages<BalanceSheetRow>("/balanceSheet", {
+    dateFrom,
+    dateTo,
+    accountNumberFrom: "1000",
+    accountNumberTo: "9999",
+    fields: "account(id),balanceIn,balanceOut",
+  }, tenantId);
+
+  console.log(`[sync] /balanceSheet returned ${balanceRows.length} rows in ${Date.now() - t0}ms`);
+
+  if (balanceRows.length === 0) {
+    return { balancesUpdated: 0, duration: Date.now() - t0 };
+  }
+
+  const balanceMap = new Map<number, { balanceIn: number | null; balanceOut: number | null }>();
+  for (const row of balanceRows) {
+    balanceMap.set(row.account.id, {
+      balanceIn: row.balanceIn ?? null,
+      balanceOut: row.balanceOut ?? null,
+    });
+  }
 
   const rows = await db
     .select({
@@ -258,56 +291,30 @@ export async function syncBalancesForAccounts(
       )
     );
 
-  const keyAccounts = rows.filter((r) => {
-    const num = parseInt(r.accountNumber, 10);
-    return num >= 1000 && num <= 9999 && r.tripletexAccountId;
-  });
-
-  console.log(`[sync] syncBalances: ${keyAccounts.length} key accounts out of ${rows.length} total`);
-
   let balancesUpdated = 0;
-  let errors = 0;
-  const BATCH = 20;
-  for (let i = 0; i < keyAccounts.length; i += BATCH) {
-    const batch = keyAccounts.slice(i, i + BATCH);
-    await Promise.allSettled(
-      batch.map(async (acc) => {
-        try {
-          const balRes = await fetchAllPages<TxBalance>("/balance", {
-            accountId: acc.tripletexAccountId,
-            year,
-            fields: "*",
-          }, tenantId);
-          if (balRes.length > 0) {
-            await db
-              .update(accountSyncSettings)
-              .set({
-                balanceIn: balRes[0].balanceIn?.toFixed(2) ?? null,
-                balanceOut: balRes[0].balanceOut?.toFixed(2) ?? null,
-                balanceYear: year,
-                lastBalanceSyncAt: new Date(),
-                updatedAt: new Date(),
-              })
-              .where(
-                and(
-                  eq(accountSyncSettings.tenantId, tenantId),
-                  eq(accountSyncSettings.companyId, companyId),
-                  eq(accountSyncSettings.accountNumber, acc.accountNumber),
-                )
-              );
-            balancesUpdated++;
-          }
-        } catch (err) {
-          errors++;
-          if (errors <= 3) {
-            console.error(`[sync] Balance fetch failed for account ${acc.accountNumber} (txId=${acc.tripletexAccountId}):`, err);
-          }
-        }
+  const now = new Date();
+
+  for (const acct of rows) {
+    const balance = balanceMap.get(acct.tripletexAccountId);
+    if (!balance) continue;
+
+    await db
+      .update(accountSyncSettings)
+      .set({
+        balanceIn: balance.balanceIn?.toFixed(2) ?? null,
+        balanceOut: balance.balanceOut?.toFixed(2) ?? null,
+        balanceYear: year,
+        lastBalanceSyncAt: now,
+        updatedAt: now,
       })
-    );
-    if ((i + BATCH) % 100 === 0 || i + BATCH >= keyAccounts.length) {
-      console.log(`[sync] Balance progress: ${Math.min(i + BATCH, keyAccounts.length)}/${keyAccounts.length} processed, ${balancesUpdated} updated, ${errors} errors`);
-    }
+      .where(
+        and(
+          eq(accountSyncSettings.tenantId, tenantId),
+          eq(accountSyncSettings.companyId, companyId),
+          eq(accountSyncSettings.accountNumber, acct.accountNumber),
+        )
+      );
+    balancesUpdated++;
   }
 
   const duration = Date.now() - t0;
