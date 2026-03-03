@@ -339,15 +339,13 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     setCreating(true);
     setPhase("creating");
     setError(null);
-    setCreateProgress(null);
+    setCreateProgress("Oppretter selskap...");
 
     const txCompanyId = Number(selectedCompanyId);
     const txCompany = txCompanies.find((c) => c.id === txCompanyId);
-
     const selectedAccounts = txAccounts.filter((a) => selectedAccountIds.has(a.id));
 
     try {
-      setCreateProgress(`Oppretter selskap «${txCompany?.name ?? "Selskap"}»...`);
       const companyRes = await fetch("/api/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -365,70 +363,68 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
       }
       const company = companyBody as { id: string; name: string };
 
-      const createdClients: ERPSetupClient[] = [];
+      setCreateProgress(`Oppretter ${selectedAccounts.length} kontoer parallelt...`);
 
-      for (let i = 0; i < selectedAccounts.length; i++) {
-        const account = selectedAccounts[i];
-        const clientName = `${account.number} ${account.name}`;
-        const accountType = account.isBankAccount ? "bank" : "ledger";
+      const clientResults = await Promise.all(
+        selectedAccounts.map(async (account) => {
+          const clientName = `${account.number} ${account.name}`;
+          const accountType = account.isBankAccount ? "bank" : "ledger";
 
-        setCreateProgress(
-          `Oppretter konto ${i + 1} av ${selectedAccounts.length} (${account.number} ${account.name})...`
-        );
+          const clientRes = await fetch("/api/clients", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              companyId: company.id,
+              name: clientName,
+              set1: {
+                accountNumber: account.number.toString(),
+                name: account.name,
+                type: accountType,
+              },
+              set2: {
+                accountNumber: account.number.toString(),
+                name: `${account.name} (motkonto)`,
+                type: accountType === "bank" ? "ledger" : "bank",
+              },
+            }),
+            credentials: "include",
+          });
+          const clientBody = await clientRes.json().catch(() => ({}));
+          if (!clientRes.ok) {
+            const msg = (clientBody as { error?: string }).error || "Ukjent feil";
+            throw new Error(`Konto ${account.number}: ${msg}`);
+          }
+          return { client: clientBody as { id: string; name: string }, account };
+        })
+      );
 
-        const clientRes = await fetch("/api/clients", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            companyId: company.id,
-            name: clientName,
-            set1: {
-              accountNumber: account.number.toString(),
-              name: account.name,
-              type: accountType,
-            },
-            set2: {
-              accountNumber: account.number.toString(),
-              name: `${account.name} (motkonto)`,
-              type: accountType === "bank" ? "ledger" : "bank",
-            },
-          }),
-          credentials: "include",
-        });
-        const clientBody = await clientRes.json().catch(() => ({}));
-        if (!clientRes.ok) {
-          const msg = (clientBody as { error?: string }).error || "Ukjent feil";
-          throw new Error(`Konto ${account.number} ${account.name}: ${msg}`);
-        }
-        const client = clientBody as { id: string; name: string };
+      setCreateProgress("Starter synkronisering i bakgrunnen...");
 
-        setCreateProgress(`Starter synkronisering for konto ${account.number}...`);
-        const syncRes = await fetch("/api/tripletex/sync-config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clientId: client.id,
-            tripletexCompanyId: txCompanyId,
-            set1TripletexAccountIds: [account.id],
-            set2TripletexAccountIds: [],
-            dateFrom,
-            syncIntervalMinutes: 60,
-          }),
-        });
+      const syncResults = await Promise.allSettled(
+        clientResults.map(async ({ client, account }) => {
+          const syncRes = await fetch("/api/tripletex/sync-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientId: client.id,
+              tripletexCompanyId: txCompanyId,
+              set1TripletexAccountIds: [account.id],
+              set2TripletexAccountIds: [],
+              dateFrom,
+              syncIntervalMinutes: 60,
+            }),
+          });
+          const syncData = syncRes.ok ? await syncRes.json() : null;
+          return syncData?.config?.id ?? "";
+        })
+      );
 
-        let syncConfigId = "";
-        if (syncRes.ok) {
-          const syncData = await syncRes.json();
-          syncConfigId = syncData.config?.id ?? "";
-        }
-
-        createdClients.push({
-          clientId: client.id,
-          clientName: client.name ?? clientName,
-          accountNumber: account.number,
-          syncConfigId,
-        });
-      }
+      const createdClients: ERPSetupClient[] = clientResults.map(({ client, account }, i) => ({
+        clientId: client.id,
+        clientName: client.name ?? `${account.number} ${account.name}`,
+        accountNumber: account.number,
+        syncConfigId: syncResults[i].status === "fulfilled" ? syncResults[i].value : "",
+      }));
 
       setCreateProgress(null);
       onComplete({

@@ -426,6 +426,14 @@ export async function runFullSync(
     .where(eq(tripletexSyncConfigs.id, configId));
 
   try {
+    const tCompany = Date.now();
+    const companyId = await syncCompany(config.tripletexCompanyId, config.tenantId);
+    console.log(`[sync] config=${configId} syncCompany done in ${Date.now() - tCompany}ms`);
+
+    const tAccounts = Date.now();
+    await syncAccounts(config.tripletexCompanyId, companyId, config.tenantId);
+    console.log(`[sync] config=${configId} syncAccounts done in ${Date.now() - tAccounts}ms`);
+
     const tPostings = Date.now();
     const [postings, bankTransactions] = await Promise.all([
       syncPostings(config),

@@ -3,8 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexSyncConfigs, clients, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { TripletexError } from "@/lib/tripletex";
-import { syncCompany, syncAccounts, runFullSync } from "@/lib/tripletex/sync";
+import { runFullSync } from "@/lib/tripletex/sync";
 
 export const dynamic = "force-dynamic";
 
@@ -88,13 +87,6 @@ export const POST = withTenant(async (req, { tenantId }) => {
     const t0 = Date.now();
     console.log(`[tripletex/sync-config] POST start: client=${clientId} txCompany=${tripletexCompanyId}`);
 
-    const companyId = await syncCompany(tripletexCompanyId, tenantId);
-    console.log(`[tripletex/sync-config] syncCompany done in ${Date.now() - t0}ms`);
-
-    const tAccounts = Date.now();
-    await syncAccounts(tripletexCompanyId, companyId, tenantId);
-    console.log(`[tripletex/sync-config] syncAccounts done in ${Date.now() - tAccounts}ms`);
-
     const [config] = await db
       .insert(tripletexSyncConfigs)
       .values({
@@ -129,7 +121,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
       })
       .returning();
 
-    console.log(`[tripletex/sync-config] Config created in ${Date.now() - t0}ms, starting background sync`);
+    console.log(`[tripletex/sync-config] Config ${config.id} created in ${Date.now() - t0}ms, queueing background sync`);
 
     runFullSync(config.id).catch((err) => {
       console.error(`[tripletex/sync-config] Background sync failed for config=${config.id}:`, err);
@@ -143,11 +135,10 @@ export const POST = withTenant(async (req, { tenantId }) => {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     });
-    const message = error instanceof TripletexError
-      ? error.userMessage
-      : "Kunne ikke synkronisere med Tripletex. Sjekk tilkoblingen og prøv igjen.";
-    const status = error instanceof TripletexError ? Math.max(error.statusCode, 400) : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: "Kunne ikke opprette synkronisering. Prøv igjen." },
+      { status: 500 }
+    );
   }
 });
 
