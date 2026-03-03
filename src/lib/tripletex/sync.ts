@@ -194,27 +194,32 @@ export async function syncAccountList(
   const now = new Date();
   const year = new Date().getFullYear();
 
-  for (const txAcc of allAccounts) {
-    const mapped = mapAccount(txAcc);
-    await db
-      .insert(accountSyncSettings)
-      .values({
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < allAccounts.length; i += BATCH_SIZE) {
+    const batch = allAccounts.slice(i, i + BATCH_SIZE);
+    const rows = batch.map((txAcc) => {
+      const mapped = mapAccount(txAcc);
+      return {
         tenantId,
         companyId,
         accountNumber: mapped.accountNumber,
         accountName: mapped.name,
         tripletexAccountId: txAcc.id,
-        accountType: mapped.accountType,
-        syncLevel: "balance_only",
+        accountType: mapped.accountType as "ledger" | "bank",
+        syncLevel: "balance_only" as const,
         balanceYear: year,
         lastBalanceSyncAt: now,
-      })
+      };
+    });
+    await db
+      .insert(accountSyncSettings)
+      .values(rows)
       .onConflictDoUpdate({
         target: [accountSyncSettings.tenantId, accountSyncSettings.companyId, accountSyncSettings.accountNumber],
         set: {
-          accountName: mapped.name,
-          tripletexAccountId: txAcc.id,
-          accountType: mapped.accountType,
+          accountName: sql`excluded.account_name`,
+          tripletexAccountId: sql`excluded.tripletex_account_id`,
+          accountType: sql`excluded.account_type`,
           updatedAt: now,
         },
       });
