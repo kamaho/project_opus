@@ -137,6 +137,9 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-background text-foreground antialiased;
   }
@@ -1019,8 +1022,8 @@ html[data-text-weight="bold"]   { font-weight: 600 !important; }
   to   { transform: translateY(0);    opacity: 1; }
 }
 @keyframes intro-brand-reveal {
-  0%   { opacity: 0; transform: translate(-50%, -40%) scale(0.98); filter: blur(10px); }
-  100% { opacity: 1; transform: translate(-50%, -50%) scale(1);    filter: blur(0px); }
+  0%   { opacity: 0; transform: scale(0.96); filter: blur(10px); }
+  100% { opacity: 1; transform: scale(1);    filter: blur(0px); }
 }
 @keyframes intro-cursor-blink {
   0%  { opacity: 0; }

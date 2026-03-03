@@ -34,7 +34,8 @@ interface ClientsPageClientProps {
 export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: ClientsPageClientProps) {
   const router = useRouter();
   const hasAccountSync = (accountSyncRows?.length ?? 0) > 0;
-  const [tab, setTab] = useState<"klienter" | "grupper" | "kontoplan">("klienter");
+  const isFirstTime = rows.length === 0 && hasAccountSync;
+  const [tab, setTab] = useState<"klienter" | "grupper" | "kontoplan">(isFirstTime ? "kontoplan" : "klienter");
   const [initialActiveGroupId, setInitialActiveGroupId] = useState<string | null>(null);
   /** When set, Grupper tab shows this group's table instead of the card grid */
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -286,6 +287,7 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
             <CompanyAccountsView
               accounts={accountSyncRows!}
               companyId={companyId}
+              showWelcome={isFirstTime}
             />
           </TabsContent>
         )}

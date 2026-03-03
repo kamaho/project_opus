@@ -6,10 +6,17 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Loader2,
   Search,
   CheckCircle2,
-  PlayCircle,
+  BarChart3,
+  ArrowDownUp,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -33,6 +40,7 @@ export interface AccountSyncRow {
 interface CompanyAccountsViewProps {
   accounts: AccountSyncRow[];
   companyId: string;
+  showWelcome?: boolean;
 }
 
 const RECOMMENDED_PREFIXES = ["15", "19", "24", "27", "50", "59"];
@@ -87,15 +95,14 @@ interface AccountGroupData {
 export function CompanyAccountsView({
   accounts,
   companyId,
+  showWelcome,
 }: CompanyAccountsViewProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [activating, setActivating] = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
-  const activeCount = accounts.filter(
-    (a) => a.syncLevel === "transactions"
-  ).length;
+  const activeCount = accounts.filter((a) => !!a.clientId).length;
 
   const filtered = useMemo(() => {
     if (!search) return accounts;
@@ -127,14 +134,14 @@ export function CompanyAccountsView({
     () =>
       accounts.filter(
         (a) =>
-          a.syncLevel === "balance_only" &&
+          !a.clientId &&
           RECOMMENDED_PREFIXES.some((p) => a.accountNumber.startsWith(p))
       ),
     [accounts]
   );
 
   const handleActivate = useCallback(
-    async (accountNumber: string) => {
+    async (accountNumber: string, syncLevel: "balance_only" | "transactions") => {
       setActivating((prev) => new Set(prev).add(accountNumber));
       try {
         const res = await fetch(
@@ -142,7 +149,10 @@ export function CompanyAccountsView({
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ dateFrom: `${new Date().getFullYear()}-01-01` }),
+            body: JSON.stringify({
+              dateFrom: `${new Date().getFullYear()}-01-01`,
+              syncLevel,
+            }),
           }
         );
         if (!res.ok) {
@@ -151,13 +161,12 @@ export function CompanyAccountsView({
             (data as { error?: string }).error || "Aktivering feilet"
           );
         }
-        const data = await res.json();
         toast.success(
-          `Konto ${accountNumber} importert. Transaksjoner hentes i bakgrunnen.`
+          syncLevel === "transactions"
+            ? `Konto ${accountNumber} importert. Transaksjoner hentes i bakgrunnen.`
+            : `Konto ${accountNumber} importert med saldo.`
         );
-        if (data.clientId) {
-          router.refresh();
-        }
+        router.refresh();
       } catch (e) {
         toast.error(
           e instanceof Error ? e.message : "Kunne ikke aktivere kontoen"
@@ -174,7 +183,7 @@ export function CompanyAccountsView({
   );
 
   const handleBulkActivate = useCallback(
-    async (accountNumbers: string[]) => {
+    async (accountNumbers: string[], syncLevel: "balance_only" | "transactions") => {
       for (const n of accountNumbers) {
         setActivating((prev) => new Set(prev).add(n));
       }
@@ -187,6 +196,7 @@ export function CompanyAccountsView({
             body: JSON.stringify({
               accountNumbers,
               dateFrom: `${new Date().getFullYear()}-01-01`,
+              syncLevel,
             }),
           }
         );
@@ -196,7 +206,9 @@ export function CompanyAccountsView({
           data.results as Array<{ status: string }>
         ).filter((r) => r.status === "activated").length;
         toast.success(
-          `${activated} ${activated === 1 ? "konto" : "kontoer"} importert. Transaksjoner hentes i bakgrunnen.`
+          syncLevel === "transactions"
+            ? `${activated} ${activated === 1 ? "konto" : "kontoer"} importert med transaksjoner.`
+            : `${activated} ${activated === 1 ? "konto" : "kontoer"} importert med saldo.`
         );
         router.refresh();
       } catch (e) {
@@ -232,6 +244,16 @@ export function CompanyAccountsView({
 
   return (
     <div className="space-y-4">
+      {showWelcome && (
+        <div className="rounded-lg border bg-card p-6 space-y-2">
+          <h2 className="text-lg font-semibold">Kom i gang</h2>
+          <p className="text-sm text-muted-foreground max-w-lg">
+            Kontoplanen er hentet fra integrasjonen. Velg hvilke kontoer du vil
+            følge opp — du kan importere kun saldo, eller saldo og transaksjoner.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-4">
         <div className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{accounts.length}</span>{" "}
@@ -275,30 +297,48 @@ export function CompanyAccountsView({
               </span>
             )}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={activating.size > 0}
-            onClick={() =>
-              handleBulkActivate(
-                recommendedAccounts.slice(0, 20).map((a) => a.accountNumber)
-              )
-            }
-          >
-            {activating.size > 0 ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <PlayCircle className="h-3.5 w-3.5" />
-            )}
-            Importer {Math.min(recommendedAccounts.length, 20)} anbefalte kontoer
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={activating.size > 0}
+              onClick={() =>
+                handleBulkActivate(
+                  recommendedAccounts.slice(0, 20).map((a) => a.accountNumber),
+                  "balance_only"
+                )
+              }
+            >
+              {activating.size > 0 ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <BarChart3 className="h-3.5 w-3.5" />
+              )}
+              Importer saldo ({Math.min(recommendedAccounts.length, 20)})
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={activating.size > 0}
+              onClick={() =>
+                handleBulkActivate(
+                  recommendedAccounts.slice(0, 20).map((a) => a.accountNumber),
+                  "transactions"
+                )
+              }
+            >
+              <ArrowDownUp className="h-3.5 w-3.5" />
+              Importer med transaksjoner
+            </Button>
+          </div>
         </div>
       )}
 
       {/* Account groups */}
       <div className="rounded-lg border overflow-hidden">
-        <div className="grid grid-cols-[1fr_120px_120px_140px] gap-2 px-3 py-2 bg-muted/50 border-b text-xs font-medium text-muted-foreground">
+        <div className="grid grid-cols-[1fr_120px_120px_160px] gap-2 px-3 py-2 bg-muted/50 border-b text-xs font-medium text-muted-foreground">
           <span>Konto</span>
           <span className="text-right">IB</span>
           <span className="text-right">UB</span>
@@ -331,15 +371,17 @@ export function CompanyAccountsView({
 
               {isExpanded &&
                 group.accounts.map((acct) => {
-                  const isActive = acct.syncLevel === "transactions";
+                  const hasClient = !!acct.clientId;
+                  const isTransactions = acct.syncLevel === "transactions" && hasClient;
+                  const isBalanceOnly = acct.syncLevel === "balance_only" && hasClient;
                   const isActivating = activating.has(acct.accountNumber);
 
                   return (
                     <div
                       key={acct.id}
                       className={cn(
-                        "grid grid-cols-[1fr_120px_120px_140px] gap-2 px-3 pl-9 py-2 border-b last:border-b-0 items-center text-sm",
-                        isActive && "bg-emerald-50/30 dark:bg-emerald-950/10"
+                        "grid grid-cols-[1fr_120px_120px_160px] gap-2 px-3 pl-9 py-2 border-b last:border-b-0 items-center text-sm",
+                        (isTransactions || isBalanceOnly) && "bg-emerald-50/30 dark:bg-emerald-950/10"
                       )}
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -363,34 +405,68 @@ export function CompanyAccountsView({
                       </span>
 
                       <div className="flex justify-end">
-                        {isActive ? (
+                        {isTransactions ? (
                           <a
                             href={`/dashboard/clients/${acct.clientId}/matching`}
                             className="inline-flex items-center gap-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors"
                           >
                             <CheckCircle2 className="h-3 w-3" />
-                            Importert
+                            Transaksjoner
                             {acct.txCount > 0 && (
                               <span className="text-emerald-600/70">
                                 ({acct.txCount})
                               </span>
                             )}
                           </a>
+                        ) : isBalanceOnly ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-400">
+                              <BarChart3 className="h-3 w-3" />
+                              Saldo
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 text-[10px] gap-0.5 px-1.5 text-muted-foreground"
+                              disabled={isActivating}
+                              onClick={() => handleActivate(acct.accountNumber, "transactions")}
+                            >
+                              {isActivating ? (
+                                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                              ) : (
+                                <ArrowDownUp className="h-2.5 w-2.5" />
+                              )}
+                              + Tx
+                            </Button>
+                          </div>
                         ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 text-xs gap-1 px-2"
-                            disabled={isActivating}
-                            onClick={() => handleActivate(acct.accountNumber)}
-                          >
-                            {isActivating ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <PlayCircle className="h-3 w-3" />
-                            )}
-                            Importer konto
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs gap-1 px-2"
+                                disabled={isActivating}
+                              >
+                                {isActivating ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <ChevronDown className="h-3 w-3" />
+                                )}
+                                Importer
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => handleActivate(acct.accountNumber, "balance_only")}>
+                                <BarChart3 className="h-3.5 w-3.5 mr-2" />
+                                Kun saldo
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleActivate(acct.accountNumber, "transactions")}>
+                                <ArrowDownUp className="h-3.5 w-3.5 mr-2" />
+                                Saldo + transaksjoner
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       </div>
                     </div>

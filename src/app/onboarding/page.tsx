@@ -195,6 +195,17 @@ export default function OnboardingPage() {
     }
     setFinishing(true);
     try {
+      let checkout: Record<string, string> | undefined;
+      try {
+        const raw = localStorage.getItem("revizo_checkout");
+        if (raw) {
+          checkout = JSON.parse(raw);
+          localStorage.removeItem("revizo_checkout");
+        }
+      } catch {
+        // ignore parse errors
+      }
+
       const res = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -202,6 +213,7 @@ export default function OnboardingPage() {
           services: Array.from(enabledServices),
           path,
           erpConnected: !!erpResult,
+          checkout,
         }),
       });
       if (!res.ok) {
@@ -211,7 +223,7 @@ export default function OnboardingPage() {
         return;
       }
       clearPersistedState();
-      router.push("/dashboard");
+      router.push("/dashboard/clients");
     } catch {
       toast.error("Nettverksfeil — sjekk tilkoblingen og prøv igjen.");
       setFinishing(false);
@@ -377,8 +389,6 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
     "initial" | "swap" | "wipe" | "brand" | "done"
   >("initial");
   const containerRef = useRef<HTMLDivElement>(null);
-  const revisorRef = useRef<HTMLSpanElement>(null);
-  const [logoPos, setLogoPos] = useState<{ left: number; top: number } | null>(null);
 
   const advance = useCallback(() => {
     setPhase((p) => {
@@ -404,16 +414,6 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     if (phase === "done") onComplete();
   }, [phase, onComplete]);
-
-  useEffect(() => {
-    if (phase === "swap" && revisorRef.current) {
-      const rect = revisorRef.current.getBoundingClientRect();
-      setLogoPos({
-        left: rect.left + rect.width / 2,
-        top: rect.top + rect.height / 2,
-      });
-    }
-  }, [phase]);
 
   const showSwapped = phase === "swap" || phase === "wipe" || phase === "brand" || phase === "done";
   const showWipe    = phase === "wipe" || phase === "brand" || phase === "done";
@@ -457,7 +457,6 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
 
           {/* "revisor?" */}
           <span
-            ref={revisorRef}
             className="inline-flex relative overflow-hidden items-center"
             style={{ height: "1.2em" }}
           >
@@ -468,15 +467,9 @@ function IntroAnimation({ onComplete }: { onComplete: () => void }) {
         </div>
       </div>
 
-      {/* Brand reveal — positioned at "revisor?" location */}
-      {showBrand && logoPos && (
-        <div
-          className="intro-brand-active fixed"
-          style={{
-            left: `${logoPos.left}px`,
-            top: `${logoPos.top}px`,
-          }}
-        >
+      {/* Brand reveal — centered on viewport */}
+      {showBrand && (
+        <div className="intro-brand-active fixed inset-0 flex items-center justify-center">
           <Image
             src="/logo-revizo.svg"
             alt="Revizo"

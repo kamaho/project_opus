@@ -25,10 +25,12 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   }
 
   const body = await req.json();
-  const { accountNumbers, dateFrom } = body as {
+  const { accountNumbers, dateFrom, syncLevel: requestedLevel } = body as {
     accountNumbers?: string[];
     dateFrom?: string;
+    syncLevel?: "balance_only" | "transactions";
   };
+  const syncLevel = requestedLevel ?? "balance_only";
 
   if (!accountNumbers || accountNumbers.length === 0) {
     return NextResponse.json(
@@ -80,7 +82,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   }> = [];
 
   for (const setting of settings) {
-    if (setting.syncLevel === "transactions" && setting.clientId) {
+    if (setting.clientId && (setting.syncLevel === syncLevel || setting.syncLevel === "transactions")) {
       results.push({
         accountNumber: setting.accountNumber,
         status: "already_active",
@@ -94,6 +96,52 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
       const accountType = isBankAccount ? "bank" : "ledger";
       const counterType = isBankAccount ? "ledger" : "bank";
 
+      // Upgrade path: balance_only → transactions
+      if (setting.clientId && setting.syncLevel === "balance_only" && syncLevel === "transactions") {
+        const configRows = await db.execute<{ id: string }>(sql`
+          INSERT INTO tripletex_sync_configs (
+            client_id, tenant_id, tripletex_company_id,
+            set1_tripletex_account_id, set1_tripletex_account_ids,
+            date_from, sync_status, is_active
+          ) VALUES (
+            ${setting.clientId}, ${tenantId}, ${company.tripletexCompanyId},
+            ${setting.tripletexAccountId},
+            ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+            ${resolvedDateFrom}, 'pending', true
+          )
+          ON CONFLICT (client_id) DO UPDATE SET
+            set1_tripletex_account_id = ${setting.tripletexAccountId},
+            set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+            date_from = ${resolvedDateFrom},
+            sync_status = 'pending',
+            is_active = true,
+            updated_at = now()
+          RETURNING id
+        `);
+        const cfgId = Array.from(configRows)[0]?.id;
+
+        await db
+          .update(accountSyncSettings)
+          .set({ syncLevel: "transactions", updatedAt: new Date() })
+          .where(eq(accountSyncSettings.id, setting.id));
+
+        if (cfgId) {
+          try {
+            await db.insert(webhookInbox).values({
+              tenantId,
+              source: "tripletex",
+              eventType: "sync.account.activated",
+              externalId: cfgId,
+              payload: { configId: cfgId, clientId: setting.clientId, accountNumber: setting.accountNumber },
+            });
+          } catch { /* cron fallback */ }
+        }
+
+        results.push({ accountNumber: setting.accountNumber, status: "activated", clientId: setting.clientId });
+        continue;
+      }
+
+      // New activation
       const { clientId, configId } = await db.transaction(async (tx) => {
         const acct1Rows = await tx.execute<{ id: string }>(sql`
           INSERT INTO accounts (company_id, account_number, name, account_type, tripletex_account_id)
@@ -120,33 +168,36 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         const cId = Array.from(clientRows)[0]?.id;
         if (!cId) throw new Error("Failed to create client");
 
-        const configRows = await tx.execute<{ id: string }>(sql`
-          INSERT INTO tripletex_sync_configs (
-            client_id, tenant_id, tripletex_company_id,
-            set1_tripletex_account_id, set1_tripletex_account_ids,
-            date_from, sync_status, is_active
-          ) VALUES (
-            ${cId}, ${tenantId}, ${company.tripletexCompanyId},
-            ${setting.tripletexAccountId},
-            ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-            ${resolvedDateFrom}, 'pending', true
-          )
-          ON CONFLICT (client_id) DO UPDATE SET
-            set1_tripletex_account_id = ${setting.tripletexAccountId},
-            set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-            date_from = ${resolvedDateFrom},
-            sync_status = 'pending',
-            is_active = true,
-            updated_at = now()
-          RETURNING id
-        `);
-        const cfgId = Array.from(configRows)[0]?.id;
-        if (!cfgId) throw new Error("Failed to create sync config");
+        let cfgId: string | null = null;
+
+        if (syncLevel === "transactions" && company.tripletexCompanyId) {
+          const configRows = await tx.execute<{ id: string }>(sql`
+            INSERT INTO tripletex_sync_configs (
+              client_id, tenant_id, tripletex_company_id,
+              set1_tripletex_account_id, set1_tripletex_account_ids,
+              date_from, sync_status, is_active
+            ) VALUES (
+              ${cId}, ${tenantId}, ${company.tripletexCompanyId},
+              ${setting.tripletexAccountId},
+              ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+              ${resolvedDateFrom}, 'pending', true
+            )
+            ON CONFLICT (client_id) DO UPDATE SET
+              set1_tripletex_account_id = ${setting.tripletexAccountId},
+              set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+              date_from = ${resolvedDateFrom},
+              sync_status = 'pending',
+              is_active = true,
+              updated_at = now()
+            RETURNING id
+          `);
+          cfgId = Array.from(configRows)[0]?.id ?? null;
+        }
 
         await tx
           .update(accountSyncSettings)
           .set({
-            syncLevel: "transactions",
+            syncLevel,
             clientId: cId,
             activatedAt: new Date(),
             activatedBy: userId,
@@ -157,29 +208,23 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         return { clientId: cId, configId: cfgId };
       });
 
-      // Seed default matching rules (outside tx)
-      try {
-        const { seedStandardRules } = await import("@/lib/matching/seed-rules");
-        await seedStandardRules(clientId, tenantId);
-      } catch {
-        // non-fatal
-      }
+      if (syncLevel === "transactions") {
+        try {
+          const { seedStandardRules } = await import("@/lib/matching/seed-rules");
+          await seedStandardRules(clientId, tenantId);
+        } catch { /* non-fatal */ }
 
-      // Queue Worker job
-      try {
-        await db.insert(webhookInbox).values({
-          tenantId,
-          source: "tripletex",
-          eventType: "sync.account.activated",
-          externalId: configId,
-          payload: {
-            configId,
-            clientId,
-            accountNumber: setting.accountNumber,
-          },
-        });
-      } catch {
-        // non-fatal, cron will pick it up
+        if (configId) {
+          try {
+            await db.insert(webhookInbox).values({
+              tenantId,
+              source: "tripletex",
+              eventType: "sync.account.activated",
+              externalId: configId,
+              payload: { configId, clientId, accountNumber: setting.accountNumber },
+            });
+          } catch { /* cron fallback */ }
+        }
       }
 
       results.push({
