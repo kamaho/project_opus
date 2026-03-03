@@ -36,6 +36,20 @@
       "when": 1772620000000,
       "tag": "0004_catchup_missing_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772525995667,
+      "tag": "0005_adorable_raza",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772526894544,
+      "tag": "0006_busy_young_avengers",
+      "breakpoints": true
     }
   ]
 }

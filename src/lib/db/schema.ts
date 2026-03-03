@@ -1055,3 +1055,80 @@ export const reports = pgTable(
     index("idx_reports_type").on(t.reportType),
   ]
 );
+
+// ---------------------------------------------------------------------------
+// Webhook Inbox (persistent queue for incoming webhook events)
+// ---------------------------------------------------------------------------
+export const webhookInbox = pgTable(
+  "webhook_inbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    source: text("source").notNull(),
+    eventType: text("event_type").notNull(),
+    externalId: text("external_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status", {
+      enum: ["pending", "processing", "completed", "failed", "skipped"],
+    })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    processAfter: timestamp("process_after", { withTimezone: true }).defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_webhook_inbox_dedup").on(t.tenantId, t.source, t.externalId),
+    index("idx_webhook_inbox_pending").on(t.status, t.processAfter),
+    index("idx_webhook_inbox_tenant").on(t.tenantId, t.source, t.createdAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Webhook Subscriptions (active webhook registrations per tenant/source)
+// ---------------------------------------------------------------------------
+export const webhookSubscriptions = pgTable(
+  "webhook_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    source: text("source").notNull(),
+    externalSubId: text("external_sub_id"),
+    webhookUrl: text("webhook_url").notNull(),
+    secret: text("secret").notNull(),
+    eventTypes: jsonb("event_types").$type<string[]>().notNull(),
+    status: text("status", {
+      enum: ["active", "paused", "revoked"],
+    })
+      .notNull()
+      .default("active"),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_webhook_sub_tenant_source").on(t.tenantId, t.source),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Sync Cursors (generic incremental sync bookmarks, source-agnostic)
+// ---------------------------------------------------------------------------
+export const syncCursors = pgTable(
+  "sync_cursors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    source: text("source").notNull(),
+    cursorType: text("cursor_type").notNull(),
+    cursorValue: text("cursor_value").notNull(),
+    metadata: jsonb("metadata"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_sync_cursors_lookup").on(t.tenantId, t.source, t.cursorType),
+    index("idx_sync_cursors_source").on(t.source, t.updatedAt),
+  ]
+);

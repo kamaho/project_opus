@@ -6,6 +6,7 @@ import * as schema from "../src/lib/db/schema";
 import { agentReportConfigs } from "../src/lib/db/schema";
 import { and, eq, lte, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { runJob } from "./job-runner";
+import { pollWebhookInbox } from "./webhook-processor";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -15,6 +16,7 @@ if (!DATABASE_URL) {
 
 const CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY ?? "3", 10);
 const POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL_MS ?? "30000", 10);
+const WEBHOOK_POLL_INTERVAL = parseInt(process.env.WEBHOOK_POLL_INTERVAL_MS ?? "5000", 10);
 const LOCK_TIMEOUT = parseInt(process.env.LOCK_TIMEOUT_MS ?? "600000", 10);
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
@@ -146,11 +148,27 @@ async function shutdown(signal: string) {
   process.exit(0);
 }
 
+async function webhookPollLoop() {
+  while (!shuttingDown) {
+    try {
+      const count = await pollWebhookInbox(db);
+      if (count > 0) {
+        log(`Webhook inbox: processed ${count} event(s)`);
+      }
+    } catch (err) {
+      log(`Webhook poll error: ${err instanceof Error ? err.message : err}`);
+    }
+    await new Promise((r) => setTimeout(r, WEBHOOK_POLL_INTERVAL));
+  }
+}
+
 async function main() {
-  log(`Starting worker (concurrency=${CONCURRENCY}, poll=${POLL_INTERVAL}ms)`);
+  log(`Starting worker (concurrency=${CONCURRENCY}, poll=${POLL_INTERVAL}ms, webhookPoll=${WEBHOOK_POLL_INTERVAL}ms)`);
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  webhookPollLoop();
 
   while (!shuttingDown) {
     await poll();

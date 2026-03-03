@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { createTripletexSession, TripletexError } from "@/lib/tripletex";
 import { encrypt } from "@/lib/crypto";
 import { logAudit } from "@/lib/audit";
+import { subscribe } from "@/lib/webhooks/subscription-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +101,16 @@ export const POST = withTenant(async (req, ctx) => {
       .returning();
 
     await logAudit({ tenantId, userId: ctx.userId, action: "tripletex.connected", entityType: "tripletex_connection", entityId: connection.id, metadata: { label: connection.label } });
+
+    try {
+      await subscribe(tenantId, "tripletex");
+      console.log(`[tripletex/connect] Webhook subscriptions created for tenant=${tenantId}`);
+    } catch (subError) {
+      console.warn(
+        "[tripletex/connect] Webhook subscription failed (non-blocking):",
+        subError instanceof Error ? subError.message : subError
+      );
+    }
 
     return NextResponse.json({
       ok: true,
