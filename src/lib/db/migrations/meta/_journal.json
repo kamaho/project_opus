@@ -50,6 +50,20 @@
       "when": 1772526894544,
       "tag": "0006_busy_young_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772532173329,
+      "tag": "0007_glorious_ozymandias",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1772532399052,
+      "tag": "0008_freezing_captain_cross",
+      "breakpoints": true
     }
   ]
 }

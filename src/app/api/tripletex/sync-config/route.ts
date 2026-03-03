@@ -85,8 +85,15 @@ export const POST = withTenant(async (req, { tenantId }) => {
   }
 
   try {
+    const t0 = Date.now();
+    console.log(`[tripletex/sync-config] POST start: client=${clientId} txCompany=${tripletexCompanyId}`);
+
     const companyId = await syncCompany(tripletexCompanyId, tenantId);
+    console.log(`[tripletex/sync-config] syncCompany done in ${Date.now() - t0}ms`);
+
+    const tAccounts = Date.now();
     await syncAccounts(tripletexCompanyId, companyId, tenantId);
+    console.log(`[tripletex/sync-config] syncAccounts done in ${Date.now() - tAccounts}ms`);
 
     const [config] = await db
       .insert(tripletexSyncConfigs)
@@ -101,6 +108,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
         enabledFields: enabledFields ?? undefined,
         dateFrom,
         syncIntervalMinutes: syncIntervalMinutes ?? 60,
+        syncStatus: "pending",
       })
       .onConflictDoUpdate({
         target: [tripletexSyncConfigs.clientId],
@@ -113,17 +121,28 @@ export const POST = withTenant(async (req, { tenantId }) => {
           enabledFields: enabledFields ?? undefined,
           dateFrom,
           syncIntervalMinutes: syncIntervalMinutes ?? 60,
+          syncStatus: "pending",
+          syncError: null,
           isActive: true,
           updatedAt: new Date(),
         },
       })
       .returning();
 
-    const result = await runFullSync(config.id);
+    console.log(`[tripletex/sync-config] Config created in ${Date.now() - t0}ms, starting background sync`);
 
-    return NextResponse.json({ config, syncResult: result }, { status: 201 });
+    runFullSync(config.id).catch((err) => {
+      console.error(`[tripletex/sync-config] Background sync failed for config=${config.id}:`, err);
+    });
+
+    return NextResponse.json({ config }, { status: 201 });
   } catch (error) {
-    console.error("[tripletex/sync-config] POST error:", error);
+    console.error("[tripletex/sync-config] POST error:", {
+      clientId,
+      tripletexCompanyId,
+      tenantId,
+      error: error instanceof Error ? error.message : String(error),
+    });
     const message = error instanceof TripletexError
       ? error.userMessage
       : "Kunne ikke synkronisere med Tripletex. Sjekk tilkoblingen og prøv igjen.";

@@ -417,16 +417,51 @@ export async function runFullSync(
     throw new Error(`Sync config not found: ${configId}`);
   }
 
-  const postings = await syncPostings(config);
-  const bankTransactions = await syncBankTransactions(config);
+  const t0 = Date.now();
+  console.log(`[sync] Starting full sync for config=${configId} client=${config.clientId}`);
 
-  let balancesUpdated = false;
+  await db
+    .update(tripletexSyncConfigs)
+    .set({ syncStatus: "syncing", syncError: null, updatedAt: new Date() })
+    .where(eq(tripletexSyncConfigs.id, configId));
+
   try {
-    await syncBalances(config);
-    balancesUpdated = true;
-  } catch {
-    // non-fatal
-  }
+    const tPostings = Date.now();
+    const [postings, bankTransactions] = await Promise.all([
+      syncPostings(config),
+      syncBankTransactions(config),
+    ]);
+    console.log(
+      `[sync] config=${configId} postings: fetched=${postings.fetched} inserted=${postings.inserted} (${Date.now() - tPostings}ms)`
+    );
+    console.log(
+      `[sync] config=${configId} bankTx: fetched=${bankTransactions.fetched} inserted=${bankTransactions.inserted} (${Date.now() - tPostings}ms)`
+    );
 
-  return { postings, bankTransactions, balancesUpdated };
+    let balancesUpdated = false;
+    try {
+      await syncBalances(config);
+      balancesUpdated = true;
+    } catch {
+      // non-fatal
+    }
+
+    await db
+      .update(tripletexSyncConfigs)
+      .set({ syncStatus: "completed", syncError: null, updatedAt: new Date() })
+      .where(eq(tripletexSyncConfigs.id, configId));
+
+    console.log(`[sync] config=${configId} completed in ${Date.now() - t0}ms`);
+    return { postings, bankTransactions, balancesUpdated };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[sync] config=${configId} FAILED after ${Date.now() - t0}ms:`, msg);
+
+    await db
+      .update(tripletexSyncConfigs)
+      .set({ syncStatus: "failed", syncError: msg.slice(0, 2000), updatedAt: new Date() })
+      .where(eq(tripletexSyncConfigs.id, configId));
+
+    throw error;
+  }
 }
