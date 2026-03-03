@@ -5,6 +5,7 @@ import { companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /**
  * POST /api/tripletex/sync-balances
@@ -38,9 +39,9 @@ export const POST = withTenant(async (req, { tenantId }) => {
     return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
   }
 
-  // Run the fast sync in after() so the response returns immediately
   after(async () => {
     try {
+      console.log(`[tripletex/sync-balances] Starting sync for company=${companyId} tripletex=${tripletexCompanyId} tenant=${tenantId}`);
       const { syncAccountsAndBalances } = await import(
         "@/lib/tripletex/sync"
       );
@@ -61,4 +62,71 @@ export const POST = withTenant(async (req, { tenantId }) => {
     { status: "syncing", message: "Kontoliste og saldoer synkroniseres" },
     { status: 202 }
   );
+});
+
+/**
+ * GET /api/tripletex/sync-balances?companyId=X&tripletexCompanyId=Y
+ *
+ * Diagnostic: runs sync synchronously and returns result/error.
+ */
+export const GET = withTenant(async (req, { tenantId }) => {
+  const url = new URL(req.url);
+  const companyId = url.searchParams.get("companyId");
+  const tripletexCompanyId = url.searchParams.get("tripletexCompanyId");
+
+  if (!companyId || !tripletexCompanyId) {
+    // If no params, look up from DB
+    const companyRows = await db
+      .select({ id: companies.id, tripletexCompanyId: companies.tripletexCompanyId })
+      .from(companies)
+      .where(eq(companies.tenantId, tenantId))
+      .limit(1);
+
+    if (companyRows.length === 0) {
+      return NextResponse.json({ error: "Ingen selskaper funnet for tenant" }, { status: 404 });
+    }
+
+    const c = companyRows[0];
+    if (!c.tripletexCompanyId) {
+      return NextResponse.json({
+        error: "Selskapet har ingen tripletex_company_id. Denne settes normalt av onboarding.",
+        companyId: c.id,
+        hint: "Sjekk at company-opprettelsen i onboarding setter tripletexCompanyId",
+      }, { status: 400 });
+    }
+
+    try {
+      const { syncAccountsAndBalances } = await import("@/lib/tripletex/sync");
+      const result = await syncAccountsAndBalances(
+        Number(c.tripletexCompanyId),
+        c.id,
+        tenantId
+      );
+      return NextResponse.json({ status: "ok", result });
+    } catch (err) {
+      console.error("[tripletex/sync-balances] Diagnostic failed:", err);
+      return NextResponse.json({
+        error: "Sync feilet",
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack?.split("\n").slice(0, 5) : undefined,
+      }, { status: 500 });
+    }
+  }
+
+  try {
+    const { syncAccountsAndBalances } = await import("@/lib/tripletex/sync");
+    const result = await syncAccountsAndBalances(
+      Number(tripletexCompanyId),
+      companyId,
+      tenantId
+    );
+    return NextResponse.json({ status: "ok", result });
+  } catch (err) {
+    console.error("[tripletex/sync-balances] Diagnostic failed:", err);
+    return NextResponse.json({
+      error: "Sync feilet",
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack?.split("\n").slice(0, 5) : undefined,
+    }, { status: 500 });
+  }
 });

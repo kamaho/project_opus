@@ -136,7 +136,6 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     const txCompany = txCompanies.find((c) => c.id === txCompanyId);
 
     try {
-      // Create company in Revizo
       const companyRes = await fetch("/api/companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -144,6 +143,7 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
           name: txCompany?.name ?? "Selskap",
           orgNumber: txCompany?.orgNumber ?? undefined,
           type: "company",
+          tripletexCompanyId: txCompanyId,
         }),
         credentials: "include",
       });
