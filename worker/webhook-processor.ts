@@ -229,6 +229,30 @@ async function processTripletexGroup(
 
         const payload = evt?.payload as Record<string, unknown> | null;
         const eventType = evt?.eventType ?? "";
+
+        if (eventType === "sync.balances.requested") {
+          const companyId = payload?.companyId as string;
+          const payloadTenantId = (payload?.tenantId as string) || tenantId;
+          if (!companyId) {
+            log(`sync.balances.requested ${id}: no companyId in payload, skipping`);
+            continue;
+          }
+          const { syncBalancesForAccounts } = await import("../src/lib/tripletex/sync");
+          log(`Running balance sync for company=${companyId} tenant=${payloadTenantId}`);
+          const result = await syncBalancesForAccounts(companyId, payloadTenantId);
+          log(`Balance sync done: ${result.balancesUpdated} balances in ${result.duration}ms`);
+
+          await db.insert(notifications).values({
+            tenantId: payloadTenantId,
+            userId: "system",
+            type: "system",
+            title: "Saldoer oppdatert",
+            body: `${result.balancesUpdated} kontosaldoer hentet fra Tripletex.`,
+            link: "/dashboard/clients",
+          });
+          continue;
+        }
+
         const configId = (payload?.configId as string) ?? null;
 
         if (!configId) {

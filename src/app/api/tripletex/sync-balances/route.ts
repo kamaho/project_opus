@@ -1,7 +1,7 @@
 import { withTenant } from "@/lib/auth";
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { companies } from "@/lib/db/schema";
+import { companies, webhookInbox } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,8 @@ export const maxDuration = 120;
 /**
  * POST /api/tripletex/sync-balances
  *
- * Phase 1 (accounts) runs inline (~3-5s). Phase 2 (balances) runs via after().
- * UI gets data immediately; balances trickle in.
+ * Phase 1 (accounts) runs inline (~2-3s).
+ * Phase 2 (balances) queued via webhook_inbox for Railway Worker.
  */
 export const POST = withTenant(async (req, { tenantId }) => {
   const body = await req.json();
@@ -38,25 +38,27 @@ export const POST = withTenant(async (req, { tenantId }) => {
   }
 
   try {
-    const { syncAccountList, syncBalancesForAccounts } = await import(
-      "@/lib/tripletex/sync"
-    );
+    const { syncAccountList } = await import("@/lib/tripletex/sync");
     const phase1 = await syncAccountList(tripletexCompanyId, companyId, tenantId);
     console.log(`[tripletex/sync-balances] Phase 1 done: ${phase1.accountCount} accounts in ${phase1.duration}ms`);
 
-    after(async () => {
-      try {
-        const result = await syncBalancesForAccounts(companyId, tenantId);
-        console.log(`[tripletex/sync-balances] Phase 2 done: ${result.balancesUpdated} balances in ${result.duration}ms`);
-      } catch (err) {
-        console.error("[tripletex/sync-balances] Phase 2 failed:", err);
-      }
-    });
+    try {
+      await db.insert(webhookInbox).values({
+        tenantId,
+        source: "tripletex",
+        eventType: "sync.balances.requested",
+        externalId: `balances-${companyId}-${Date.now()}`,
+        payload: { companyId, tenantId },
+      });
+      console.log(`[tripletex/sync-balances] Queued Phase 2 balance sync for Worker`);
+    } catch (err) {
+      console.error("[tripletex/sync-balances] Failed to queue Phase 2:", err);
+    }
 
     return NextResponse.json({
       status: "ok",
       accountCount: phase1.accountCount,
-      message: `${phase1.accountCount} kontoer lagret. Saldoer hentes i bakgrunnen.`,
+      message: `${phase1.accountCount} kontoer lagret. Saldoer hentes av Worker i bakgrunnen.`,
     });
   } catch (err) {
     console.error("[tripletex/sync-balances] Phase 1 failed:", err);
@@ -70,8 +72,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
 /**
  * GET /api/tripletex/sync-balances?companyId=X&tripletexCompanyId=Y
  *
- * Diagnostic: runs Phase 1 (accounts) synchronously, Phase 2 (balances) via after().
- * Returns after ~3-5 seconds with account count.
+ * Diagnostic: runs BOTH phases inline synchronously.
  */
 export const GET = withTenant(async (req, { tenantId }) => {
   const url = new URL(req.url);
@@ -105,20 +106,13 @@ export const GET = withTenant(async (req, { tenantId }) => {
   try {
     const { syncAccountList, syncBalancesForAccounts } = await import("@/lib/tripletex/sync");
     const phase1 = await syncAccountList(Number(txId), companyId, tenantId);
-
-    after(async () => {
-      try {
-        const phase2 = await syncBalancesForAccounts(companyId!, tenantId);
-        console.log(`[tripletex/sync-balances] GET Phase 2 done: ${phase2.balancesUpdated} balances in ${phase2.duration}ms`);
-      } catch (err) {
-        console.error("[tripletex/sync-balances] GET Phase 2 failed:", err);
-      }
-    });
+    const phase2 = await syncBalancesForAccounts(companyId, tenantId);
 
     return NextResponse.json({
       status: "ok",
       phase1,
-      message: `${phase1.accountCount} kontoer lagret på ${phase1.duration}ms. Saldoer hentes i bakgrunnen.`,
+      phase2,
+      message: `${phase1.accountCount} kontoer, ${phase2.balancesUpdated} saldoer oppdatert.`,
     });
   } catch (err) {
     console.error("[tripletex/sync-balances] Diagnostic failed:", err);
