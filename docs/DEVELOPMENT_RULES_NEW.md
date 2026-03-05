@@ -465,7 +465,7 @@ task.completed          — A task was marked as completed
 
 **Webhook delivery rules:**
 - POST to the subscriber's URL with `Content-Type: application/json`
-- Include `X-AccountControl-Signature` header: `sha256=HMAC(payload, secret)`
+- Include `X-Revizo-Signature` header: `sha256=HMAC(payload, secret)`
 - Retry up to 5 times with exponential backoff (1s, 5s, 30s, 2min, 10min)
 - Disable subscription after 10 consecutive failures, notify tenant admin
 

@@ -1,4 +1,4 @@
-# Account Control — Technical Project Brief
+# Revizo — Technical Project Brief
 
 > This document defines the tech stack, project structure, database schema, and implementation
 > plan for the new reconciliation platform. Use together with DOMAIN_SPEC.md for full context.

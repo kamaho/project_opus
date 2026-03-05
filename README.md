@@ -1,4 +1,4 @@
-# Account Control
+# Revizo
 
 Avstemmingsplattform for regnskapsfirmaer (MVP). Se `DOMAIN_SPEC.md` og `PROJECT_BRIEF.md` for domene og teknisk plan.
 
