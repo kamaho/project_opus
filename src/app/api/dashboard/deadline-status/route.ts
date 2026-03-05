@@ -1,8 +1,8 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { regulatoryDeadlines, calendarEvents, tasks } from "@/lib/db/schema";
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { deadlineTemplates, calendarEvents, tasks } from "@/lib/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 
 interface DeadlineDate {
   id: string;
@@ -14,27 +14,26 @@ interface DeadlineDate {
 function resolveDeadlineDatesForYear(
   deadline: {
     id: string;
-    title: string;
-    frequency: string;
-    deadlineRule: { day: number; month?: number; relative_to?: string; months_after?: number };
-    periodStartMonth: number | null;
+    name: string;
+    periodicity: string;
+    dueDateRule: { day: number; month?: number; relative_to?: string; months_after?: number };
   },
   year: number
 ): DeadlineDate[] {
-  const rule = deadline.deadlineRule;
+  const rule = deadline.dueDateRule;
   const results: DeadlineDate[] = [];
 
-  if (deadline.frequency === "yearly") {
+  if (deadline.periodicity === "annual") {
     if (rule.month !== undefined) {
       const m = rule.month - 1;
       results.push({
         id: deadline.id,
-        title: deadline.title,
+        title: deadline.name,
         date: `${year}-${String(m + 1).padStart(2, "0")}-${String(rule.day).padStart(2, "0")}`,
         source: "regulatory",
       });
     }
-  } else if (deadline.frequency === "monthly") {
+  } else if (deadline.periodicity === "monthly") {
     for (let m = 0; m < 12; m++) {
       let deadlineMonth = m;
       if (rule.relative_to === "period_end" && rule.months_after) {
@@ -43,15 +42,14 @@ function resolveDeadlineDatesForYear(
       if (deadlineMonth < 12) {
         results.push({
           id: deadline.id,
-          title: deadline.title,
+          title: deadline.name,
           date: `${year}-${String(deadlineMonth + 1).padStart(2, "0")}-${String(rule.day).padStart(2, "0")}`,
           source: "regulatory",
         });
       }
     }
-  } else if (deadline.frequency === "bimonthly") {
-    const startMonth = (deadline.periodStartMonth ?? 1) - 1;
-    for (let pStart = startMonth; pStart < 12; pStart += 2) {
+  } else if (deadline.periodicity === "bimonthly") {
+    for (let pStart = 0; pStart < 12; pStart += 2) {
       const pEnd = pStart + 1;
       let deadlineMonth = pEnd;
       if (rule.relative_to === "period_end" && rule.months_after) {
@@ -60,13 +58,13 @@ function resolveDeadlineDatesForYear(
       if (deadlineMonth < 12) {
         results.push({
           id: deadline.id,
-          title: deadline.title,
+          title: deadline.name,
           date: `${year}-${String(deadlineMonth + 1).padStart(2, "0")}-${String(rule.day).padStart(2, "0")}`,
           source: "regulatory",
         });
       }
     }
-  } else if (deadline.frequency === "quarterly") {
+  } else if (deadline.periodicity === "quarterly") {
     for (let q = 0; q < 4; q++) {
       const qEnd = (q + 1) * 3 - 1;
       let deadlineMonth = qEnd;
@@ -76,7 +74,7 @@ function resolveDeadlineDatesForYear(
       if (deadlineMonth < 12) {
         results.push({
           id: deadline.id,
-          title: deadline.title,
+          title: deadline.name,
           date: `${year}-${String(deadlineMonth + 1).padStart(2, "0")}-${String(rule.day).padStart(2, "0")}`,
           source: "regulatory",
         });
@@ -91,43 +89,49 @@ export const GET = withTenant(async (_req, { tenantId }) => {
   const now = new Date();
   const currentYear = now.getFullYear();
 
-  const [regDeadlines, customDeadlineEvents, allTasks] = await Promise.all([
-    db.select().from(regulatoryDeadlines),
-    db
-      .select()
-      .from(calendarEvents)
-      .where(
-        and(
-          eq(calendarEvents.tenantId, tenantId),
-          eq(calendarEvents.type, "custom_deadline")
-        )
-      ),
-    db
-      .select({
-        id: tasks.id,
-        status: tasks.status,
-        dueDate: tasks.dueDate,
-        assigneeId: tasks.assigneeId,
-        linkedDeadlineId: tasks.linkedDeadlineId,
-        linkedEventId: tasks.linkedEventId,
-        title: tasks.title,
-        priority: tasks.priority,
-        completedAt: tasks.completedAt,
-      })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.tenantId, tenantId),
-          sql`(${tasks.linkedDeadlineId} IS NOT NULL OR ${tasks.linkedEventId} IS NOT NULL)`
-        )
-      ),
-  ]);
+  let regDeadlines, customDeadlineEvents, allTasks;
+  try {
+    [regDeadlines, customDeadlineEvents, allTasks] = await Promise.all([
+      db.select().from(deadlineTemplates),
+      db
+        .select()
+        .from(calendarEvents)
+        .where(
+          and(
+            eq(calendarEvents.tenantId, tenantId),
+            eq(calendarEvents.type, "custom_deadline")
+          )
+        ),
+      db
+        .select({
+          id: tasks.id,
+          status: tasks.status,
+          dueDate: tasks.dueDate,
+          assigneeId: tasks.assigneeId,
+          linkedDeadlineId: tasks.linkedDeadlineId,
+          linkedEventId: tasks.linkedEventId,
+          title: tasks.title,
+          priority: tasks.priority,
+          completedAt: tasks.completedAt,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.tenantId, tenantId),
+            sql`(${tasks.linkedDeadlineId} IS NOT NULL OR ${tasks.linkedEventId} IS NOT NULL)`
+          )
+        ),
+    ]);
+  } catch (error) {
+    console.error("[deadline-status] DB query failed:", error);
+    return NextResponse.json([], { status: 200 });
+  }
 
   const resolvedDeadlines: DeadlineDate[] = [];
   for (const dl of regDeadlines) {
-    const rule = dl.deadlineRule as { day: number; month?: number; relative_to?: string; months_after?: number };
+    const rule = dl.dueDateRule as { day: number; month?: number; relative_to?: string; months_after?: number };
     const dates = resolveDeadlineDatesForYear(
-      { id: dl.id, title: dl.title, frequency: dl.frequency, deadlineRule: rule, periodStartMonth: dl.periodStartMonth },
+      { id: dl.id, name: dl.name, periodicity: dl.periodicity, dueDateRule: rule },
       currentYear
     );
     resolvedDeadlines.push(...dates);

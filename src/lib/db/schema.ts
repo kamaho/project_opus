@@ -18,6 +18,9 @@ import { sql } from "drizzle-orm";
 // ---------------------------------------------------------------------------
 // Companies (tenant = Clerk organization)
 // ---------------------------------------------------------------------------
+export const MVA_TERM_TYPES = ["bimonthly", "monthly", "annual", "exempt"] as const;
+export type MvaTermType = (typeof MVA_TERM_TYPES)[number];
+
 export const companies = pgTable(
   "companies",
   {
@@ -28,6 +31,9 @@ export const companies = pgTable(
     type: text("type", { enum: ["company", "group"] }).default("company").notNull(),
     parentCompanyId: uuid("parent_company_id"),
     tripletexCompanyId: bigint("tripletex_company_id", { mode: "number" }),
+    vismaNxtCompanyNo: bigint("visma_nxt_company_no", { mode: "number" }),
+    mvaTermType: text("mva_term_type", { enum: [...MVA_TERM_TYPES] }).default("bimonthly"),
+    fiscalYearEnd: text("fiscal_year_end").default("12-31"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -51,6 +57,7 @@ export const accounts = pgTable(
     }).notNull(),
     currency: text("currency").default("NOK"),
     tripletexAccountId: bigint("tripletex_account_id", { mode: "number" }),
+    vismaNxtAccountId: bigint("visma_nxt_account_id", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [index("idx_accounts_company").on(t.companyId)]
@@ -361,7 +368,7 @@ export const tasks = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedBy: text("completed_by"),
     resolution: text("resolution"),
-    linkedDeadlineId: uuid("linked_deadline_id").references(() => regulatoryDeadlines.id, { onDelete: "set null" }),
+    linkedDeadlineId: uuid("linked_deadline_id").references(() => deadlines.id, { onDelete: "set null" }),
     linkedEventId: uuid("linked_event_id").references(() => calendarEvents.id, { onDelete: "set null" }),
     metadata: jsonb("metadata").default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -542,26 +549,98 @@ export const knowledgeFaq = pgTable("knowledge_faq", {
 });
 
 // ---------------------------------------------------------------------------
-// Regulatory Deadlines (norske frister)
+// Deadline Templates (fristmaler — deles pa tvers av tenants)
 // ---------------------------------------------------------------------------
-export const regulatoryDeadlines = pgTable("regulatory_deadlines", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  obligation: text("obligation").notNull(),
-  title: text("title").notNull(),
-  description: text("description"),
-  frequency: text("frequency", { enum: ["monthly", "bimonthly", "quarterly", "yearly"] }).notNull(),
-  periodStartMonth: integer("period_start_month"),
-  periodEndMonth: integer("period_end_month"),
-  deadlineRule: jsonb("deadline_rule").notNull(),
-  exceptions: jsonb("exceptions").default([]),
-  appliesToEntity: text("applies_to_entity").array().default([]),
-  appliesToRole: text("applies_to_role").array().default([]),
-  legalReference: text("legal_reference"),
-  legalUrl: text("legal_url"),
-  validFrom: date("valid_from"),
-  validTo: date("valid_to"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const DEADLINE_CATEGORIES = ["tax", "payroll", "reporting", "reconciliation", "custom"] as const;
+export type DeadlineCategory = (typeof DEADLINE_CATEGORIES)[number];
+
+export const DEADLINE_PERIODICITIES = ["monthly", "bimonthly", "quarterly", "annual"] as const;
+export type DeadlinePeriodicity = (typeof DEADLINE_PERIODICITIES)[number];
+
+export const deadlineTemplates = pgTable(
+  "deadline_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    category: text("category", { enum: [...DEADLINE_CATEGORIES] }).notNull(),
+    periodicity: text("periodicity", { enum: [...DEADLINE_PERIODICITIES] }).notNull().default("bimonthly"),
+    dueDateRule: jsonb("due_date_rule").notNull(),
+    isSystem: boolean("is_system").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [uniqueIndex("idx_deadline_templates_slug").on(t.slug)]
+);
+
+// ---------------------------------------------------------------------------
+// Deadlines (konkrete fristinstanser per selskap per periode)
+// ---------------------------------------------------------------------------
+export const DEADLINE_STATUSES = ["not_started", "on_track", "at_risk", "overdue", "done"] as const;
+export type DeadlineStatusEnum = (typeof DEADLINE_STATUSES)[number];
+
+export const deadlines = pgTable(
+  "deadlines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    templateId: uuid("template_id")
+      .references(() => deadlineTemplates.id, { onDelete: "cascade" })
+      .notNull(),
+    companyId: uuid("company_id")
+      .references(() => companies.id, { onDelete: "cascade" })
+      .notNull(),
+    dueDate: date("due_date").notNull(),
+    periodLabel: text("period_label").notNull(),
+    status: text("status", { enum: [...DEADLINE_STATUSES] }).notNull().default("not_started"),
+    assigneeId: text("assignee_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_deadlines_unique").on(t.tenantId, t.companyId, t.templateId, t.periodLabel),
+    index("idx_deadlines_tenant_due").on(t.tenantId, t.dueDate),
+    index("idx_deadlines_tenant_company").on(t.tenantId, t.companyId),
+    index("idx_deadlines_status_due").on(t.status, t.dueDate),
+  ]
+);
+
+// Backward-compat alias (deprecated — use deadlineTemplates)
+export const regulatoryDeadlines = deadlineTemplates;
+
+// ---------------------------------------------------------------------------
+// Task Templates (oppgavemaler — system + tenant-egne)
+// ---------------------------------------------------------------------------
+export const taskTemplates = pgTable(
+  "task_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id"),
+    name: text("name").notNull(),
+    description: text("description"),
+    deadlineSlug: text("deadline_slug"),
+    isSystem: boolean("is_system").default(false).notNull(),
+    items: jsonb("items").notNull().$type<TaskTemplateItem[]>(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_task_templates_tenant").on(t.tenantId),
+    index("idx_task_templates_slug").on(t.deadlineSlug),
+  ]
+);
+
+export interface TaskTemplateItem {
+  title: string;
+  description?: string;
+  routine?: string;
+  priority: "low" | "medium" | "high" | "critical";
+  category?: string;
+  sortOrder: number;
+  offsetDays: number;
+}
 
 // ---------------------------------------------------------------------------
 // AI User Memory (per user per org)
@@ -625,6 +704,8 @@ export const userOnboarding = pgTable(
     teamInvited: boolean("team_invited").default(false),
     notificationsConfigured: boolean("notifications_configured").default(false),
     revizoEnabled: boolean("revizo_enabled").default(false),
+    userType: text("user_type"),
+    responsibilities: text("responsibilities"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
@@ -874,6 +955,75 @@ export const tripletexSyncConfigs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Visma Business NXT Connections (per-tenant OAuth credentials)
+// ---------------------------------------------------------------------------
+export const vismaNxtConnections = pgTable(
+  "visma_nxt_connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    accessToken: text("access_token").notNull(),
+    refreshToken: text("refresh_token").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+    companyNo: bigint("company_no", { mode: "number" }),
+    customerNo: bigint("customer_no", { mode: "number" }),
+    webhookSubscriptionIds: jsonb("webhook_subscription_ids").$type<string[]>().default([]),
+    label: text("label"),
+    isActive: boolean("is_active").notNull().default(true),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_visma_nxt_conn_tenant").on(t.tenantId),
+    index("idx_visma_nxt_conn_company_no").on(t.companyNo),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Visma Business NXT Sync Configs
+// ---------------------------------------------------------------------------
+export const vismaNxtSyncConfigs = pgTable(
+  "visma_nxt_sync_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    tenantId: text("tenant_id").notNull(),
+    vismaCompanyNo: bigint("visma_company_no", { mode: "number" }).notNull(),
+    set1AccountIds: jsonb("set1_account_ids").$type<number[]>().default([]),
+    set2AccountIds: jsonb("set2_account_ids").$type<number[]>().default([]),
+    enabledFields: jsonb("enabled_fields").$type<Record<string, boolean>>().default({
+      description: true,
+      bilag: true,
+      faktura: false,
+      reference: true,
+      foreignAmount: false,
+      accountNumber: true,
+    }),
+    dateFrom: date("date_from").notNull(),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastSyncCursor: text("last_sync_cursor"),
+    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(60),
+    syncStatus: text("sync_status", {
+      enum: ["pending", "syncing", "completed", "failed"],
+    }).default("pending"),
+    syncError: text("sync_error"),
+    isActive: boolean("is_active").notNull().default(true),
+    initialSyncCompleted: boolean("initial_sync_completed").default(false),
+    accountCount: integer("account_count").default(0),
+    lastBalanceSyncAt: timestamp("last_balance_sync_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_visma_nxt_sync_client").on(t.clientId),
+    index("idx_visma_nxt_sync_active").on(t.isActive, t.lastSyncAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Account Sync Settings (per-account sync level + balance data)
 // ---------------------------------------------------------------------------
 export const accountSyncSettings = pgTable(
@@ -886,7 +1036,8 @@ export const accountSyncSettings = pgTable(
       .references(() => companies.id, { onDelete: "cascade" }),
     accountNumber: text("account_number").notNull(),
     accountName: text("account_name").notNull(),
-    tripletexAccountId: bigint("tripletex_account_id", { mode: "number" }).notNull(),
+    tripletexAccountId: bigint("tripletex_account_id", { mode: "number" }),
+    vismaNxtAccountId: bigint("visma_nxt_account_id", { mode: "number" }),
     accountType: text("account_type", { enum: ["ledger", "bank"] }).notNull().default("ledger"),
     syncLevel: text("sync_level", {
       enum: ["balance_only", "transactions"],
@@ -1156,6 +1307,31 @@ export const webhookSubscriptions = pgTable(
   (t) => [
     uniqueIndex("idx_webhook_sub_tenant_source").on(t.tenantId, t.source),
   ]
+);
+
+// ---------------------------------------------------------------------------
+// Subscriptions (Stripe billing)
+// ---------------------------------------------------------------------------
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").unique(),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    stripeSubscriptionId: text("stripe_subscription_id").notNull().unique(),
+    plan: text("plan", { enum: ["starter", "pro", "enterprise"] }).notNull(),
+    status: text("status", {
+      enum: ["active", "past_due", "canceled", "trialing"],
+    }).notNull(),
+    currentPeriodStart: timestamp("current_period_start", {
+      withTimezone: true,
+    }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAt: timestamp("cancel_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_subscriptions_tenant").on(t.tenantId)]
 );
 
 // ---------------------------------------------------------------------------

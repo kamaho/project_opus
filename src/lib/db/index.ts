@@ -7,16 +7,20 @@ if (!connectionString) {
   throw new Error("DATABASE_URL is not set. Copy .env.example to .env.local and set DATABASE_URL.");
 }
 
-// Serverless: max:1 prevents exhausting PgBouncer pool_size in Transaction mode.
-// DATABASE_URL must use the Transaction Pooler (port 6543), NOT the Session Pooler (port 5432).
-// prepare:false is required for PgBouncer compatibility.
+// prepare:false is required for PgBouncer (Transaction Pooler, port 6543) compatibility.
+// In production (serverless), max:1 prevents exhausting pool_size.
+// In dev, we allow more connections so Promise.all queries actually run in parallel.
+const isDev = process.env.NODE_ENV === "development";
 const globalForDb = globalThis as unknown as { _drizzle: ReturnType<typeof drizzle> | undefined };
 if (!globalForDb._drizzle) {
   const client = postgres(connectionString, {
-    max: 1,
+    max: isDev ? 6 : 1,
     idle_timeout: 20,
-    connect_timeout: 10,
+    connect_timeout: 15,
     prepare: false,
+    connection: {
+      statement_timeout: "30000",
+    },
   });
   globalForDb._drizzle = drizzle(client, { schema });
 }

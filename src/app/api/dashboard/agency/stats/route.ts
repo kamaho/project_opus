@@ -2,14 +2,24 @@ import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, companies } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 
-export const GET = withTenant(async (_req, { tenantId }) => {
+export const GET = withTenant(async (req, { tenantId }) => {
+  const companyId = new URL(req.url).searchParams.get("companyId");
+
+  const companyWhere = companyId
+    ? and(eq(companies.tenantId, tenantId), eq(companies.id, companyId))
+    : eq(companies.tenantId, tenantId);
+
   const [clientCount] = await db
     .select({ total: sql<number>`count(*)` })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
-    .where(eq(companies.tenantId, tenantId));
+    .where(companyWhere);
+
+  const companyClause = companyId
+    ? sql`co.tenant_id = ${tenantId} AND co.id = ${companyId}`
+    : sql`co.tenant_id = ${tenantId}`;
 
   const [stats] = await db.execute<{
     unmatched_count: string;
@@ -23,7 +33,7 @@ export const GET = withTenant(async (_req, { tenantId }) => {
     FROM transactions t
     INNER JOIN clients c ON c.id = t.client_id
     INNER JOIN companies co ON co.id = c.company_id
-    WHERE co.tenant_id = ${tenantId}
+    WHERE ${companyClause}
   `);
 
   return NextResponse.json({

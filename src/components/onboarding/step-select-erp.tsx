@@ -26,11 +26,12 @@ const ERP_SYSTEMS: ERPSystem[] = [
   },
   {
     id: "visma-nxt",
-    name: "Visma.net ERP",
-    description: "Skybasert ERP fra Visma. Import av hovedbok, reskontro og banktransaksjoner.",
+    name: "Visma Business NXT",
+    description: "Skybasert ERP fra Visma. Import av hovedbok, reskontro og banktransaksjoner via GraphQL.",
     logoElement: <span className="text-lg font-bold text-orange-600">V</span>,
     logoBg: "bg-orange-50 dark:bg-orange-950/40",
-    available: false,
+    available: true,
+    popular: true,
   },
   {
     id: "business-central",

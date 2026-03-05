@@ -1,17 +1,22 @@
-import { Suspense } from "react";
+import { Suspense, lazy } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { dashboardConfigs } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getModulesForDashboard } from "./module-registry";
 import { layouts } from "./layouts";
-import { DashboardToolbar } from "./dashboard-toolbar";
+
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DashboardType, DashboardConfig, LayoutType } from "./types";
+
+const GetStartedModule = lazy(
+  () => import("./modules/get-started/get-started-module")
+);
 
 interface DashboardShellProps {
   type: DashboardType;
   clientId?: string;
+  companyId?: string;
 }
 
 const DEFAULT_CONFIG: DashboardConfig = {
@@ -62,6 +67,7 @@ function DashboardSkeleton() {
 export default async function DashboardShell({
   type,
   clientId,
+  companyId,
 }: DashboardShellProps) {
   const { orgId, userId } = await auth();
 
@@ -83,21 +89,26 @@ export default async function DashboardShell({
   );
 
   const LayoutComponent = layouts[config.layout] ?? layouts.overview;
+  const showGetStarted =
+    type === "agency" && !config.hiddenModules.includes("get-started");
 
   return (
     <div className="space-y-4">
-      <DashboardToolbar
-        currentLayout={config.layout}
-        availableModules={allModules}
-        hiddenModules={config.hiddenModules}
-        dashboardType={type}
-      />
+      {showGetStarted && (
+        <Suspense fallback={<Skeleton className="h-64 rounded-lg" />}>
+          <GetStartedModule
+            tenantId={orgId}
+            existingHiddenModules={config.hiddenModules}
+          />
+        </Suspense>
+      )}
 
       <Suspense fallback={<DashboardSkeleton />}>
         <LayoutComponent
           modules={visibleModules}
           tenantId={orgId}
           clientId={clientId}
+          companyId={companyId}
         />
       </Suspense>
     </div>

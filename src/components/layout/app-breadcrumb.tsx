@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OrganizationSwitcher } from "@clerk/nextjs";
-import { ChevronDown, Building2, Wallet } from "lucide-react";
+import { ChevronDown, Building2, Wallet, Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,8 +11,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { IntegrationBadge } from "@/components/ui/integration-badge";
 
-type Company = { id: string; name: string };
+type Company = { id: string; name: string; type?: string; integrationSources?: string[] };
 type Client = { id: string; name: string; companyId: string };
 
 const separator = (
@@ -24,11 +25,13 @@ const separator = (
 export function AppBreadcrumb() {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [currentClientFromApi, setCurrentClientFromApi] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const companyIdFromUrl = searchParams.get("companyId");
 
   const clientIdFromPath = pathname.match(/^\/dashboard\/clients\/([^/]+)/)?.[1] ?? null;
   const currentClient =
@@ -39,12 +42,11 @@ export function AppBreadcrumb() {
     try {
       const res = await fetch("/api/companies");
       if (res.ok) {
-        const data = await res.json();
-        setCompanies(data);
+        const data: Company[] = await res.json();
+        return data.filter((c) => c.type !== "group");
       }
-    } catch {
-      setCompanies([]);
-    }
+    } catch {}
+    return [];
   }, []);
 
   const fetchClients = useCallback(async (companyId: string | null) => {
@@ -68,25 +70,33 @@ export function AppBreadcrumb() {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await fetchCompanies();
-      await fetchClients(null);
-      if (!cancelled) setLoading(false);
+      const fetched = await fetchCompanies();
+      if (cancelled) return;
+      setCompanies(fetched);
+
+      if (fetched.length > 0 && !companyIdFromUrl) {
+        const first = fetched[0];
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("companyId", first.id);
+        router.replace(`${pathname}?${params.toString()}`);
+      }
+
+      setLoading(false);
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchCompanies, fetchClients]);
+    return () => { cancelled = true; };
+  }, [fetchCompanies]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!selectedCompanyId) return;
-    fetchClients(selectedCompanyId);
-  }, [selectedCompanyId, fetchClients]);
+    fetchClients(companyIdFromUrl);
+  }, [companyIdFromUrl, fetchClients]);
 
   useEffect(() => {
-    if (currentClient && currentClient.companyId && !selectedCompanyId) {
-      setSelectedCompanyId(currentClient.companyId);
+    if (currentClient?.companyId && !companyIdFromUrl) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("companyId", currentClient.companyId);
+      router.replace(`${pathname}?${params.toString()}`);
     }
-  }, [currentClient?.companyId, selectedCompanyId]);
+  }, [currentClient?.companyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!clientIdFromPath) {
@@ -100,15 +110,19 @@ export function AppBreadcrumb() {
         if (!cancelled && data) setCurrentClientFromApi(data);
       })
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [clientIdFromPath]);
 
-  const selectedCompany = companies.find((c) => c.id === selectedCompanyId);
-  const clientsForCompany = selectedCompanyId
-    ? clients.filter((c) => c.companyId === selectedCompanyId)
+  const selectedCompany = companies.find((c) => c.id === companyIdFromUrl);
+  const clientsForCompany = companyIdFromUrl
+    ? clients.filter((c) => c.companyId === companyIdFromUrl)
     : clients;
+
+  function selectCompany(id: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("companyId", id);
+    router.replace(`${pathname}?${params.toString()}`);
+  }
 
   const segmentButtonClass =
     "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-foreground hover:bg-muted/80 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -118,7 +132,7 @@ export function AppBreadcrumb() {
       className="flex items-center gap-0 flex-1 min-w-0"
       aria-label="Brødsmule"
     >
-      {/* Segment 1: Bruker miljø (organisasjon) */}
+      {/* Segment 1: Organisasjon */}
       <div className="flex items-center gap-0 shrink-0">
         <OrganizationSwitcher
           hidePersonal
@@ -146,18 +160,26 @@ export function AppBreadcrumb() {
           <span className="truncate max-w-[140px]">
             {selectedCompany?.name ?? "Velg selskap"}
           </span>
+          {selectedCompany?.integrationSources && (
+            <IntegrationBadge sources={selectedCompany.integrationSources} />
+          )}
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-[180px]">
+        <DropdownMenuContent align="start" className="min-w-[220px]">
           {companies.length === 0 && !loading && (
             <DropdownMenuItem disabled>Ingen selskap</DropdownMenuItem>
           )}
           {companies.map((c) => (
             <DropdownMenuItem
               key={c.id}
-              onClick={() => setSelectedCompanyId(c.id)}
+              onClick={() => selectCompany(c.id)}
+              className="flex items-center gap-2"
             >
-              {c.name}
+              <span className="flex-1 truncate">{c.name}</span>
+              <IntegrationBadge sources={c.integrationSources ?? []} />
+              {c.id === companyIdFromUrl && (
+                <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              )}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
@@ -184,7 +206,7 @@ export function AppBreadcrumb() {
           {clientsForCompany.map((c) => (
             <DropdownMenuItem
               key={c.id}
-              onClick={() => router.push(`/dashboard/clients/${c.id}/matching`)}
+              onClick={() => router.push(`/dashboard/clients/${c.id}/matching?companyId=${companyIdFromUrl ?? ""}`)}
             >
               {c.name}
             </DropdownMenuItem>

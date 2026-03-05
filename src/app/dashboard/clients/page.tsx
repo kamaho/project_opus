@@ -6,7 +6,11 @@ import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
 import { SyncInProgressView } from "./sync-in-progress-view";
 
-export default async function ClientsPage() {
+export default async function ClientsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ companyId?: string }>;
+}) {
   const { orgId } = await auth();
   if (!orgId) {
     return (
@@ -19,32 +23,39 @@ export default async function ClientsPage() {
     );
   }
 
-  const list = await db
-    .select({
-      id: clients.id,
-      status: clients.status,
-      companyName: companies.name,
-      set1AccountNumber: accounts.accountNumber,
-      assignedUserId: clients.assignedUserId,
-      txSyncActive: tripletexSyncConfigs.isActive,
-      syncStatus: tripletexSyncConfigs.syncStatus,
-      syncError: tripletexSyncConfigs.syncError,
-    })
-    .from(clients)
-    .innerJoin(companies, eq(clients.companyId, companies.id))
-    .innerJoin(accounts, eq(clients.set1AccountId, accounts.id))
-    .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
-    .where(eq(companies.tenantId, orgId));
+  const { companyId: selectedCompanyId } = await searchParams;
+
+  const companyFilter = selectedCompanyId
+    ? and(eq(companies.tenantId, orgId), eq(companies.id, selectedCompanyId))
+    : eq(companies.tenantId, orgId);
+
+  const [list, companyRows] = await Promise.all([
+    db
+      .select({
+        id: clients.id,
+        status: clients.status,
+        companyName: companies.name,
+        set1AccountNumber: accounts.accountNumber,
+        assignedUserId: clients.assignedUserId,
+        txSyncActive: tripletexSyncConfigs.isActive,
+        syncStatus: tripletexSyncConfigs.syncStatus,
+        syncError: tripletexSyncConfigs.syncError,
+      })
+      .from(clients)
+      .innerJoin(companies, eq(clients.companyId, companies.id))
+      .innerJoin(accounts, eq(clients.set1AccountId, accounts.id))
+      .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
+      .where(companyFilter),
+    db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(companyFilter),
+  ]);
 
   const clientIds = list.map((c) => c.id);
-
-  // Fetch account_sync_settings for the company accounts view (needed even when no clients)
-  const companyRows = await db
-    .select({ id: companies.id })
-    .from(companies)
-    .where(eq(companies.tenantId, orgId));
-
   const companyIds = companyRows.map((c) => c.id);
+
+  // Fetch account_sync_settings (depends on companyIds)
   let accountSyncRows: {
     id: string;
     accountNumber: string;
@@ -92,7 +103,6 @@ export default async function ClientsPage() {
   }
 
   if (clientIds.length === 0 && accountSyncRows.length === 0) {
-    // Check if there's an active Tripletex connection — sync may be in progress
     const [txConn] = await db
       .select({ id: tripletexConnections.id })
       .from(tripletexConnections)
@@ -138,38 +148,49 @@ export default async function ClientsPage() {
     );
   }
 
-  const unmatchedCounts = clientIds.length > 0
-    ? await db
-        .select({
-          clientId: transactions.clientId,
-          setNumber: transactions.setNumber,
-          count: sql<number>`count(*)::int`,
-          sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
-        })
-        .from(transactions)
-        .where(
-          and(
-            inArray(transactions.clientId, clientIds),
-            eq(transactions.matchStatus, "unmatched")
+  // Run all independent aggregation queries in parallel
+  const [unmatchedCounts, totalBalances, groupRows] = await Promise.all([
+    clientIds.length > 0
+      ? db
+          .select({
+            clientId: transactions.clientId,
+            setNumber: transactions.setNumber,
+            count: sql<number>`count(*)::int`,
+            sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
+          })
+          .from(transactions)
+          .where(
+            and(
+              inArray(transactions.clientId, clientIds),
+              eq(transactions.matchStatus, "unmatched")
+            )
           )
-        )
-        .groupBy(transactions.clientId, transactions.setNumber)
-    : [];
+          .groupBy(transactions.clientId, transactions.setNumber)
+      : Promise.resolve([]),
+    clientIds.length > 0
+      ? db
+          .select({
+            clientId: transactions.clientId,
+            setNumber: transactions.setNumber,
+            sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
+          })
+          .from(transactions)
+          .where(inArray(transactions.clientId, clientIds))
+          .groupBy(transactions.clientId, transactions.setNumber)
+      : Promise.resolve([]),
+    db
+      .select({
+        id: clientGroups.id,
+        name: clientGroups.name,
+        color: clientGroups.color,
+        icon: clientGroups.icon,
+        assignedUserId: clientGroups.assignedUserId,
+      })
+      .from(clientGroups)
+      .where(eq(clientGroups.tenantId, orgId))
+      .orderBy(clientGroups.name),
+  ]);
 
-  // Total balance per client/set (ALL transactions, not just unmatched)
-  const totalBalances = clientIds.length > 0
-    ? await db
-        .select({
-          clientId: transactions.clientId,
-          setNumber: transactions.setNumber,
-          sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
-        })
-        .from(transactions)
-        .where(inArray(transactions.clientId, clientIds))
-        .groupBy(transactions.clientId, transactions.setNumber)
-    : [];
-
-  // IB lookup: accountNumber -> balanceIn (integration-agnostic)
   const ibByAccount = new Map<string, number>();
   for (const r of accountSyncRows) {
     if (r.balanceIn) {
@@ -226,19 +247,6 @@ export default async function ClientsPage() {
     };
   });
 
-  // Fetch client groups
-  const groupRows = await db
-    .select({
-      id: clientGroups.id,
-      name: clientGroups.name,
-      color: clientGroups.color,
-      icon: clientGroups.icon,
-      assignedUserId: clientGroups.assignedUserId,
-    })
-    .from(clientGroups)
-    .where(eq(clientGroups.tenantId, orgId))
-    .orderBy(clientGroups.name);
-
   let groups: {
     id: string;
     name: string;
@@ -287,8 +295,6 @@ export default async function ClientsPage() {
     <ClientsPageClient
       rows={rows}
       groups={groups}
-      accountSyncRows={accountSyncRows}
-      companyId={companyIds[0] ?? null}
     />
   );
 }

@@ -28,11 +28,29 @@ export async function validateClientTenant(
  * Returns all companies for a tenant, ordered by name.
  */
 export async function getCompaniesByTenant(tenantId: string) {
-  return db
-    .select({ id: companies.id, name: companies.name })
+  const rows = await db
+    .select({
+      id: companies.id,
+      name: companies.name,
+      type: companies.type,
+      tripletexCompanyId: companies.tripletexCompanyId,
+      vismaNxtCompanyNo: companies.vismaNxtCompanyNo,
+    })
     .from(companies)
     .where(eq(companies.tenantId, tenantId))
     .orderBy(companies.name);
+
+  return rows.map((r) => {
+    const sources: string[] = [];
+    if (r.tripletexCompanyId != null) sources.push("tripletex");
+    if (r.vismaNxtCompanyNo != null) sources.push("visma_nxt");
+    return {
+      id: r.id,
+      name: r.name,
+      type: r.type,
+      integrationSources: sources,
+    };
+  });
 }
 
 /**

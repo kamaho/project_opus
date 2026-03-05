@@ -22,6 +22,8 @@ const TRIPLETEX_EVENT_TYPES = [
   "account.delete",
 ];
 
+const VISMA_NXT_EVENT_TYPES = ["TableChange"];
+
 interface SubscribeResult {
   subscriptionId: string;
   externalSubIds: string[];
@@ -36,6 +38,10 @@ export async function subscribe(
   source: WebhookSource,
   eventTypes?: string[]
 ): Promise<SubscribeResult> {
+  if (source === "visma_nxt") {
+    return subscribeVismaNxt(tenantId, eventTypes);
+  }
+
   if (source !== "tripletex") {
     throw new Error(`Unsupported webhook source: ${source}`);
   }
@@ -156,6 +162,50 @@ export async function unsubscribe(
         eq(webhookInbox.status, "pending")
       )
     );
+}
+
+/**
+ * Subscribe to Visma NXT webhooks.
+ * Visma NXT webhook subscriptions are configured via the Development Portal.
+ * This function stores the subscription record locally for tracking.
+ */
+async function subscribeVismaNxt(
+  tenantId: string,
+  eventTypes?: string[]
+): Promise<SubscribeResult> {
+  const webhookSecret = process.env.VISMA_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new Error("VISMA_WEBHOOK_SECRET is not set");
+  }
+
+  const callbackUrl = `${APP_URL}/api/webhooks/visma-nxt`;
+  const events = eventTypes ?? VISMA_NXT_EVENT_TYPES;
+  const encryptedSecret = encrypt(webhookSecret);
+
+  const [sub] = await db
+    .insert(webhookSubscriptions)
+    .values({
+      tenantId,
+      source: "visma_nxt",
+      externalSubId: null,
+      webhookUrl: callbackUrl,
+      secret: encryptedSecret,
+      eventTypes: events,
+      status: "active",
+    })
+    .onConflictDoUpdate({
+      target: [webhookSubscriptions.tenantId, webhookSubscriptions.source],
+      set: {
+        webhookUrl: callbackUrl,
+        secret: encryptedSecret,
+        eventTypes: events,
+        status: "active",
+        updatedAt: new Date(),
+      },
+    })
+    .returning({ id: webhookSubscriptions.id });
+
+  return { subscriptionId: sub.id, externalSubIds: [] };
 }
 
 /**

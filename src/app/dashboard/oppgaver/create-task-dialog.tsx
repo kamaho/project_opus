@@ -37,7 +37,9 @@ interface DeadlineOption {
   id: string;
   title: string;
   date: string;
-  source: "regulatory" | "custom_deadline";
+  companyName: string;
+  periodLabel: string;
+  category: string;
 }
 
 interface TaskRow {
@@ -99,6 +101,7 @@ export function CreateTaskDialog({
   clients,
   editingTask,
   defaultDueDate,
+  defaultLinkedDeadlineId,
   onSaved,
 }: {
   open: boolean;
@@ -107,6 +110,7 @@ export function CreateTaskDialog({
   clients: ClientOption[];
   editingTask: TaskRow | null;
   defaultDueDate?: string;
+  defaultLinkedDeadlineId?: string;
   onSaved: () => void;
 }) {
   const isEditing = !!editingTask;
@@ -158,13 +162,30 @@ export function CreateTaskDialog({
 
   useEffect(() => {
     if (open && !deadlinesLoaded) {
-      fetch("/api/dashboard/deadline-status")
-        .then((r) => (r.ok ? r.json() : []))
-        .then((rows: Array<{ deadlineId: string; title: string; date: string; source: string; daysLeft: number }>) => {
+      const now = new Date();
+      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+      const to = new Date(now.getFullYear(), now.getMonth() + 6, 0).toISOString().slice(0, 10);
+      fetch(`/api/deadlines?from=${from}&to=${to}`)
+        .then((r) => (r.ok ? r.json() : { deadlines: [] }))
+        .then((data: { deadlines: Array<{
+          id: string;
+          dueDate: string;
+          periodLabel: string;
+          status: string;
+          template: { name: string; category: string };
+          company: { name: string };
+        }> }) => {
           setDeadlineOptions(
-            rows
-              .filter((r) => r.daysLeft >= -7)
-              .map((r) => ({ id: r.deadlineId, title: r.title, date: r.date, source: r.source as DeadlineOption["source"] }))
+            (data.deadlines ?? [])
+              .filter((d) => d.status !== "done")
+              .map((d) => ({
+                id: d.id,
+                title: d.template.name,
+                date: d.dueDate,
+                companyName: d.company.name,
+                periodLabel: d.periodLabel,
+                category: d.template.category,
+              }))
           );
           setDeadlinesLoaded(true);
         })
@@ -212,10 +233,10 @@ export function CreateTaskDialog({
       setNotifyExternal(true);
       setRequestDocument(false);
       setDocumentMessage("");
-      setLinkedDeadlineId("none");
+      setLinkedDeadlineId(defaultLinkedDeadlineId ?? "none");
       setLinkedEventId("none");
     }
-  }, [open, editingTask, currentUserId, members.length, defaultDueDate]);
+  }, [open, editingTask, currentUserId, members.length, defaultDueDate, defaultLinkedDeadlineId]);
 
   const filteredClients = companyId && companyId !== "none"
     ? clients.filter((c) => c.companyId === companyId)
@@ -564,49 +585,43 @@ export function CreateTaskDialog({
                 Koble til frist
               </Label>
               <Select
-                value={linkedDeadlineId !== "none" ? `reg:${linkedDeadlineId}` : linkedEventId !== "none" ? `evt:${linkedEventId}` : "none"}
+                value={linkedDeadlineId}
                 onValueChange={(v) => {
-                  if (v === "none") {
-                    setLinkedDeadlineId("none");
-                    setLinkedEventId("none");
-                  } else if (v.startsWith("reg:")) {
-                    setLinkedDeadlineId(v.slice(4));
-                    setLinkedEventId("none");
-                  } else if (v.startsWith("evt:")) {
-                    setLinkedEventId(v.slice(4));
-                    setLinkedDeadlineId("none");
-                  }
+                  setLinkedDeadlineId(v);
+                  setLinkedEventId("none");
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full min-w-0 [&>span]:truncate">
                   <SelectValue placeholder="Ingen kobling" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Ingen</SelectItem>
-                  {deadlineOptions.filter((d) => d.source === "regulatory").length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel>Lovpålagte frister</SelectLabel>
-                      {deadlineOptions
-                        .filter((d) => d.source === "regulatory")
-                        .map((d) => (
-                          <SelectItem key={`reg:${d.id}:${d.date}`} value={`reg:${d.id}`}>
-                            {d.title} ({d.date})
+                  {(() => {
+                    const grouped = deadlineOptions.reduce<Record<string, DeadlineOption[]>>((acc, d) => {
+                      const key = d.category || "other";
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(d);
+                      return acc;
+                    }, {});
+                    const categoryLabels: Record<string, string> = {
+                      tax: "Skatt",
+                      vat: "MVA",
+                      payroll: "Lønn",
+                      reporting: "Rapportering",
+                      financial_statements: "Årsregnskap",
+                      other: "Annet",
+                    };
+                    return Object.entries(grouped).map(([cat, items]) => (
+                      <SelectGroup key={cat}>
+                        <SelectLabel>{categoryLabels[cat] ?? cat}</SelectLabel>
+                        {items.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            {d.title} — {d.companyName} ({d.periodLabel})
                           </SelectItem>
                         ))}
-                    </SelectGroup>
-                  )}
-                  {deadlineOptions.filter((d) => d.source === "custom_deadline").length > 0 && (
-                    <SelectGroup>
-                      <SelectLabel>Egendefinerte frister</SelectLabel>
-                      {deadlineOptions
-                        .filter((d) => d.source === "custom_deadline")
-                        .map((d) => (
-                          <SelectItem key={`evt:${d.id}`} value={`evt:${d.id}`}>
-                            {d.title} ({d.date})
-                          </SelectItem>
-                        ))}
-                    </SelectGroup>
-                  )}
+                      </SelectGroup>
+                    ));
+                  })()}
                 </SelectContent>
               </Select>
             </div>

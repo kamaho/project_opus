@@ -15,7 +15,13 @@ function DashboardSkeleton() {
   );
 }
 
-export default function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ companyId?: string }>;
+}) {
+  const { companyId } = await searchParams;
+
   return (
     <div className="space-y-6">
       <div>
@@ -26,7 +32,7 @@ export default function DashboardPage() {
       </div>
 
       <Suspense fallback={<DashboardSkeleton />}>
-        <DashboardShell type="agency" />
+        <DashboardShell type="agency" companyId={companyId} />
       </Suspense>
     </div>
   );

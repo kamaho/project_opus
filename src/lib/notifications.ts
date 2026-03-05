@@ -4,6 +4,9 @@ import {
   sendNoteMentionEmail,
   sendSmartMatchEmail,
   sendImportCompletedEmail,
+  sendDocumentReceivedEmail,
+  sendTaskAssignedEmail,
+  sendTaskCompletedEmail,
 } from "@/lib/resend";
 import { clerkClient } from "@clerk/nextjs/server";
 
@@ -240,5 +243,178 @@ export async function notifyImportCompleted(params: ImportNotificationParams) {
     }
   } catch (e) {
     console.error("[notifications] Failed to send import email:", e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Document received (external person uploaded files)
+// ---------------------------------------------------------------------------
+
+export interface DocumentReceivedParams {
+  tenantId: string;
+  requesterId: string;
+  contactName: string;
+  fileNames: string[];
+  clientId?: string | null;
+  requestId: string;
+}
+
+export async function notifyDocumentReceived(params: DocumentReceivedParams) {
+  const { tenantId, requesterId, contactName, fileNames, clientId, requestId } = params;
+
+  const fileList = fileNames.join(", ");
+
+  await createNotification({
+    tenantId,
+    userId: requesterId,
+    type: "system",
+    title: "Dokumentasjon mottatt",
+    body: `${contactName} har lastet opp: ${fileList}`,
+    link: clientId
+      ? `/dashboard/clients/${clientId}/matching`
+      : "/dashboard/oppgaver",
+    entityType: "document_request",
+    entityId: requestId,
+  });
+
+  try {
+    const clerk = await clerkClient();
+    const user = await clerk.users.getUser(requesterId);
+    const email = user.emailAddresses[0]?.emailAddress;
+    const userName = user.fullName ?? user.firstName ?? "bruker";
+    if (email) {
+      await sendDocumentReceivedEmail({
+        toEmail: email,
+        userName,
+        contactName,
+        fileNames,
+        link: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}${
+          clientId
+            ? `/dashboard/clients/${clientId}/matching`
+            : "/dashboard/oppgaver"
+        }`,
+      });
+    }
+  } catch (e) {
+    console.error("[notifications] Failed to send document-received email:", e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Task assigned (internal user)
+// ---------------------------------------------------------------------------
+
+export interface TaskAssignedParams {
+  tenantId: string;
+  assigneeId: string;
+  assignedByUserId: string;
+  taskId: string;
+  taskTitle: string;
+  taskDescription?: string;
+  clientId?: string | null;
+  clientName?: string | null;
+  dueDate?: string | null;
+}
+
+export async function notifyTaskAssigned(params: TaskAssignedParams) {
+  const {
+    tenantId, assigneeId, assignedByUserId, taskId, taskTitle,
+    taskDescription, clientId, clientName, dueDate,
+  } = params;
+
+  if (assigneeId === assignedByUserId) return;
+
+  await createNotification({
+    tenantId,
+    userId: assigneeId,
+    fromUserId: assignedByUserId,
+    type: "assignment",
+    title: "Ny oppgave tildelt",
+    body: taskTitle,
+    link: "/dashboard/oppgaver",
+    entityType: "task",
+    entityId: taskId,
+  });
+
+  try {
+    const clerk = await clerkClient();
+    const [assignee, assigner] = await Promise.all([
+      clerk.users.getUser(assigneeId),
+      clerk.users.getUser(assignedByUserId),
+    ]);
+    const email = assignee.emailAddresses[0]?.emailAddress;
+    const assigneeName = assignee.fullName ?? assignee.firstName ?? "bruker";
+    const assignerName = assigner.fullName ?? assigner.firstName ?? "En bruker";
+
+    if (email) {
+      await sendTaskAssignedEmail({
+        toEmail: email,
+        assigneeName,
+        assignedByName: assignerName,
+        taskTitle,
+        taskDescription: taskDescription ?? undefined,
+        clientName: clientName ?? undefined,
+        dueDate: dueDate ?? undefined,
+        link: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/dashboard/oppgaver`,
+      });
+    }
+  } catch (e) {
+    console.error("[notifications] Failed to send task-assigned email:", e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Task completed (notify creator)
+// ---------------------------------------------------------------------------
+
+export interface TaskCompletedParams {
+  tenantId: string;
+  creatorId: string;
+  completedByUserId: string;
+  taskId: string;
+  taskTitle: string;
+  clientId?: string | null;
+  clientName?: string | null;
+}
+
+export async function notifyTaskCompleted(params: TaskCompletedParams) {
+  const { tenantId, creatorId, completedByUserId, taskId, taskTitle, clientId, clientName } = params;
+
+  if (creatorId === completedByUserId) return;
+
+  await createNotification({
+    tenantId,
+    userId: creatorId,
+    fromUserId: completedByUserId,
+    type: "system",
+    title: "Oppgave fullført",
+    body: taskTitle,
+    link: "/dashboard/oppgaver",
+    entityType: "task",
+    entityId: taskId,
+  });
+
+  try {
+    const clerk = await clerkClient();
+    const [creator, completer] = await Promise.all([
+      clerk.users.getUser(creatorId),
+      clerk.users.getUser(completedByUserId),
+    ]);
+    const email = creator.emailAddresses[0]?.emailAddress;
+    const creatorName = creator.fullName ?? creator.firstName ?? "bruker";
+    const completerName = completer.fullName ?? completer.firstName ?? "En bruker";
+
+    if (email) {
+      await sendTaskCompletedEmail({
+        toEmail: email,
+        creatorName,
+        completedByName: completerName,
+        taskTitle,
+        clientName: clientName ?? undefined,
+        link: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/dashboard/oppgaver`,
+      });
+    }
+  } catch (e) {
+    console.error("[notifications] Failed to send task-completed email:", e);
   }
 }

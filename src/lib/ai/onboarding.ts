@@ -64,6 +64,8 @@ export interface OnboardingCompleteOptions {
   revizoEnabled?: boolean;
   firstClientCreated?: boolean;
   erpConnected?: boolean;
+  userType?: string;
+  responsibilities?: string[];
 }
 
 /** Mark the welcome onboarding as completed. Sets completedAt and optional status flags. */
@@ -80,6 +82,10 @@ export async function markOnboardingComplete(
       revizoEnabled: options.revizoEnabled ?? false,
       firstClientCreated: options.firstClientCreated ?? false,
       profileCompleted: true,
+      userType: options.userType ?? null,
+      responsibilities: options.responsibilities
+        ? JSON.stringify(options.responsibilities)
+        : null,
     })
     .where(eq(userOnboarding.userId, userId));
 }

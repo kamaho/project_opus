@@ -1,21 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Scale, FileQuestion } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ModuleProps } from "../types";
 import Link from "next/link";
-
-interface ReconciliationRow {
-  clientId: string;
-  clientName: string;
-  companyName: string;
-  matchPercentage: number;
-  unmatchedCount: number;
-  lastActivity: string | null;
-  status: string;
-}
+import { useDashboardData } from "../dashboard-data-provider";
 
 function ProgressBar({ value }: { value: number }) {
   let bg = "bg-red-500";
@@ -44,18 +33,8 @@ function formatRelative(iso: string | null) {
   return `${days} d siden`;
 }
 
-export default function ReconciliationOverview({ tenantId }: ModuleProps) {
-  const [data, setData] = useState<ReconciliationRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    fetch("/api/dashboard/agency/reconciliation")
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setData)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [tenantId]);
+export default function ReconciliationOverview() {
+  const { reconciliation: data, loading } = useDashboardData();
 
   if (loading) {
     return (
@@ -75,21 +54,7 @@ export default function ReconciliationOverview({ tenantId }: ModuleProps) {
     );
   }
 
-  if (error) {
-    return (
-      <Card>
-        <CardHeader className="flex flex-row items-center gap-2 pb-3">
-          <Scale className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">Avstemmingsstatus</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Kunne ikke laste avstemmingsdata.</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (data.length === 0) {
+  if (data.length === 0 && !loading) {
     return (
       <Card>
         <CardHeader className="flex flex-row items-center gap-2 pb-3">

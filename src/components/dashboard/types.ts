@@ -7,6 +7,7 @@ export type LayoutType = "overview" | "compact" | "focus";
 export interface ModuleProps {
   tenantId: string;
   clientId?: string;
+  companyId?: string;
   size: ModuleSize;
 }
 
@@ -29,4 +30,5 @@ export interface LayoutProps {
   modules: DashboardModuleConfig[];
   tenantId: string;
   clientId?: string;
+  companyId?: string;
 }

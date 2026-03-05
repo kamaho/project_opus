@@ -18,8 +18,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Account Control",
-  description: "Avstemming for regnskapsfirmaer",
+  title: {
+    default: "Revizo — Full kontroll over regnskapet",
+    template: "%s — Revizo",
+  },
+  description:
+    "Automatisk avstemming for regnskapsbyråer. Koble til Tripletex eller Visma, og få sanntidsoversikt over alle klienter.",
 };
 
 export default function RootLayout({

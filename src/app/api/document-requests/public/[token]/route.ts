@@ -10,7 +10,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { supabase, ATTACHMENTS_BUCKET } from "@/lib/supabase";
-import { createNotification } from "@/lib/notifications";
+import { notifyDocumentReceived } from "@/lib/notifications";
 import { validateUploadedFile, sanitizeFilename } from "@/lib/upload-validation";
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 
@@ -202,18 +202,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       .set({ status: "completed", completedAt: new Date() })
       .where(eq(documentRequests.id, row.id));
 
-    const fileList = uploaded.map((f) => f.filename).join(", ");
-    await createNotification({
+    await notifyDocumentReceived({
       tenantId: row.tenantId,
-      userId: row.createdBy,
-      type: "system",
-      title: "Dokumentasjon mottatt",
-      body: `${row.contactName ?? "Ekstern kontakt"} har lastet opp: ${fileList}`,
-      link: row.clientId
-        ? `/dashboard/clients/${row.clientId}/matching`
-        : "/dashboard/oppgaver",
-      entityType: "document_request",
-      entityId: row.id,
+      requesterId: row.createdBy,
+      contactName: row.contactName ?? "Ekstern kontakt",
+      fileNames: uploaded.map((f) => f.filename),
+      clientId: row.clientId,
+      requestId: row.id,
     });
 
     if (row.taskId) {

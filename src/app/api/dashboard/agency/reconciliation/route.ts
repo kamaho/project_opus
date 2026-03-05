@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 
-export const GET = withTenant(async (_req, { tenantId }) => {
+export const GET = withTenant(async (req, { tenantId }) => {
+  const companyId = new URL(req.url).searchParams.get("companyId");
+
+  const companyClause = companyId
+    ? sql`co.tenant_id = ${tenantId} AND co.id = ${companyId}`
+    : sql`co.tenant_id = ${tenantId}`;
+
   const rows = await db.execute<{
     client_id: string;
     client_name: string;
@@ -25,7 +31,7 @@ export const GET = withTenant(async (_req, { tenantId }) => {
     INNER JOIN companies co ON co.id = c.company_id
     LEFT JOIN transactions t ON t.client_id = c.id
     LEFT JOIN imports i ON i.client_id = c.id AND i.deleted_at IS NULL
-    WHERE co.tenant_id = ${tenantId}
+    WHERE ${companyClause}
     GROUP BY c.id, c.name, co.name
     ORDER BY
       CASE WHEN COUNT(t.id) = 0 THEN 1 ELSE 0 END,

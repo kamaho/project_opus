@@ -5,6 +5,7 @@ import { tasks, contacts, clients, calendarEvents, TASK_CATEGORIES } from "@/lib
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { sendTaskExternalEmail } from "@/lib/resend";
+import { notifyTaskAssigned, notifyTaskCompleted } from "@/lib/notifications";
 import { logAudit } from "@/lib/audit";
 
 const updateTaskSchema = z.object({
@@ -45,6 +46,20 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
   }
 
   const data = parsed.data;
+
+  const [existing] = await db
+    .select({
+      id: tasks.id,
+      assigneeId: tasks.assigneeId,
+      createdBy: tasks.createdBy,
+      status: tasks.status,
+      title: tasks.title,
+      clientId: tasks.clientId,
+    })
+    .from(tasks)
+    .where(and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)));
+
+  if (!existing) return NextResponse.json({ error: "Oppgave ikke funnet" }, { status: 404 });
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (data.title !== undefined) updates.title = data.title;
@@ -87,6 +102,7 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
 
   if (!updated) return NextResponse.json({ error: "Oppgave ikke funnet" }, { status: 404 });
 
+  // Notify external contact
   if (data.notifyExternal && data.externalContactId) {
     const [contact] = await db
       .select({ name: contacts.name, email: contacts.email })
@@ -108,6 +124,45 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
         clientName: clientName ?? null,
       }).catch((err) => console.error("[tasks/PATCH] Failed to send external email:", err));
     }
+  }
+
+  // Notify assignee if assignment changed
+  const assigneeChanged = data.assigneeId !== undefined && data.assigneeId !== existing.assigneeId;
+  if (assigneeChanged && data.assigneeId && data.assigneeId !== userId) {
+    let clientName: string | undefined;
+    if (updated.clientId) {
+      const [c] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, updated.clientId));
+      clientName = c?.name ?? undefined;
+    }
+    notifyTaskAssigned({
+      tenantId,
+      assigneeId: data.assigneeId,
+      assignedByUserId: userId,
+      taskId,
+      taskTitle: updated.title,
+      taskDescription: updated.description ?? undefined,
+      clientId: updated.clientId,
+      clientName,
+      dueDate: updated.dueDate,
+    }).catch((e) => console.error("[tasks/PATCH] assignment notification failed:", e));
+  }
+
+  // Notify creator if task was completed by someone else
+  if (data.status === "completed" && existing.status !== "completed") {
+    let clientName: string | undefined;
+    if (updated.clientId) {
+      const [c] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, updated.clientId));
+      clientName = c?.name ?? undefined;
+    }
+    notifyTaskCompleted({
+      tenantId,
+      creatorId: existing.createdBy,
+      completedByUserId: userId,
+      taskId,
+      taskTitle: updated.title,
+      clientId: updated.clientId,
+      clientName,
+    }).catch((e) => console.error("[tasks/PATCH] completion notification failed:", e));
   }
 
   await logAudit({ tenantId, userId, action: "task.updated", entityType: "task", entityId: taskId });

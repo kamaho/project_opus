@@ -7,7 +7,7 @@ import {
   knowledgeSnippets,
   knowledgeFaq,
   productGuides,
-  regulatoryDeadlines,
+  deadlineTemplates,
 } from "../src/lib/db/schema";
 
 const connectionString = process.env.DATABASE_MIGRATION_URL ?? process.env.DATABASE_URL;
@@ -512,80 +512,62 @@ const faqs = [
 ];
 
 // ---------------------------------------------------------------------------
-// Regulatory Deadlines
+// Deadline Templates (uses current deadlineTemplates schema)
 // ---------------------------------------------------------------------------
 const deadlines = [
   {
-    obligation: "mva_termin",
-    title: "MVA-skattemelding",
+    name: "MVA-skattemelding",
+    slug: "mva-skattemelding",
     description: "Innlevering av skattemelding for merverdiavgift",
-    frequency: "bimonthly" as const,
-    periodStartMonth: 1,
-    periodEndMonth: 2,
-    deadlineRule: { relative_to: "period_end", months_after: 2, day: 10 },
-    appliesToEntity: ["as", "enk", "ans"],
-    legalReference: "Skatteforvaltningsloven § 8-3",
-    legalUrl: "https://lovdata.no/lov/2016-05-27-14/§8-3",
+    category: "tax" as const,
+    periodicity: "bimonthly" as const,
+    dueDateRule: { type: "relative", relative_to: "period_end", months_after: 2, day: 10 },
+    isSystem: true,
   },
   {
-    obligation: "a_melding",
-    title: "A-melding",
+    name: "A-melding",
+    slug: "a-melding",
     description: "Månedlig rapportering av lønn, arbeidsgiveravgift og skattetrekk",
-    frequency: "monthly" as const,
-    periodStartMonth: 1,
-    periodEndMonth: 1,
-    deadlineRule: { relative_to: "period_end", months_after: 1, day: 5 },
-    appliesToEntity: ["arbeidsgiver"],
-    legalReference: "A-opplysningsloven § 4",
-    legalUrl: "https://lovdata.no/lov/2012-06-22-43/§4",
+    category: "payroll" as const,
+    periodicity: "monthly" as const,
+    dueDateRule: { type: "relative", relative_to: "period_end", months_after: 1, day: 5 },
+    isSystem: true,
   },
   {
-    obligation: "skattemelding_selskap",
-    title: "Skattemelding for selskap",
+    name: "Skattemelding for selskap",
+    slug: "skattemelding-selskap",
     description: "Årlig skattemelding for aksjeselskap og andre næringsdrivende",
-    frequency: "yearly" as const,
-    periodStartMonth: 1,
-    periodEndMonth: 12,
-    deadlineRule: { month: 5, day: 31 },
-    appliesToEntity: ["as"],
-    legalReference: "Skatteforvaltningsloven § 8-2",
-    legalUrl: "https://lovdata.no/lov/2016-05-27-14/§8-2",
+    category: "tax" as const,
+    periodicity: "annual" as const,
+    dueDateRule: { type: "fixed_annual", month: 5, day: 31 },
+    isSystem: true,
   },
   {
-    obligation: "aarsregnskap",
-    title: "Årsregnskap til Brønnøysund",
+    name: "Årsregnskap til Brønnøysund",
+    slug: "aarsregnskap",
     description: "Innsending av årsregnskap til Regnskapsregisteret",
-    frequency: "yearly" as const,
-    periodStartMonth: 1,
-    periodEndMonth: 12,
-    deadlineRule: { month: 7, day: 31 },
-    appliesToEntity: ["regnskapspliktig"],
-    legalReference: "Regnskapsloven § 8-2",
-    legalUrl: "https://lovdata.no/lov/1998-07-17-56/§8-2",
+    category: "annual_accounts" as const,
+    periodicity: "annual" as const,
+    dueDateRule: { type: "fixed_annual", month: 7, day: 31 },
+    isSystem: true,
   },
   {
-    obligation: "forskuddsskatt_selskap",
-    title: "Forskuddsskatt 1. termin",
+    name: "Forskuddsskatt 1. termin",
+    slug: "forskuddsskatt-selskap-t1",
     description: "Forskuddsskatt for aksjeselskaper, 1. termin",
-    frequency: "yearly" as const,
-    periodStartMonth: 1,
-    periodEndMonth: 12,
-    deadlineRule: { month: 2, day: 15 },
-    appliesToEntity: ["as"],
-    legalReference: "Skattebetalingsloven § 10-20",
-    legalUrl: "https://lovdata.no/lov/2005-06-17-67/§10-20",
+    category: "tax" as const,
+    periodicity: "annual" as const,
+    dueDateRule: { type: "fixed_annual", month: 2, day: 15 },
+    isSystem: true,
   },
   {
-    obligation: "forskuddsskatt_selskap_t2",
-    title: "Forskuddsskatt 2. termin",
+    name: "Forskuddsskatt 2. termin",
+    slug: "forskuddsskatt-selskap-t2",
     description: "Forskuddsskatt for aksjeselskaper, 2. termin",
-    frequency: "yearly" as const,
-    periodStartMonth: 1,
-    periodEndMonth: 12,
-    deadlineRule: { month: 4, day: 15 },
-    appliesToEntity: ["as"],
-    legalReference: "Skattebetalingsloven § 10-20",
-    legalUrl: "https://lovdata.no/lov/2005-06-17-67/§10-20",
+    category: "tax" as const,
+    periodicity: "annual" as const,
+    dueDateRule: { type: "fixed_annual", month: 4, day: 15 },
+    isSystem: true,
   },
 ];
 
@@ -619,11 +601,11 @@ async function seed() {
   }
   console.log(`  ✓ ${faqs.length} FAQ entries`);
 
-  console.log("→ Regulatory deadlines...");
+  console.log("→ Deadline templates...");
   for (const d of deadlines) {
-    await db.insert(regulatoryDeadlines).values(d);
+    await db.insert(deadlineTemplates).values(d).onConflictDoNothing();
   }
-  console.log(`  ✓ ${deadlines.length} deadlines`);
+  console.log(`  ✓ ${deadlines.length} deadline templates`);
 
   // Generate embeddings if OPENAI_API_KEY is set
   if (process.env.OPENAI_API_KEY) {

@@ -1,11 +1,12 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { tasks, companies, clients, contacts, calendarEvents, TASK_CATEGORIES } from "@/lib/db/schema";
+import { tasks, companies, clients, contacts, calendarEvents, deadlines, deadlineTemplates, TASK_CATEGORIES } from "@/lib/db/schema";
 import { eq, and, inArray, desc, asc, ilike, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { TaskStatus, TaskPriority } from "@/lib/db/schema";
 import { sendTaskExternalEmail } from "@/lib/resend";
+import { notifyTaskAssigned } from "@/lib/notifications";
 import { logAudit } from "@/lib/audit";
 
 const createTaskSchema = z.object({
@@ -36,10 +37,12 @@ export const GET = withTenant(async (req, { tenantId, userId }) => {
   const priority = url.searchParams.get("priority");
   const category = url.searchParams.get("category");
   const search = url.searchParams.get("search");
+  const deadlineId = url.searchParams.get("deadlineId");
   const sortBy = url.searchParams.get("sortBy") ?? "due_date";
   const sortDir = url.searchParams.get("sortDir") ?? "asc";
 
   const conditions = [eq(tasks.tenantId, tenantId)];
+  if (deadlineId) conditions.push(eq(tasks.linkedDeadlineId, deadlineId));
 
   if (status) {
     const statuses = status.split(",") as TaskStatus[];
@@ -106,11 +109,18 @@ export const GET = withTenant(async (req, { tenantId, userId }) => {
       clientName: clients.name,
       externalContactName: contacts.name,
       externalContactEmail: contacts.email,
+      deadlineName: deadlineTemplates.name,
+      deadlineSlug: deadlineTemplates.slug,
+      deadlineDueDate: deadlines.dueDate,
+      deadlinePeriodLabel: deadlines.periodLabel,
+      deadlineAssigneeId: deadlines.assigneeId,
     })
     .from(tasks)
     .leftJoin(companies, eq(tasks.companyId, companies.id))
     .leftJoin(clients, eq(tasks.clientId, clients.id))
     .leftJoin(contacts, eq(tasks.externalContactId, contacts.id))
+    .leftJoin(deadlines, eq(tasks.linkedDeadlineId, deadlines.id))
+    .leftJoin(deadlineTemplates, eq(deadlines.templateId, deadlineTemplates.id))
     .where(and(...conditions))
     .orderBy(orderFn(orderColumn), desc(tasks.createdAt))
     .limit(500);
@@ -187,6 +197,25 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
         clientName: clientName ?? null,
       }).catch((err) => console.error("[tasks/POST] Failed to send external email:", err));
     }
+  }
+
+  if (data.assigneeId && data.assigneeId !== userId) {
+    let clientName: string | undefined;
+    if (data.clientId) {
+      const [c] = await db.select({ name: clients.name }).from(clients).where(eq(clients.id, data.clientId));
+      clientName = c?.name ?? undefined;
+    }
+    notifyTaskAssigned({
+      tenantId,
+      assigneeId: data.assigneeId,
+      assignedByUserId: userId,
+      taskId: created.id,
+      taskTitle: data.title,
+      taskDescription: data.description,
+      clientId: data.clientId,
+      clientName,
+      dueDate: data.dueDate,
+    }).catch((e) => console.error("[tasks/POST] notification failed:", e));
   }
 
   await logAudit({ tenantId, userId, action: "task.created", entityType: "task", entityId: created.id, metadata: { title: created.title } });

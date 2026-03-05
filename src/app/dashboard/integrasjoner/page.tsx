@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { TripletexConfigDialog } from "@/components/settings/tripletex-config-dialog";
+import { VismaNxtConfigDialog } from "@/components/settings/visma-nxt-config-dialog";
 
 type Category = "all" | "accounting" | "erp" | "bank" | "transfer" | "other";
 
@@ -54,8 +55,8 @@ const INTEGRATIONS: Integration[] = [
   },
   {
     id: "visma-nxt",
-    name: "Visma.net ERP",
-    description: "Skybasert ERP fra Visma. Import av hovedbok, reskontro og banktransaksjoner.",
+    name: "Visma Business NXT",
+    description: "Skybasert ERP fra Visma. Import av hovedbok, reskontro og banktransaksjoner via GraphQL.",
     category: "erp",
     logoElement: <span className="text-lg font-bold text-orange-600">V</span>,
     logoBg: "bg-orange-50 dark:bg-orange-950/40",
@@ -203,6 +204,7 @@ export default function IntegrasjonsPage() {
     new Set(["csv-excel", "camt053"])
   );
   const [tripletexOpen, setTripletexOpen] = useState(false);
+  const [vismaNxtOpen, setVismaNxtOpen] = useState(false);
 
   const filtered = useMemo(() => {
     let list = INTEGRATIONS;
@@ -304,6 +306,7 @@ export default function IntegrasjonsPage() {
                   disabled={integration.comingSoon}
                   onClick={() => {
                     if (integration.id === "tripletex") setTripletexOpen(true);
+                    if (integration.id === "visma-nxt") setVismaNxtOpen(true);
                   }}
                 >
                   <Settings2 className="size-3" />
@@ -330,6 +333,11 @@ export default function IntegrasjonsPage() {
       <TripletexConfigDialog
         open={tripletexOpen}
         onOpenChange={setTripletexOpen}
+      />
+
+      <VismaNxtConfigDialog
+        open={vismaNxtOpen}
+        onOpenChange={setVismaNxtOpen}
       />
     </div>
   );

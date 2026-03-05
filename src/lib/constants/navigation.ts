@@ -3,6 +3,7 @@ import {
   Users,
   CheckSquare,
   Calendar,
+  ClipboardCheck,
   UserCog,
   ShieldCheck,
   CalendarCheck,
@@ -17,6 +18,7 @@ import {
   Plug,
   Sparkles,
   Settings,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -62,6 +64,15 @@ export const NAVIGATION: NavGroup[] = [
         smartInfo: "Klienter — administrer klienter og deres avstemminger.",
       },
       {
+        id: "kontoplan",
+        label: "Kontoplan",
+        icon: ClipboardList,
+        href: "/dashboard/kontoplan",
+        tier: "STARTER",
+        status: "ACTIVE",
+        smartInfo: "Kontoplan — oversikt over kontoer, saldoer og import av klienter fra regnskapssystem.",
+      },
+      {
         id: "controls",
         label: "Kontroller",
         icon: ShieldCheck,
@@ -77,7 +88,7 @@ export const NAVIGATION: NavGroup[] = [
         href: "/dashboard/oppgaver",
         tier: "STARTER",
         status: "ACTIVE",
-        smartInfo: "Oppgaver — kanban-tavle og oppgaveliste med filtrering.",
+        smartInfo: "Oppgaver — din personlige arbeidsliste med alle tildelte oppgaver.",
       },
       {
         id: "calendar",
@@ -87,6 +98,15 @@ export const NAVIGATION: NavGroup[] = [
         tier: "STARTER",
         status: "ACTIVE",
         smartInfo: "Kalender — frist-kalender med lovpålagte og interne frister.",
+      },
+      {
+        id: "frister",
+        label: "Frister",
+        icon: ClipboardCheck,
+        href: "/dashboard/frister",
+        tier: "STARTER",
+        status: "ACTIVE",
+        smartInfo: "Frister — compliance-oversikt med status per frist og selskap.",
       },
       {
         id: "team",
@@ -137,7 +157,7 @@ export const NAVIGATION: NavGroup[] = [
         href: "/dashboard/arsoppgjor",
         tier: "PRO",
         status: "COMING_SOON",
-        badge: "Snart",
+        badge: "Kommer",
         smartInfo: "Årsoppgjør — hele balansen, resultat, skattemelding, noter, revisorforberedelse.",
       },
       {
@@ -147,7 +167,7 @@ export const NAVIGATION: NavGroup[] = [
         href: "/dashboard/skattemelding-naering",
         tier: "PRO",
         status: "COMING_SOON",
-        badge: "Snart",
+        badge: "Kommer",
         smartInfo: "Skattemelding næring — midlertidige/permanente forskjeller, næringsoppgave.",
       },
       {
@@ -157,7 +177,7 @@ export const NAVIGATION: NavGroup[] = [
         href: "/dashboard/aksjonaerregister",
         tier: "PRO",
         status: "COMING_SOON",
-        badge: "Snart",
+        badge: "Kommer",
         smartInfo: "Aksjonærregisteroppgave — aksjekapital, utbytte, kapitalendringer.",
       },
     ],

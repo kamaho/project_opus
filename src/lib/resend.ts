@@ -371,6 +371,117 @@ export async function sendAgentReportEmail(params: {
   });
 }
 
+// ── Document received email (sent to requester when docs are uploaded) ───────
+
+export async function sendDocumentReceivedEmail(params: {
+  toEmail: string;
+  userName: string;
+  contactName: string;
+  fileNames: string[];
+  link: string;
+}) {
+  if (!resend) return;
+
+  const { toEmail, userName, contactName, fileNames, link } = params;
+  const firstName = userName.split(" ")[0] || userName;
+  const fileListHtml = fileNames
+    .map(
+      (f) =>
+        `<div style="font-size:13px;color:${T.fg};padding:4px 0;border-bottom:1px solid ${T.border};">📎 ${f}</div>`
+    )
+    .join("");
+
+  await sendEmail("document-received", {
+    from: FROM_ADDRESS,
+    to: toEmail,
+    subject: `Dokumentasjon mottatt fra ${contactName}`,
+    html: emailLayout(`
+      ${heading("Dokumentasjon mottatt")}
+      ${paragraph(`Hei ${firstName}, <strong>${contactName}</strong> har lastet opp dokumentasjon du ba om.`)}
+      <div style="background:${T.subtle};border-radius:6px;padding:12px 16px;margin:0 0 16px;">
+        <div style="font-size:11px;color:${T.muted};text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Filer (${fileNames.length})</div>
+        ${fileListHtml}
+      </div>
+      ${cta("Se dokumentasjonen", link)}
+    `),
+  });
+}
+
+// ── Task assigned email (sent to internal assignee) ─────────────────────────
+
+export async function sendTaskAssignedEmail(params: {
+  toEmail: string;
+  assigneeName: string;
+  assignedByName: string;
+  taskTitle: string;
+  taskDescription?: string;
+  clientName?: string;
+  dueDate?: string;
+  link: string;
+}) {
+  if (!resend) return;
+
+  const { toEmail, assigneeName, assignedByName, taskTitle, taskDescription, clientName, dueDate, link } = params;
+  const firstName = assigneeName.split(" ")[0] || assigneeName;
+
+  const fmtDate = (iso: string) => {
+    const [y, m, d] = iso.split("-");
+    return `${d}.${m}.${y}`;
+  };
+
+  const details = [
+    clientName ? `<strong>Klient:</strong> ${clientName}` : null,
+    dueDate ? `<strong>Frist:</strong> ${fmtDate(dueDate)}` : null,
+  ].filter(Boolean);
+
+  await sendEmail("task-assigned", {
+    from: FROM_ADDRESS,
+    to: toEmail,
+    subject: `Ny oppgave: ${taskTitle}`,
+    html: emailLayout(`
+      ${heading("Du har fått en oppgave")}
+      ${paragraph(`Hei ${firstName}, <strong>${assignedByName}</strong> har tildelt deg en oppgave.`)}
+      <div style="background:${T.subtle};border-radius:6px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:15px;font-weight:600;color:${T.fg};margin-bottom:8px;">${taskTitle}</div>
+        ${taskDescription ? `<div style="font-size:13px;color:${T.muted};margin-bottom:8px;">${taskDescription}</div>` : ""}
+        ${details.length > 0 ? `<div style="font-size:13px;color:${T.fg};line-height:1.8;">${details.join("<br>")}</div>` : ""}
+      </div>
+      ${cta("Se oppgaven", link)}
+    `),
+  });
+}
+
+// ── Task completed email (sent to creator when task is done) ────────────────
+
+export async function sendTaskCompletedEmail(params: {
+  toEmail: string;
+  creatorName: string;
+  completedByName: string;
+  taskTitle: string;
+  clientName?: string;
+  link: string;
+}) {
+  if (!resend) return;
+
+  const { toEmail, creatorName, completedByName, taskTitle, clientName, link } = params;
+  const firstName = creatorName.split(" ")[0] || creatorName;
+
+  await sendEmail("task-completed", {
+    from: FROM_ADDRESS,
+    to: toEmail,
+    subject: `Oppgave fullført: ${taskTitle}`,
+    html: emailLayout(`
+      ${heading("Oppgave fullført")}
+      ${paragraph(`Hei ${firstName}, <strong>${completedByName}</strong> har fullført oppgaven:`)}
+      <div style="background:${T.subtle};border-radius:6px;padding:16px;margin-bottom:16px;border-left:3px solid ${T.brand};">
+        <div style="font-size:15px;font-weight:600;color:${T.fg};">${taskTitle}</div>
+        ${clientName ? `<div style="font-size:13px;color:${T.muted};margin-top:4px;">Klient: ${clientName}</div>` : ""}
+      </div>
+      ${cta("Se oppgaven", link)}
+    `),
+  });
+}
+
 // ── Task follow-up email to external contact ────────────────────────────────
 
 interface TaskExternalEmailParams {

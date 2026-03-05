@@ -18,6 +18,8 @@ type AdapterFactory = (creds: SystemCredentials) => Promise<AccountingSystemAdap
 const adapterFactories: Record<string, AdapterFactory> = {
   tripletex: (creds) =>
     import("./adapters/tripletex").then((m) => m.createTripletexAdapter(creds)),
+  visma_nxt: (creds) =>
+    import("./adapters/visma-nxt").then((m) => m.createVismaNxtAdapter(creds)),
   demo: (creds) =>
     import("./adapters/demo").then((m) => m.createDemoAdapter(creds)),
 };
@@ -42,9 +44,9 @@ export function getSupportedSystems(): SupportedSystem[] {
     },
     {
       id: "visma_nxt",
-      name: "Visma NXT",
-      status: "coming_soon",
-      description: "Kommer snart",
+      name: "Visma Business NXT",
+      status: "available",
+      description: "GraphQL-integrasjon med MVA, reskontro og hovedbok",
     },
     {
       id: "poweroffice",

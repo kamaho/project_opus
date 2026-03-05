@@ -1,19 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Activity, Upload, Zap, FileText, FileQuestion } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Activity, Upload, Zap, FileText, FileQuestion, ChevronLeft, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ModuleProps } from "../types";
+import { useDashboardData } from "../dashboard-data-provider";
 
-interface ActivityItem {
-  id: string;
-  type: string;
-  title: string;
-  description: string;
-  clientName: string;
-  timestamp: string;
-}
+const PAGE_SIZE = 5;
 
 function formatRelative(iso: string) {
   if (!iso) return "";
@@ -34,40 +28,25 @@ const typeIcons: Record<string, typeof Upload> = {
   report: FileText,
 };
 
-export default function RecentActivity({ tenantId, clientId }: ModuleProps) {
-  const [data, setData] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+export default function RecentActivity() {
+  const { activity: data, loading } = useDashboardData();
+  const [page, setPage] = useState(0);
 
-  useEffect(() => {
-    const url = clientId
-      ? `/api/dashboard/clients/${clientId}/activity`
-      : "/api/dashboard/agency/activity";
-
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then(setData)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [tenantId, clientId]);
+  const totalPages = Math.max(1, Math.ceil(data.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pageItems = data.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
 
   if (loading) {
     return (
       <Card>
-        <CardHeader className="flex flex-row items-center gap-2 pb-3">
-          <Activity className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">Nylig aktivitet</CardTitle>
+        <CardHeader className="flex flex-row items-center gap-2 pb-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm">Nylig aktivitet</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex gap-3">
-                <Skeleton className="h-8 w-8 rounded-full shrink-0" />
-                <div className="space-y-1.5 flex-1">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2" />
-                </div>
-              </div>
+        <CardContent className="pb-3">
+          <div className="space-y-1.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 rounded" />
             ))}
           </div>
         </CardContent>
@@ -75,31 +54,17 @@ export default function RecentActivity({ tenantId, clientId }: ModuleProps) {
     );
   }
 
-  if (error) {
+  if (data.length === 0 && !loading) {
     return (
       <Card>
-        <CardHeader className="flex flex-row items-center gap-2 pb-3">
-          <Activity className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">Nylig aktivitet</CardTitle>
+        <CardHeader className="flex flex-row items-center gap-2 pb-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm">Nylig aktivitet</CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">Kunne ikke laste aktivitet.</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <Card>
-        <CardHeader className="flex flex-row items-center gap-2 pb-3">
-          <Activity className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">Nylig aktivitet</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
-            <FileQuestion className="h-10 w-10" />
-            <p className="text-sm">Ingen aktivitet ennå</p>
+        <CardContent className="pb-3">
+          <div className="flex flex-col items-center gap-1.5 py-4 text-muted-foreground">
+            <FileQuestion className="h-8 w-8" />
+            <p className="text-xs">Ingen aktivitet ennå</p>
           </div>
         </CardContent>
       </Card>
@@ -108,30 +73,61 @@ export default function RecentActivity({ tenantId, clientId }: ModuleProps) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center gap-2 pb-3">
-        <Activity className="h-5 w-5 text-muted-foreground" />
-        <CardTitle className="text-base">Nylig aktivitet</CardTitle>
+      <CardHeader className="flex flex-row items-center gap-2 pb-2">
+        <Activity className="h-4 w-4 text-muted-foreground" />
+        <CardTitle className="text-sm">Nylig aktivitet</CardTitle>
+        {data.length > 0 && (
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            ({data.length})
+          </span>
+        )}
       </CardHeader>
-      <CardContent>
-        <ul className="space-y-4">
-          {data.map((item) => {
+      <CardContent className="pb-3">
+        <ul className="space-y-0.5">
+          {pageItems.map((item) => {
             const Icon = typeIcons[item.type] ?? Activity;
             return (
-              <li key={item.id} className="flex gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted shrink-0">
-                  <Icon className="h-4 w-4 text-muted-foreground" />
+              <li key={item.id} className="flex items-center gap-2 rounded px-1.5 py-1.5 hover:bg-muted/50 transition-colors">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted shrink-0">
+                  <Icon className="h-3 w-3 text-muted-foreground" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{item.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">{item.description}</p>
+                  <p className="text-xs font-medium truncate">{item.title}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{item.description}</p>
                 </div>
-                <span className="text-xs text-muted-foreground shrink-0 pt-0.5">
+                <span className="text-[10px] text-muted-foreground shrink-0">
                   {formatRelative(item.timestamp)}
                 </span>
               </li>
             );
           })}
         </ul>
+
+        {totalPages > 1 && (
+          <div className="mt-2 flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              disabled={safePage === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <span className="text-[10px] tabular-nums text-muted-foreground">
+              {safePage + 1}/{totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              disabled={safePage >= totalPages - 1}
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

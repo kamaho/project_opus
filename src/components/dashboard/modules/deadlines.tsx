@@ -1,352 +1,238 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { useMemo } from "react";
+import { Card } from "@/components/ui/card";
 import {
-  Calendar,
-  CheckCircle2,
-  Clock,
   AlertTriangle,
-  Circle,
-  Loader2,
-  FileQuestion,
-  ChevronDown,
+  CalendarClock,
+  Clock,
+  Users,
+  ListChecks,
+  ChevronRight,
 } from "lucide-react";
-import { NavArrowButton } from "@/components/ui/nav-arrow-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useDashboardData } from "../dashboard-data-provider";
 
-interface TaskSummary {
-  total: number;
-  completed: number;
-  inProgress: number;
-  overdue: number;
-}
+type UrgencyLevel = "critical" | "warning" | "info";
 
-interface DeadlineTask {
+interface AttentionItem {
   id: string;
+  type: "overdue_deadline" | "low_match_client" | "overdue_task" | "upcoming_deadline";
+  urgency: UrgencyLevel;
   title: string;
-  status: string;
-  priority: string;
-  assigneeId: string | null;
-  dueDate: string | null;
-  completedAt: string | null;
+  subtitle: string;
+  href: string;
+  meta?: string;
 }
 
-interface DeadlineStatus {
-  deadlineId: string;
-  title: string;
-  date: string;
-  daysLeft: number;
-  source: "regulatory" | "custom_deadline";
-  status: "completed" | "in_progress" | "overdue" | "not_started" | "no_tasks";
-  taskSummary: TaskSummary;
-  tasks: DeadlineTask[];
-}
-
-const STATUS_CONFIG: Record<
-  string,
-  { label: string; icon: typeof CheckCircle2; color: string; bg: string }
-> = {
-  completed: {
-    label: "Ferdig",
-    icon: CheckCircle2,
-    color: "text-green-600 dark:text-green-400",
-    bg: "bg-green-100 dark:bg-green-950",
+const URGENCY_STYLES: Record<UrgencyLevel, { dot: string; bg: string; text: string }> = {
+  critical: {
+    dot: "bg-red-500",
+    bg: "bg-red-50 dark:bg-red-950/20",
+    text: "text-red-600 dark:text-red-400",
   },
-  in_progress: {
-    label: "Pågår",
-    icon: Loader2,
-    color: "text-blue-600 dark:text-blue-400",
-    bg: "bg-blue-100 dark:bg-blue-950",
+  warning: {
+    dot: "bg-amber-500",
+    bg: "bg-amber-50 dark:bg-amber-950/20",
+    text: "text-amber-600 dark:text-amber-400",
   },
-  overdue: {
-    label: "Forfalt",
-    icon: AlertTriangle,
-    color: "text-red-600 dark:text-red-400",
-    bg: "bg-red-100 dark:bg-red-950",
-  },
-  not_started: {
-    label: "Ikke påbegynt",
-    icon: Circle,
-    color: "text-yellow-600 dark:text-yellow-400",
-    bg: "bg-yellow-100 dark:bg-yellow-950",
-  },
-  no_tasks: {
-    label: "Ingen oppgaver",
-    icon: Circle,
-    color: "text-muted-foreground",
-    bg: "bg-muted",
+  info: {
+    dot: "bg-blue-500",
+    bg: "",
+    text: "text-blue-600 dark:text-blue-400",
   },
 };
 
-const dateFmt = new Intl.DateTimeFormat("nb-NO", {
-  day: "numeric",
-  month: "short",
-});
+const TYPE_ICONS: Record<AttentionItem["type"], React.ElementType> = {
+  overdue_deadline: CalendarClock,
+  low_match_client: Users,
+  overdue_task: ListChecks,
+  upcoming_deadline: Clock,
+};
+
+const TYPE_LABELS: Record<AttentionItem["type"], string> = {
+  overdue_deadline: "Forfalt frist",
+  low_match_client: "Lav match",
+  overdue_task: "Forfalt oppgave",
+  upcoming_deadline: "Kommende frist",
+};
 
 export default function Deadlines() {
-  const [data, setData] = useState<DeadlineStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showPassed, setShowPassed] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { reconciliation, deadlines: deadlineData, tasks: taskData, loading } = useDashboardData();
 
-  useEffect(() => {
-    fetch("/api/dashboard/deadline-status")
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setData)
-      .catch(() => setData([]))
-      .finally(() => setLoading(false));
-  }, []);
+  const items = useMemo<AttentionItem[]>(() => {
+    const result: AttentionItem[] = [];
+    const now = new Date();
 
-  const handleCompleteTask = useCallback(async (taskId: string) => {
-    const res = await fetch(`/api/tasks/${taskId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "completed" }),
-    });
-    if (res.ok) {
-      setData((prev) =>
-        prev.map((d) => {
-          const taskIdx = d.tasks.findIndex((t) => t.id === taskId);
-          if (taskIdx === -1) return d;
-          const updatedTasks = [...d.tasks];
-          updatedTasks[taskIdx] = { ...updatedTasks[taskIdx], status: "completed", completedAt: new Date().toISOString() };
-          const completed = updatedTasks.filter((t) => t.status === "completed").length;
-          const inProgress = updatedTasks.filter((t) => t.status === "in_progress").length;
-          const total = updatedTasks.length;
-          const allDone = completed === total;
-          return {
-            ...d,
-            tasks: updatedTasks,
-            taskSummary: { ...d.taskSummary, completed, inProgress, overdue: d.taskSummary.overdue > 0 && !allDone ? d.taskSummary.overdue : 0 },
-            status: allDone ? "completed" : d.status,
-          };
-        })
-      );
+    for (const d of deadlineData) {
+      if (d.status === "overdue") {
+        result.push({
+          id: `deadline-overdue-${d.deadlineId}-${d.date}`,
+          type: "overdue_deadline",
+          urgency: "critical",
+          title: d.title,
+          subtitle: `${Math.abs(d.daysLeft)} dager over frist`,
+          href: `/dashboard/kalender?date=${d.date}`,
+          meta:
+            d.taskSummary.total > 0
+              ? `${d.taskSummary.completed}/${d.taskSummary.total} oppgaver`
+              : undefined,
+        });
+      }
     }
-  }, []);
 
-  const filtered = showPassed ? data : data.filter((d) => d.daysLeft >= -7);
+    for (const c of reconciliation) {
+      if (c.status !== "no_data" && c.matchPercentage < 90) {
+        result.push({
+          id: `recon-${c.clientId}`,
+          type: "low_match_client",
+          urgency: c.matchPercentage < 50 ? "critical" : "warning",
+          title: c.clientName,
+          subtitle: `${c.matchPercentage}% matchet — ${c.unmatchedCount} poster`,
+          href: `/dashboard/clients/${c.clientId}`,
+          meta: c.companyName,
+        });
+      }
+    }
+
+    for (const t of taskData) {
+      if (t.dueDate && new Date(t.dueDate) < now && t.status !== "completed") {
+        const daysPast = Math.ceil(
+          (now.getTime() - new Date(t.dueDate).getTime()) / 86_400_000
+        );
+        result.push({
+          id: `task-${t.id}`,
+          type: "overdue_task",
+          urgency: daysPast > 7 ? "critical" : "warning",
+          title: t.title,
+          subtitle: `${daysPast} dager forfalt`,
+          href: "/dashboard/oppgaver?tab=all",
+        });
+      }
+    }
+
+    for (const d of deadlineData) {
+      if (d.daysLeft >= 0 && d.daysLeft <= 7 && d.status !== "completed") {
+        result.push({
+          id: `deadline-upcoming-${d.deadlineId}-${d.date}`,
+          type: "upcoming_deadline",
+          urgency: d.daysLeft <= 2 ? "warning" : "info",
+          title: d.title,
+          subtitle:
+            d.daysLeft === 0
+              ? "I dag"
+              : d.daysLeft === 1
+                ? "I morgen"
+                : `Om ${d.daysLeft} dager`,
+          href: `/dashboard/kalender?date=${d.date}`,
+          meta:
+            d.taskSummary.total > 0
+              ? `${d.taskSummary.completed}/${d.taskSummary.total} oppgaver`
+              : undefined,
+        });
+      }
+    }
+
+    const urgencyOrder: Record<UrgencyLevel, number> = { critical: 0, warning: 1, info: 2 };
+    result.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
+
+    return result;
+  }, [reconciliation, deadlineData, taskData]);
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-base">Frister</CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 rounded-lg" />
-            ))}
-          </div>
-        </CardContent>
+      <Card className="h-full p-4">
+        <Skeleton className="h-4 w-32 mb-3" />
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 rounded-md" />
+          ))}
+        </div>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+    <Card className="h-full p-4 flex flex-col">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">Frister</CardTitle>
+          <p className="text-sm font-medium">Krever oppmerksomhet</p>
+          {items.length > 0 && (
+            <span
+              className={cn(
+                "inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-medium tabular-nums leading-none",
+                items.some((i) => i.urgency === "critical")
+                  ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+              )}
+            >
+              {items.length}
+            </span>
+          )}
         </div>
-        <button
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => setShowPassed(!showPassed)}
-        >
-          {showPassed ? "Skjul passerte" : "Vis passerte"}
-        </button>
-      </CardHeader>
-      <CardContent>
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-6 text-muted-foreground">
-            <FileQuestion className="h-10 w-10" />
-            <p className="text-sm">Ingen kommende frister</p>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+        {items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full py-8 text-center">
+            <div className="rounded-full bg-emerald-100 dark:bg-emerald-900/30 p-2 mb-2">
+              <AlertTriangle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+              Alt ser bra ut
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Ingen avvik eller forfalt oppgaver
+            </p>
           </div>
         ) : (
-          <ul className="space-y-1">
-            {filtered.map((d) => {
-              const cfg = STATUS_CONFIG[d.status] ?? STATUS_CONFIG.no_tasks;
-              const StatusIcon = cfg.icon;
-              const isExpanded = expandedId === `${d.deadlineId}-${d.date}`;
-              const uniqueKey = `${d.deadlineId}-${d.date}`;
+          <div className="space-y-0.5">
+            {items.map((item) => {
+              const Icon = TYPE_ICONS[item.type];
+              const styles = URGENCY_STYLES[item.urgency];
 
               return (
-                <li key={uniqueKey}>
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : uniqueKey)}
-                    className="w-full flex items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/50 transition-colors text-left"
-                  >
-                    <Calendar
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        d.daysLeft < 0
-                          ? "text-muted-foreground"
-                          : d.daysLeft < 7
-                            ? "text-red-600"
-                            : d.daysLeft < 30
-                              ? "text-yellow-600"
-                              : "text-muted-foreground"
-                      )}
-                    />
-
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm truncate block">{d.title}</span>
-                      {d.taskSummary.total > 0 && (
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden max-w-[100px]">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all",
-                                d.status === "completed"
-                                  ? "bg-green-500"
-                                  : d.status === "overdue"
-                                    ? "bg-red-500"
-                                    : "bg-blue-500"
-                              )}
-                              style={{
-                                width: `${(d.taskSummary.completed / d.taskSummary.total) * 100}%`,
-                              }}
-                            />
-                          </div>
-                          <span className="text-[10px] text-muted-foreground tabular-nums">
-                            {d.taskSummary.completed}/{d.taskSummary.total}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <span
-                      className={cn(
-                        "shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full",
-                        cfg.bg,
-                        cfg.color
-                      )}
-                    >
-                      <StatusIcon className="h-3 w-3" />
-                      {cfg.label}
-                    </span>
-
-                    <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
-                      {dateFmt.format(new Date(d.date + "T00:00:00"))}
-                    </span>
-
-                    <span
-                      className={cn(
-                        "text-[11px] px-2 py-0.5 rounded-full tabular-nums whitespace-nowrap shrink-0",
-                        d.daysLeft < 0
-                          ? "bg-muted text-muted-foreground"
-                          : d.daysLeft <= 3
-                            ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
-                            : d.daysLeft <= 7
-                              ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-400"
-                              : "bg-muted text-muted-foreground"
-                      )}
-                    >
-                      {d.daysLeft < 0 ? (
-                        <span className="flex items-center gap-0.5">
-                          <Clock className="h-3 w-3" />
-                          {Math.abs(d.daysLeft)}d siden
-                        </span>
-                      ) : d.daysLeft === 0 ? (
-                        "I dag"
-                      ) : (
-                        `${d.daysLeft}d`
-                      )}
-                    </span>
-
-                    <ChevronDown
-                      className={cn(
-                        "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
-                        isExpanded && "rotate-180"
-                      )}
-                    />
-                  </button>
-
-                  {isExpanded && (
-                    <div className="ml-6 mb-2 mt-1 space-y-1">
-                      {d.tasks.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground py-1 px-2">
-                          Ingen oppgaver koblet til denne fristen.
-                        </p>
-                      ) : (
-                        d.tasks.map((t) => {
-                          const isDone = t.status === "completed";
-                          return (
-                            <div
-                              key={t.id}
-                              className={cn(
-                                "flex items-center gap-2 rounded px-2 py-1.5 text-[11px]",
-                                isDone ? "bg-green-500/5" : "bg-muted/30"
-                              )}
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (!isDone) handleCompleteTask(t.id);
-                                }}
-                                disabled={isDone}
-                                className={cn(
-                                  "shrink-0 transition-colors",
-                                  isDone
-                                    ? "text-green-500"
-                                    : "text-muted-foreground hover:text-green-500"
-                                )}
-                              >
-                                {isDone ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5" />
-                                ) : (
-                                  <Circle className="h-3.5 w-3.5" />
-                                )}
-                              </button>
-                              <span
-                                className={cn(
-                                  "flex-1 truncate",
-                                  isDone && "line-through text-muted-foreground"
-                                )}
-                              >
-                                {t.title}
-                              </span>
-                              <span
-                                className={cn(
-                                  "shrink-0 size-1.5 rounded-full",
-                                  t.priority === "critical"
-                                    ? "bg-red-500"
-                                    : t.priority === "high"
-                                      ? "bg-orange-500"
-                                      : t.priority === "medium"
-                                        ? "bg-blue-500"
-                                        : "bg-muted-foreground/40"
-                                )}
-                              />
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  prefetch={false}
+                  className={cn(
+                    "group flex items-center gap-2.5 rounded-md px-2 py-2 transition-colors",
+                    styles.bg || "hover:bg-muted/50"
                   )}
-                </li>
+                >
+                  <span className={cn("shrink-0 size-1.5 rounded-full", styles.dot)} />
+
+                  <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium truncate">{item.title}</span>
+                      {item.meta && (
+                        <span className="text-[10px] text-muted-foreground truncate hidden sm:inline">
+                          {item.meta}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-px">
+                      <span className={cn("text-[10px]", styles.text)}>
+                        {TYPE_LABELS[item.type]}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {item.subtitle}
+                      </span>
+                    </div>
+                  </div>
+
+                  <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </Link>
               );
             })}
-          </ul>
+          </div>
         )}
-        <div className="mt-3 flex items-center justify-center">
-          <Link
-            href="/dashboard/kalender"
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Vis kalender
-            <NavArrowButton className="scale-75" />
-          </Link>
-        </div>
-      </CardContent>
+      </div>
     </Card>
   );
 }

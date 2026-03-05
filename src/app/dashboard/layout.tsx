@@ -9,21 +9,40 @@ import { TutorialModeProvider } from "@/contexts/tutorial-mode-context";
 import { TutorialOverlayGate } from "@/components/tutorial/tutorial-overlay-gate";
 import { hasCompletedOnboarding } from "@/lib/ai/onboarding";
 import { MobileLayoutSwitch } from "@/components/mobile/mobile-layout-switch";
+import { getTenantPlan, PLAN_LIMITS, type PlanTier } from "@/lib/plans";
+import { db } from "@/lib/db";
+import { clients, companies } from "@/lib/db/schema";
+import { eq, count } from "drizzle-orm";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { userId } = await auth();
-  if (userId) {
-    try {
-      const completed = await hasCompletedOnboarding(userId);
-      if (!completed) redirect("/onboarding");
-    } catch {
-      // DB unavailable; show dashboard anyway instead of redirect-looping to onboarding
-    }
-  }
+  const { userId, orgId } = await auth();
+
+  const [onboardingDone, plan, clientCountResult] = await Promise.all([
+    userId
+      ? hasCompletedOnboarding(userId).catch(() => true)
+      : Promise.resolve(true),
+    orgId
+      ? getTenantPlan(orgId).catch(() => "starter" as PlanTier)
+      : Promise.resolve("starter" as PlanTier),
+    orgId
+      ? db
+          .select({ value: count() })
+          .from(clients)
+          .innerJoin(companies, eq(clients.companyId, companies.id))
+          .where(eq(companies.tenantId, orgId))
+          .then((rows) => rows[0]?.value ?? 0)
+          .catch(() => 0)
+      : Promise.resolve(0),
+  ]);
+
+  if (userId && !onboardingDone) redirect("/onboarding");
+
+  const limits = PLAN_LIMITS[plan];
+
   return (
     <UiPreferencesProvider>
       <TutorialModeProvider>
@@ -32,7 +51,11 @@ export default async function DashboardLayout({
             <MobileLayoutSwitch
               desktopShell={
                 <SidebarProvider>
-                  <AppSidebar />
+                  <AppSidebar
+                    plan={plan}
+                    clientCount={clientCountResult}
+                    clientLimit={limits.maxClients === Infinity ? null : limits.maxClients}
+                  />
                   <SidebarInset>
                     <Header />
                     <div className="flex flex-1 flex-col min-h-0 min-w-0 p-2 md:p-4">{children}</div>

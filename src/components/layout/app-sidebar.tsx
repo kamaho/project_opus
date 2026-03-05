@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Lock, Settings } from "lucide-react";
 import {
   Sidebar,
@@ -35,18 +35,36 @@ import {
   type NavItemTier,
 } from "@/lib/constants/navigation";
 
-const CURRENT_TIER: NavItemTier = "STARTER";
+interface AppSidebarProps {
+  plan?: "starter" | "pro" | "enterprise";
+  clientCount?: number;
+  clientLimit?: number | null;
+}
+
+function toNavTier(plan: string): NavItemTier {
+  if (plan === "pro") return "PRO";
+  if (plan === "enterprise") return "ENTERPRISE";
+  return "STARTER";
+}
 
 function isActivePath(href: string, pathname: string) {
   if (href === "/dashboard") return pathname === "/dashboard";
   return pathname.startsWith(href);
 }
 
-export function AppSidebar() {
+export function AppSidebar({ plan = "starter", clientCount = 0, clientLimit }: AppSidebarProps) {
+  const CURRENT_TIER = toNavTier(plan);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeFeature, setUpgradeFeature] = useState("");
   const [upgradeTier, setUpgradeTier] = useState<NavItemTier>("PRO");
+
+  const companyIdParam = searchParams.get("companyId");
+  const companyQuery = useMemo(
+    () => (companyIdParam ? `?companyId=${encodeURIComponent(companyIdParam)}` : ""),
+    [companyIdParam]
+  );
 
   const openUpgrade = useCallback((feature: string, tier: NavItemTier) => {
     setUpgradeFeature(feature);
@@ -85,13 +103,13 @@ export function AppSidebar() {
             tooltip={item.label}
             className="opacity-60"
           >
-            <Link href={item.href} data-smart-info={item.smartInfo}>
+            <Link href={`${item.href}${companyQuery}`} data-smart-info={item.smartInfo}>
               <item.icon />
               <span>{item.label}</span>
             </Link>
           </SidebarMenuButton>
           <SidebarMenuBadge className="text-[10px] font-medium text-blue-500 dark:text-blue-400">
-            Snart
+            Kommer
           </SidebarMenuBadge>
         </SidebarMenuItem>
       );
@@ -104,7 +122,7 @@ export function AppSidebar() {
           isActive={active}
           tooltip={item.label}
         >
-          <Link href={item.href} data-smart-info={item.smartInfo}>
+          <Link href={`${item.href}${companyQuery}`} data-smart-info={item.smartInfo}>
             <item.icon />
             <span>{item.label}</span>
           </Link>
@@ -148,7 +166,7 @@ export function AppSidebar() {
                     isActive={isActivePath(SETTINGS_ITEM.href, pathname)}
                     tooltip={SETTINGS_ITEM.label}
                   >
-                    <Link href={SETTINGS_ITEM.href} data-smart-info={SETTINGS_ITEM.smartInfo}>
+                    <Link href={`${SETTINGS_ITEM.href}${companyQuery}`} data-smart-info={SETTINGS_ITEM.smartInfo}>
                       <Settings />
                       <span>{SETTINGS_ITEM.label}</span>
                     </Link>
@@ -162,8 +180,8 @@ export function AppSidebar() {
         <SidebarFooter className="border-t border-sidebar-border p-3">
           <PlanBadge
             tier={CURRENT_TIER}
-            clientCount={3}
-            clientLimit={CURRENT_TIER === "STARTER" ? 10 : null}
+            clientCount={clientCount}
+            clientLimit={clientLimit ?? null}
           />
         </SidebarFooter>
       </Sidebar>

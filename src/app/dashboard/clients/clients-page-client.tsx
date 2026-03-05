@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,20 +22,24 @@ import {
 import { ComparisonOverlay } from "@/components/clients/comparison-overlay";
 import { ClientGroupDialog, type ClientOption } from "@/components/clients/client-group-dialog";
 import { GroupAutoMatchDialog } from "@/components/clients/group-auto-match-dialog";
-import { CompanyAccountsView, type AccountSyncRow } from "./company-accounts-view";
 
 interface ClientsPageClientProps {
   rows: AccountRow[];
   groups: ClientGroup[];
-  accountSyncRows?: AccountSyncRow[];
-  companyId?: string | null;
 }
 
-export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: ClientsPageClientProps) {
+export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
   const router = useRouter();
-  const hasAccountSync = (accountSyncRows?.length ?? 0) > 0;
-  const isFirstTime = rows.length === 0 && hasAccountSync;
-  const [tab, setTab] = useState<"klienter" | "grupper" | "kontoplan">(isFirstTime ? "kontoplan" : "klienter");
+  const searchParams = useSearchParams();
+  const filterParam = searchParams.get("filter");
+
+  const filteredRows = useMemo(() => {
+    if (filterParam === "unmatched") return rows.filter((r) => r.openItems > 0);
+    if (filterParam === "reconciled") return rows.filter((r) => r.openItems === 0);
+    return rows;
+  }, [rows, filterParam]);
+
+  const [tab, setTab] = useState<"klienter" | "grupper">("klienter");
   const [initialActiveGroupId, setInitialActiveGroupId] = useState<string | null>(null);
   /** When set, Grupper tab shows this group's table instead of the card grid */
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -212,7 +216,7 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
       <Tabs
         value={tab}
         onValueChange={(v) => {
-          setTab(v as "klienter" | "grupper" | "kontoplan");
+          setTab(v as "klienter" | "grupper");
           if (v === "klienter") setInitialActiveGroupId(null);
           if (v !== "grupper") setSelectedGroupId(null);
         }}
@@ -220,12 +224,29 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
         <TabsList className="w-fit">
           <TabsTrigger value="klienter">Klient avstemming</TabsTrigger>
           <TabsTrigger value="grupper">Grupper</TabsTrigger>
-          {hasAccountSync && <TabsTrigger value="kontoplan">Kontoplan</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="klienter" className="mt-4">
+          {filterParam && (
+            <div className="flex items-center gap-2 mb-3 text-sm">
+              <span className="text-muted-foreground">
+                Filtrert:{" "}
+                <span className="font-medium text-foreground">
+                  {filterParam === "unmatched" ? "Klienter med åpne poster" : "Avstemte klienter"}
+                </span>
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => router.push("/dashboard/clients")}
+              >
+                Vis alle
+              </Button>
+            </div>
+          )}
           <AccountsTable
-            rows={rows}
+            rows={filteredRows}
             groups={groups}
             initialActiveGroupId={initialActiveGroupId}
             onInitialGroupConsumed={() => setInitialActiveGroupId(null)}
@@ -237,7 +258,8 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
             toolbarAppend={newClientToolbarButton}
           />
           <p className="text-muted-foreground text-sm mt-3">
-            {rows.length} {rows.length === 1 ? "klient" : "klienter"} totalt
+            {filteredRows.length} {filteredRows.length === 1 ? "klient" : "klienter"}
+            {filterParam ? ` (${rows.length} totalt)` : " totalt"}
           </p>
         </TabsContent>
 
@@ -282,15 +304,6 @@ export function ClientsPageClient({ rows, groups, accountSyncRows, companyId }: 
           )}
         </TabsContent>
 
-        {hasAccountSync && companyId && (
-          <TabsContent value="kontoplan" className="mt-4">
-            <CompanyAccountsView
-              accounts={accountSyncRows!}
-              companyId={companyId}
-              showWelcome={isFirstTime}
-            />
-          </TabsContent>
-        )}
       </Tabs>
 
       {/* All dialogs rendered outside Tabs to avoid removeChild crash */}

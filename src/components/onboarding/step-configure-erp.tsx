@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
+  Check,
 } from "lucide-react";
 
 interface TxCompany {
@@ -26,9 +27,11 @@ interface TxCompany {
 }
 
 export interface ERPSetupResult {
-  companyId: string;
-  companyName: string;
-  tripletexCompanyId: number;
+  companies: Array<{
+    companyId: string;
+    companyName: string;
+    tripletexCompanyId: number;
+  }>;
 }
 
 interface StepConfigureERPProps {
@@ -51,10 +54,17 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
 
   const [txCompanies, setTxCompanies] = useState<TxCompany[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const [creating, setCreating] = useState(false);
-  const [createProgress, setCreateProgress] = useState<string | null>(null);
+  const [createProgress, setCreateProgress] = useState<{
+    current: number;
+    total: number;
+    name: string;
+  } | null>(null);
+  const [completedCompanies, setCompletedCompanies] = useState<
+    ERPSetupResult["companies"]
+  >([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,7 +127,11 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
       const res = await fetch("/api/tripletex/companies");
       if (!res.ok) throw new Error("Kunne ikke hente selskaper fra Tripletex.");
       const data = await res.json();
-      setTxCompanies(data.companies ?? []);
+      const companies: TxCompany[] = data.companies ?? [];
+      setTxCompanies(companies);
+      if (companies.length === 1) {
+        setSelectedIds(new Set([companies[0].id]));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Feil ved henting av selskaper");
     } finally {
@@ -125,66 +139,101 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
     }
   }
 
-  const handleCompanySelect = useCallback(async (companyIdStr: string) => {
-    setSelectedCompanyId(companyIdStr);
+  function toggleCompany(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    if (selectedIds.size === txCompanies.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(txCompanies.map((c) => c.id)));
+    }
+  }
+
+  const handleImportSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
     setError(null);
     setCreating(true);
     setPhase("creating");
-    setCreateProgress("Oppretter selskap...");
 
-    const txCompanyId = Number(companyIdStr);
-    const txCompany = txCompanies.find((c) => c.id === txCompanyId);
+    const toImport = txCompanies.filter((c) => selectedIds.has(c.id));
+    const results: ERPSetupResult["companies"] = [];
 
-    try {
-      const companyRes = await fetch("/api/companies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: txCompany?.name ?? "Selskap",
-          orgNumber: txCompany?.orgNumber ?? undefined,
-          type: "company",
-          tripletexCompanyId: txCompanyId,
-        }),
-        credentials: "include",
+    for (let i = 0; i < toImport.length; i++) {
+      const txCompany = toImport[i];
+      setCreateProgress({
+        current: i + 1,
+        total: toImport.length,
+        name: txCompany.name,
       });
-      const companyBody = await companyRes.json().catch(() => ({}));
-      if (!companyRes.ok) {
-        const msg = (companyBody as { error?: string }).error || "Kunne ikke opprette selskap";
-        throw new Error(msg);
-      }
-      const company = companyBody as { id: string; name: string };
 
-      setCreateProgress("Synkroniserer kontoliste og saldoer...");
+      try {
+        const companyRes = await fetch("/api/companies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: txCompany.name,
+            orgNumber: txCompany.orgNumber ?? undefined,
+            type: "company",
+            tripletexCompanyId: txCompany.id,
+          }),
+          credentials: "include",
+        });
+        const companyBody = await companyRes.json().catch(() => ({}));
+        if (!companyRes.ok) {
+          const msg =
+            (companyBody as { error?: string }).error ||
+            "Kunne ikke opprette selskap";
+          console.warn(
+            `[onboarding] Failed to create company ${txCompany.name}: ${msg}`
+          );
+          continue;
+        }
+        const company = companyBody as { id: string; name: string };
 
-      // Trigger Level 1 sync (accounts + balances)
-      const syncRes = await fetch("/api/tripletex/sync-balances", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        // Trigger sync in background — don't block the flow
+        fetch("/api/tripletex/sync-balances", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId: company.id,
+            tripletexCompanyId: txCompany.id,
+          }),
+        }).catch(() => {});
+
+        results.push({
           companyId: company.id,
-          tripletexCompanyId: txCompanyId,
-        }),
-      });
-
-      if (!syncRes.ok) {
-        console.warn("[onboarding] sync-balances returned non-ok, continuing anyway");
+          companyName: company.name,
+          tripletexCompanyId: txCompany.id,
+        });
+      } catch (e) {
+        console.warn(
+          `[onboarding] Error importing ${txCompany.name}:`,
+          e instanceof Error ? e.message : e
+        );
       }
-
-      setCreateProgress(null);
-      setCreating(false);
-
-      onComplete({
-        companyId: company.id,
-        companyName: company.name,
-        tripletexCompanyId: txCompanyId,
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Noe gikk galt under opprettelsen. Prøv igjen.");
-      setPhase("select-company");
-      setCreateProgress(null);
-      setCreating(false);
     }
-  }, [txCompanies, onComplete]);
+
+    setCompletedCompanies(results);
+    setCreateProgress(null);
+    setCreating(false);
+
+    if (results.length === 0) {
+      setError("Ingen selskaper ble opprettet. Prøv igjen.");
+      setPhase("select-company");
+      return;
+    }
+  }, [selectedIds, txCompanies]);
+
+  function handleFinishSetup() {
+    onComplete({ companies: completedCompanies });
+  }
 
   return (
     <div className="space-y-6">
@@ -192,14 +241,18 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
         <h2 className="text-2xl font-semibold tracking-tight">
           {phase === "credentials" && "Koble til Tripletex"}
           {phase === "verifying" && "Verifiserer tilkobling"}
-          {phase === "select-company" && "Velg selskap"}
-          {phase === "creating" && "Setter opp tilkobling"}
+          {phase === "select-company" && "Velg selskaper"}
+          {phase === "creating" && "Importerer selskaper"}
         </h2>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          {phase === "credentials" && "Oppgi API-nøklene fra din Tripletex-konto for å koble til."}
-          {phase === "verifying" && "Tester tilkoblingen mot Tripletex..."}
-          {phase === "select-company" && "Velg selskapet du vil koble til Revizo."}
-          {phase === "creating" && "Henter kontoliste og saldoer fra Tripletex..."}
+          {phase === "credentials" &&
+            "Oppgi API-nøklene fra din Tripletex-konto for å koble til."}
+          {phase === "verifying" &&
+            "Tester tilkoblingen mot Tripletex..."}
+          {phase === "select-company" &&
+            "Velg selskapene du vil importere til Revizo. Du kan legge til flere senere."}
+          {phase === "creating" &&
+            "Oppretter selskaper og synkroniserer data fra Tripletex..."}
         </p>
       </div>
 
@@ -230,7 +283,11 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   tabIndex={-1}
                 >
-                  {showConsumer ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showConsumer ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -252,7 +309,11 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   tabIndex={-1}
                 >
-                  {showEmployee ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showEmployee ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -286,7 +347,10 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
               checked={isTest}
               onCheckedChange={(v) => setIsTest(v === true)}
             />
-            <Label htmlFor="is-test" className="text-sm text-muted-foreground cursor-pointer">
+            <Label
+              htmlFor="is-test"
+              className="text-sm text-muted-foreground cursor-pointer"
+            >
               Bruk test-miljø (api-test.tripletex.tech)
             </Label>
           </div>
@@ -309,80 +373,173 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
       {phase === "verifying" && (
         <div className="flex flex-col items-center gap-4 py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Verifiserer API-nøkler og oppretter tilkobling...</p>
+          <p className="text-sm text-muted-foreground">
+            Verifiserer API-nøkler og oppretter tilkobling...
+          </p>
         </div>
       )}
 
-      {/* Company selection phase */}
+      {/* Company selection phase — multi-select */}
       {phase === "select-company" && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {loadingCompanies ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : txCompanies.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-sm text-muted-foreground">Ingen selskaper funnet i Tripletex.</p>
+              <p className="text-sm text-muted-foreground">
+                Ingen selskaper funnet i Tripletex.
+              </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {txCompanies.map((company) => (
-                <button
-                  key={company.id}
-                  type="button"
-                  onClick={() => handleCompanySelect(company.id.toString())}
-                  disabled={creating}
-                  className={cn(
-                    "group flex w-full items-center gap-3 rounded-lg border p-4 text-left transition-all",
-                    "hover:border-foreground/30 hover:bg-foreground/[0.02]",
-                    selectedCompanyId === company.id.toString() && "border-foreground bg-foreground/[0.03]"
-                  )}
+            <>
+              {txCompanies.length > 1 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">
+                    {selectedIds.size} av {txCompanies.length} valgt
+                  </span>
+                  <button
+                    onClick={selectAll}
+                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {selectedIds.size === txCompanies.length
+                      ? "Fjern alle"
+                      : "Velg alle"}
+                  </button>
+                </div>
+              )}
+
+              <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                {txCompanies.map((company) => {
+                  const selected = selectedIds.has(company.id);
+                  return (
+                    <button
+                      key={company.id}
+                      type="button"
+                      onClick={() => toggleCompany(company.id)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-lg border p-4 text-left transition-all",
+                        selected
+                          ? "border-foreground bg-foreground/[0.03]"
+                          : "border-border hover:border-foreground/20"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-all",
+                          selected
+                            ? "border-foreground bg-foreground"
+                            : "border-border"
+                        )}
+                      >
+                        {selected && (
+                          <Check className="h-3 w-3 text-background" />
+                        )}
+                      </div>
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/40">
+                        <Building2 className="h-5 w-5 text-emerald-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {company.name}
+                        </p>
+                        {company.orgNumber && (
+                          <p className="text-xs text-muted-foreground">
+                            Org.nr: {company.orgNumber}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex justify-center pt-2">
+                <Button
+                  size="lg"
+                  onClick={handleImportSelected}
+                  disabled={selectedIds.size === 0}
+                  className="gap-2"
                 >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/40">
-                    <Building2 className="h-5 w-5 text-emerald-600" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{company.name}</p>
-                    {company.orgNumber && (
-                      <p className="text-xs text-muted-foreground">Org.nr: {company.orgNumber}</p>
-                    )}
-                  </div>
-                  {creating && selectedCompanyId === company.id.toString() ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  ) : (
-                    <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  )}
-                </button>
-              ))}
-            </div>
+                  Importer{" "}
+                  {selectedIds.size > 0
+                    ? `${selectedIds.size} selskap${selectedIds.size > 1 ? "er" : ""}`
+                    : "valgte selskaper"}
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </>
           )}
         </div>
       )}
 
-      {/* Creating phase */}
+      {/* Creating phase — progress */}
       {phase === "creating" && (
         <div className="flex flex-col items-center gap-4 py-12">
           {creating ? (
             <>
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <div className="space-y-1 text-center">
-                <p className="text-sm font-medium">Kobler til Tripletex...</p>
+              <div className="space-y-2 text-center">
+                <p className="text-sm font-medium">
+                  Importerer selskaper...
+                </p>
                 {createProgress && (
-                  <p className="text-xs text-muted-foreground">{createProgress}</p>
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      {createProgress.current} av {createProgress.total} —{" "}
+                      {createProgress.name}
+                    </p>
+                    <div className="w-48 mx-auto h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-foreground rounded-full transition-all duration-500"
+                        style={{
+                          width: `${(createProgress.current / createProgress.total) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </>
                 )}
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/30">
                 <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium">Tilkobling opprettet</p>
-              <p className="text-xs text-muted-foreground text-center max-w-sm">
-                Kontoliste og saldoer synkroniseres i bakgrunnen.
-                Du kan begynne å jobbe med en gang — aktiver kontoer
-                for avstemming fra dashbordet.
-              </p>
+              <div className="space-y-1 text-center">
+                <p className="text-sm font-medium">
+                  {completedCompanies.length} selskap
+                  {completedCompanies.length > 1 ? "er" : ""} importert
+                </p>
+                <p className="text-xs text-muted-foreground max-w-sm">
+                  Kontolister og saldoer synkroniseres i bakgrunnen. Du kan
+                  begynne å jobbe med en gang.
+                </p>
+              </div>
+
+              {completedCompanies.length > 0 && (
+                <div className="w-full max-w-sm space-y-1.5">
+                  {completedCompanies.map((c) => (
+                    <div
+                      key={c.companyId}
+                      className="flex items-center gap-2 rounded-md border px-3 py-2"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                      <span className="text-sm truncate">{c.companyName}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button
+                size="lg"
+                onClick={handleFinishSetup}
+                className="gap-2 mt-2"
+              >
+                Fortsett
+                <ArrowRight className="h-4 w-4" />
+              </Button>
             </div>
           )}
         </div>
@@ -395,7 +552,9 @@ export function StepConfigureERP({ erpId, onComplete }: StepConfigureERPProps) {
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <div className="space-y-1">
               <p>{error}</p>
-              {(/tilgang|permission|organisation|organization|403/i.test(error)) && (
+              {/tilgang|permission|organisation|organization|403/i.test(
+                error
+              ) && (
                 <p className="text-foreground/70">
                   Velg riktig organisasjon i headeren og prøv igjen.
                 </p>

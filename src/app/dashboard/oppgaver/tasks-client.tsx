@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useUser, useOrganization } from "@clerk/nextjs";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { useMembersMap, initials } from "@/hooks/use-members-map";
+import type { OrgMember } from "@/hooks/use-members-map";
 import {
   CheckSquare,
   Plus,
@@ -18,7 +21,9 @@ import {
   XCircle,
   Mail,
   UserCheck,
+  ClipboardCheck,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,6 +76,12 @@ interface TaskRow {
   clientName: string | null;
   externalContactName?: string | null;
   externalContactEmail?: string | null;
+  linkedDeadlineId?: string | null;
+  deadlineName?: string | null;
+  deadlineSlug?: string | null;
+  deadlineDueDate?: string | null;
+  deadlinePeriodLabel?: string | null;
+  deadlineAssigneeId?: string | null;
 }
 
 interface TaskStats {
@@ -93,12 +104,6 @@ interface ClientOption {
   companyName: string;
 }
 
-interface OrgMember {
-  id: string;
-  name: string;
-  imageUrl?: string;
-}
-
 const STATUS_CONFIG: Record<string, { label: string; icon: typeof Circle; className: string }> = {
   open: { label: "Åpen", icon: Circle, className: "text-blue-500" },
   in_progress: { label: "Pågår", icon: Timer, className: "text-amber-500" },
@@ -114,10 +119,6 @@ const PRIORITY_CONFIG: Record<string, { label: string; className: string }> = {
   low: { label: "Lav", className: "bg-muted text-muted-foreground border-border" },
 };
 
-function initials(name: string) {
-  return name.split(" ").map((p) => p[0]).join("").toUpperCase().slice(0, 2);
-}
-
 export function TasksClient({
   companies,
   clients: clientOptions,
@@ -129,11 +130,19 @@ export function TasksClient({
 }) {
   const { fmtDate } = useFormatting();
   const { user } = useUser();
-  const { memberships } = useOrganization({ memberships: { pageSize: 50 } });
+  const { membersMap: memberMap } = useMembersMap();
+  const searchParams = useSearchParams();
+  const initialTab = useMemo(() => {
+    if (searchParams.get("deadlineId")) return "all";
+    const t = searchParams.get("tab");
+    if (t === "all" || t === "mine" || t === "unassigned") return t;
+    return "mine";
+  }, [searchParams]);
+  const deadlineIdFilter = searchParams.get("deadlineId");
 
   const [taskList, setTaskList] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [worklistTab, setWorklistTab] = useState<string>("mine");
+  const [worklistTab, setWorklistTab] = useState<string>(initialTab);
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
@@ -144,17 +153,6 @@ export function TasksClient({
   const [editingTask, setEditingTask] = useState<TaskRow | null>(null);
   const [viewingTask, setViewingTask] = useState<TaskRow | null>(null);
   const [stats, setStats] = useState(initialStats);
-
-  const members: OrgMember[] = (memberships?.data ?? []).map((m) => {
-    const pub = m.publicUserData;
-    return {
-      id: pub?.userId ?? "",
-      name: [pub?.firstName, pub?.lastName].filter(Boolean).join(" ") || "Ukjent",
-      imageUrl: pub?.imageUrl ?? undefined,
-    };
-  });
-
-  const memberMap = new Map(members.map((m) => [m.id, m]));
 
   const fetchTasks = useCallback(async () => {
     const params = new URLSearchParams();
@@ -172,6 +170,7 @@ export function TasksClient({
     }
     if (priorityFilter !== "all") params.set("priority", priorityFilter);
     if (companyFilter !== "all") params.set("companyId", companyFilter);
+    if (deadlineIdFilter) params.set("deadlineId", deadlineIdFilter);
     if (searchQuery) params.set("search", searchQuery);
     params.set("sortBy", sortBy);
     params.set("sortDir", sortDir);
@@ -182,7 +181,7 @@ export function TasksClient({
       setTaskList(data);
     }
     setLoading(false);
-  }, [worklistTab, statusFilter, priorityFilter, companyFilter, searchQuery, sortBy, sortDir]);
+  }, [worklistTab, statusFilter, priorityFilter, companyFilter, deadlineIdFilter, searchQuery, sortBy, sortDir]);
 
   useEffect(() => {
     fetchTasks();
@@ -277,7 +276,7 @@ export function TasksClient({
     return <span className="text-muted-foreground">—</span>;
   };
 
-  const colSpan = 8;
+  const colSpan = 9;
 
   return (
     <div className="space-y-6">
@@ -416,6 +415,7 @@ export function TasksClient({
                   </button>
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-32">Selskap</th>
+                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-36">Koblet frist</th>
                 <th className="px-3 py-2.5 text-left font-medium text-muted-foreground w-28">
                   <button onClick={() => toggleSort("due_date")} className="flex items-center gap-1 hover:text-foreground transition-colors">
                     Frist
@@ -530,6 +530,37 @@ export function TasksClient({
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground text-xs truncate max-w-[130px]">
                         {task.companyName ?? "—"}
+                      </td>
+                      <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        {task.linkedDeadlineId && task.deadlineName ? (
+                          <Link
+                            href={`/dashboard/frister/${task.linkedDeadlineId}`}
+                            className="group/dl flex items-center gap-1.5 max-w-[160px]"
+                          >
+                            {task.deadlineAssigneeId && memberMap.has(task.deadlineAssigneeId) && (
+                              <Avatar className="size-4 shrink-0">
+                                <AvatarImage src={memberMap.get(task.deadlineAssigneeId)!.imageUrl} />
+                                <AvatarFallback className="text-[8px]">{initials(memberMap.get(task.deadlineAssigneeId)!.name)}</AvatarFallback>
+                              </Avatar>
+                            )}
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="flex items-center gap-1 text-xs font-medium truncate group-hover/dl:underline">
+                                <ClipboardCheck className="size-3 shrink-0 text-muted-foreground" />
+                                {task.deadlineName}
+                              </span>
+                              {task.deadlineDueDate && (() => {
+                                const d = new Date(task.deadlineDueDate);
+                                const now = new Date(new Date().toDateString());
+                                const diff = Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
+                                const label = diff < 0 ? `${Math.abs(diff)}d forfalt` : diff === 0 ? "I dag" : `${diff}d igjen`;
+                                const color = diff < 0 ? "text-red-500" : diff <= 7 ? "text-amber-500" : "text-muted-foreground";
+                                return <span className={cn("text-[10px] tabular-nums", color)}>{label}</span>;
+                              })()}
+                            </div>
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
                       </td>
                       <td className={cn(
                         "px-3 py-2.5 text-xs tabular-nums",

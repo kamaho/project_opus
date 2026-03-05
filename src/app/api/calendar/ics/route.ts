@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { calendarEvents, tasks, regulatoryDeadlines } from "@/lib/db/schema";
+import { calendarEvents, tasks, deadlineTemplates } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 
 function fmtIcsDate(d: Date, allDay = false): string {
@@ -19,15 +19,15 @@ function escapeIcs(text: string): string {
 }
 
 function resolveDeadlineDatesForYear(
-  deadline: { deadlineRule: unknown; frequency: string; periodStartMonth: number | null },
+  deadline: { dueDateRule: unknown; periodicity: string },
   year: number,
 ): Date[] {
-  const rule = deadline.deadlineRule as { day: number; month?: number; relative_to?: string; months_after?: number };
+  const rule = deadline.dueDateRule as { day: number; month?: number; relative_to?: string; months_after?: number };
   const dates: Date[] = [];
 
-  if (deadline.frequency === "yearly" && rule.month !== undefined) {
+  if (deadline.periodicity === "annual" && rule.month !== undefined) {
     dates.push(new Date(year, rule.month - 1, rule.day));
-  } else if (deadline.frequency === "monthly") {
+  } else if (deadline.periodicity === "monthly") {
     for (let m = 0; m < 12; m++) {
       if (rule.relative_to === "period_end" && rule.months_after) {
         const dm = m + rule.months_after;
@@ -36,15 +36,14 @@ function resolveDeadlineDatesForYear(
         dates.push(new Date(year, m, rule.day));
       }
     }
-  } else if (deadline.frequency === "bimonthly") {
-    const startMonth = (deadline.periodStartMonth ?? 1) - 1;
-    for (let pStart = startMonth; pStart < 12; pStart += 2) {
+  } else if (deadline.periodicity === "bimonthly") {
+    for (let pStart = 0; pStart < 12; pStart += 2) {
       const pEnd = pStart + 1;
       let dm = pEnd;
       if (rule.relative_to === "period_end" && rule.months_after) dm = pEnd + rule.months_after;
       if (dm < 12) dates.push(new Date(year, dm, rule.day));
     }
-  } else if (deadline.frequency === "quarterly") {
+  } else if (deadline.periodicity === "quarterly") {
     for (let q = 0; q < 4; q++) {
       const qEnd = (q + 1) * 3 - 1;
       let dm = qEnd;
@@ -88,7 +87,7 @@ export async function GET(req: NextRequest) {
         )
       )
       .limit(1000),
-    db.select().from(regulatoryDeadlines),
+    db.select().from(deadlineTemplates),
   ]);
 
   const lines: string[] = [
@@ -153,7 +152,7 @@ export async function GET(req: NextRequest) {
     for (const d of dates) {
       lines.push("BEGIN:VEVENT");
       lines.push(`UID:dl-${dl.id}-${fmtIcsDate(d, true)}@revizo.no`);
-      lines.push(`SUMMARY:[Frist] ${escapeIcs(dl.title)}`);
+      lines.push(`SUMMARY:[Frist] ${escapeIcs(dl.name)}`);
       if (dl.description) lines.push(`DESCRIPTION:${escapeIcs(dl.description)}`);
       lines.push(`DTSTART;VALUE=DATE:${fmtIcsDate(d, true)}`);
       lines.push(`CATEGORIES:Lovpålagt frist`);
