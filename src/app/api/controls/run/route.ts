@@ -8,6 +8,8 @@ import { getAdapter } from "@/lib/accounting";
 import { runAccountsReceivableControl } from "@/lib/controls/engines/accounts-receivable";
 import { runAccountsPayableControl } from "@/lib/controls/engines/accounts-payable";
 import { generateControlReport } from "@/lib/controls/report-generator";
+
+export const maxDuration = 60;
 import { supabase, CONTROL_REPORTS_BUCKET } from "@/lib/supabase";
 import { logAudit } from "@/lib/audit";
 import type { ControlResult } from "@/lib/controls/types";

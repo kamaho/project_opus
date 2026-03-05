@@ -5,6 +5,8 @@ import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/
 import { logAudit } from "@/lib/audit";
 import { notifySmartMatchCompleted } from "@/lib/notifications";
 
+export const maxDuration = 60;
+
 /**
  * POST: Auto-match endpoint.
  * - Default (no body or mode=preview): runs pipeline, returns stats only (no DB writes)

@@ -1092,6 +1092,7 @@ export const agentJobLogs = pgTable(
   (t) => [
     index("idx_agent_logs_config").on(t.configId, t.createdAt),
     index("idx_agent_logs_client").on(t.clientId, t.createdAt),
+    index("idx_agent_job_logs_tenant").on(t.tenantId),
   ]
 );
 

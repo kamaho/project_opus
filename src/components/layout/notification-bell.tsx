@@ -124,13 +124,28 @@ export function NotificationBell() {
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30_000);
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let active = true;
+
+    const tick = async () => {
+      if (!active) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        timeoutId = setTimeout(tick, 5_000);
+        return;
+      }
+      await fetchNotifications();
+      if (active) timeoutId = setTimeout(tick, 60_000);
+    };
+
+    tick();
+    return () => { active = false; clearTimeout(timeoutId); };
   }, [isLoaded, isSignedIn, fetchNotifications]);
 
   useEffect(() => {
-    if (open && isLoaded && isSignedIn) fetchNotifications();
+    if (!open || !isLoaded || !isSignedIn) return;
+    const now = Date.now();
+    const lastFetch = prevIdsRef.current.size > 0 ? now : 0;
+    if (now - lastFetch > 10_000) fetchNotifications();
   }, [open, isLoaded, isSignedIn, fetchNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;

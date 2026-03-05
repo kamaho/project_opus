@@ -72,8 +72,21 @@ export function MobileNotificationsTab() {
       fetchedRef.current = true;
       fetchNotifications();
     }
-    const interval = setInterval(fetchNotifications, 30_000);
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        timeoutId = setTimeout(tick, 5_000);
+        return;
+      }
+      fetchNotifications();
+      timeoutId = setTimeout(tick, 60_000);
+    };
+
+    timeoutId = setTimeout(tick, 60_000);
+    return () => { active = false; clearTimeout(timeoutId); };
   }, [fetchNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;

@@ -38,8 +38,21 @@ export function SyncInProgressView() {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    const interval = setInterval(() => router.refresh(), 5_000);
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        timeoutId = setTimeout(tick, 5_000);
+        return;
+      }
+      router.refresh();
+      timeoutId = setTimeout(tick, 10_000);
+    };
+
+    timeoutId = setTimeout(tick, 10_000);
+    return () => { active = false; clearTimeout(timeoutId); };
   }, [router]);
 
   useEffect(() => {

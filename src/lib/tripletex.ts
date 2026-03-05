@@ -8,6 +8,9 @@ const ENV_BASE_URL = process.env.TRIPLETEX_API_BASE_URL;
 const ENV_CONSUMER_TOKEN = process.env.TRIPLETEX_CONSUMER_TOKEN;
 const ENV_EMPLOYEE_TOKEN = process.env.TRIPLETEX_EMPLOYEE_TOKEN;
 
+const REQUEST_TIMEOUT_MS = 30_000;
+const SESSION_TIMEOUT_MS = 15_000;
+
 // ---------------------------------------------------------------------------
 // Session management
 // ---------------------------------------------------------------------------
@@ -64,7 +67,19 @@ export async function createTripletexSession(
   sessionUrl.searchParams.set("employeeToken", employeeToken);
   sessionUrl.searchParams.set("expirationDate", expirationDate);
 
-  const res = await fetch(sessionUrl.toString(), { method: "PUT" });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SESSION_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(sessionUrl.toString(), { method: "PUT", signal: controller.signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Tripletex session creation timed out after ${SESSION_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const body = await res.text();
@@ -256,11 +271,14 @@ export async function tripletexRequest<T = unknown>(
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(url.toString(), {
         method,
         headers,
         body: opts.body ? JSON.stringify(opts.body) : undefined,
+        signal: controller.signal,
       });
 
       if (res.ok) {
@@ -279,7 +297,19 @@ export async function tripletexRequest<T = unknown>(
     } catch (err) {
       if (err instanceof TripletexError) throw err;
 
-      // Network-level errors (DNS, timeout, connection refused)
+      if (err instanceof DOMException && err.name === "AbortError") {
+        lastError = new Error(`Tripletex ${method} ${opts.path} timed out after ${REQUEST_TIMEOUT_MS}ms`);
+        if (attempt < MAX_RETRIES) {
+          await sleep(retryDelay(attempt));
+          continue;
+        }
+        throw new TripletexError(
+          lastError.message,
+          0,
+          "Tripletex-forespørselen tok for lang tid. Prøv igjen."
+        );
+      }
+
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < MAX_RETRIES) {
         await sleep(retryDelay(attempt));
@@ -291,6 +321,8 @@ export async function tripletexRequest<T = unknown>(
         0,
         "Kunne ikke koble til Tripletex. Sjekk internettforbindelsen og prøv igjen."
       );
+    } finally {
+      clearTimeout(timer);
     }
   }
 

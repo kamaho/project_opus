@@ -50,8 +50,21 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
 
   useEffect(() => {
     if (!hasSyncing) return;
-    const interval = setInterval(() => router.refresh(), 10_000);
-    return () => clearInterval(interval);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let active = true;
+
+    const tick = () => {
+      if (!active) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        timeoutId = setTimeout(tick, 5_000);
+        return;
+      }
+      router.refresh();
+      timeoutId = setTimeout(tick, 15_000);
+    };
+
+    timeoutId = setTimeout(tick, 15_000);
+    return () => { active = false; clearTimeout(timeoutId); };
   }, [hasSyncing, router]);
 
   // If selected group was deleted, return to card grid

@@ -11,6 +11,8 @@ import { eq, and } from "drizzle-orm";
 import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 
+export const maxDuration = 120;
+
 export interface GroupAutoMatchClientResult {
   clientId: string;
   clientName: string;

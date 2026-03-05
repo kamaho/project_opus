@@ -9,6 +9,8 @@ import type { CsvParserConfig, KlinkParserConfig, ExcelParserConfig } from "@/li
 import { supabase, UPLOAD_BUCKET } from "@/lib/supabase";
 import { z } from "zod";
 import { logAuditTx } from "@/lib/audit";
+
+export const maxDuration = 60;
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { notifyImportCompleted } from "@/lib/notifications";
 import * as Sentry from "@sentry/nextjs";

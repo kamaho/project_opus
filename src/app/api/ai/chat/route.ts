@@ -6,6 +6,8 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { classifyQuery, validateResponse, OFF_TOPIC_RESPONSE } from "@/lib/ai/guardrails";
 import { buildSystemPrompt, buildEnrichedPrompt } from "@/lib/ai/system-prompt";
 import { searchKnowledge } from "@/lib/ai/knowledge-search";
+export const maxDuration = 60;
+
 import {
   getUserContext,
   getPageContext,

@@ -11,6 +11,7 @@ import type { VnxtTokenResponse } from "./types";
 
 const VISMA_AUTHORIZE_URL = "https://connect.visma.com/connect/authorize";
 const VISMA_TOKEN_URL = "https://connect.visma.com/connect/token";
+const AUTH_TIMEOUT_MS = 15_000;
 
 const SCOPES = [
   "openid",
@@ -121,20 +122,32 @@ export async function exchangeCode(code: string): Promise<VnxtTokenResponse> {
     client_secret: getClientSecret(),
   });
 
-  const res = await fetch(VISMA_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+  try {
+    const res = await fetch(VISMA_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: controller.signal,
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `Visma token exchange failed (${res.status}): ${text.slice(0, 500)}`
-    );
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `Visma token exchange failed (${res.status}): ${text.slice(0, 500)}`
+      );
+    }
+
+    return res.json() as Promise<VnxtTokenResponse>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Visma token exchange timed out after ${AUTH_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return res.json() as Promise<VnxtTokenResponse>;
 }
 
 /**
@@ -158,11 +171,24 @@ export async function refreshAccessToken(
     client_secret: getClientSecret(),
   });
 
-  const res = await fetch(VISMA_TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(VISMA_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Visma token refresh timed out for tenant ${tenantId} after ${AUTH_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const text = await res.text();

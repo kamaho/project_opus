@@ -9,6 +9,8 @@ import { generateReport } from "@/lib/reports/generator";
 import { getReportTypeDefinition, REPORT_TYPE_LABELS } from "@/lib/reports/report-registry";
 import { supabase, REPORTS_BUCKET } from "@/lib/supabase";
 import { logAudit } from "@/lib/audit";
+
+export const maxDuration = 60;
 import type { ReportConfig } from "@/lib/reports/types";
 
 const generateSchema = z.object({

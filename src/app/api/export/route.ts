@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { generateExport } from "@/lib/export/service";
 
+export const maxDuration = 60;
+
 const mvaDataSchema = z.object({
   melding: z.object({
     termin: z.string(),

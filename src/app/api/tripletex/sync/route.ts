@@ -6,6 +6,8 @@ import { eq, and } from "drizzle-orm";
 import { runFullSync } from "@/lib/tripletex/sync";
 import { TripletexError } from "@/lib/tripletex";
 
+export const maxDuration = 120;
+
 /**
  * POST /api/tripletex/sync
  * Manually trigger a sync for a specific client.
