@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 
 /* ── Shared types ──────────────────────────────────────────────── */
 
@@ -15,35 +15,21 @@ export interface ReconciliationRow {
   clientId: string;
   clientName: string;
   companyName: string;
-  matchPercentage: number;
   unmatchedCount: number;
+  unmatchedAmount: number;
   lastActivity: string | null;
   status: string;
 }
 
-export interface DeadlineStatus {
-  deadlineId: string;
-  title: string;
-  date: string;
-  daysLeft: number;
-  source: string;
-  status: string;
-  taskSummary: { total: number; completed: number; inProgress: number; overdue: number };
-  tasks: {
-    id: string;
-    title: string;
-    status: string;
-    priority: string;
-    assigneeId: string | null;
-    dueDate: string | null;
-    completedAt: string | null;
-  }[];
+export interface ReconciliationData {
+  clients: ReconciliationRow[];
+  totalClients: number;
 }
 
 export type { DeadlineWithSummary as DeadlineInstanceRow } from "@/lib/deadlines/types";
 export type { DeadlineListResponse } from "@/lib/deadlines/types";
 
-import type { DeadlineWithSummary, DeadlineListResponse } from "@/lib/deadlines/types";
+import type { DeadlineWithSummary } from "@/lib/deadlines/types";
 
 export interface DeadlinesSummary {
   total: number;
@@ -78,7 +64,7 @@ export interface ActivityItem {
 interface DashboardData {
   stats: AgencyStats | null;
   reconciliation: ReconciliationRow[];
-  deadlines: DeadlineStatus[];
+  totalClients: number;
   deadlineInstances: DeadlineWithSummary[];
   deadlinesSummary: DeadlinesSummary | null;
   tasks: TaskRow[];
@@ -96,7 +82,7 @@ interface CachedDashboard {
   companyId: string | undefined;
   stats: AgencyStats | null;
   reconciliation: ReconciliationRow[];
-  deadlines: DeadlineStatus[];
+  totalClients: number;
   deadlineInstances: DeadlineWithSummary[];
   deadlinesSummary: DeadlinesSummary | null;
   tasks: TaskRow[];
@@ -124,12 +110,18 @@ export function DashboardDataProvider({
 
   const [stats, setStats] = useState<AgencyStats | null>(cache?.stats ?? null);
   const [reconciliation, setReconciliation] = useState<ReconciliationRow[]>(cache?.reconciliation ?? []);
-  const [deadlines, setDeadlines] = useState<DeadlineStatus[]>(cache?.deadlines ?? []);
+  const [totalClients, setTotalClients] = useState<number>(cache?.totalClients ?? 0);
   const [deadlineInstances, setDeadlineInstances] = useState<DeadlineWithSummary[]>(cache?.deadlineInstances ?? []);
   const [deadlinesSummary, setDeadlinesSummary] = useState<DeadlinesSummary | null>(cache?.deadlinesSummary ?? null);
   const [tasks, setTasks] = useState<TaskRow[]>(cache?.tasks ?? []);
   const [activity, setActivity] = useState<ActivityItem[]>(cache?.activity ?? []);
   const [loading, setLoading] = useState(!hasFresh);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const fetchAll = useCallback(
     (force = false, signal?: AbortSignal) => {
@@ -159,18 +151,18 @@ export function DashboardDataProvider({
 
       Promise.all([
         safeFetch(q("/api/dashboard/agency/stats"), null),
-        safeFetch(q("/api/dashboard/agency/reconciliation"), []),
-        safeFetch(q("/api/dashboard/deadline-status"), []),
+        safeFetch<ReconciliationData>(q("/api/dashboard/agency/reconciliation"), { clients: [], totalClients: 0 }),
         safeFetch(q("/api/tasks?status=open,in_progress,waiting"), []),
         safeFetch(q(activityUrl), []),
         safeFetch<{ deadlines: DeadlineWithSummary[]; summary: DeadlinesSummary | null }>(q(`/api/deadlines?from=${fromDate}&to=${toDate}`), { deadlines: [], summary: null }),
       ])
-        .then(([s, r, d, t, a, dlData]) => {
-          if (signal?.aborted) return;
+        .then(([s, r, t, a, dlData]) => {
+          if (!mountedRef.current) return;
 
           const newStats = s ?? null;
-          const newRecon = Array.isArray(r) ? r : [];
-          const newDeadlines = Array.isArray(d) ? d : [];
+          const reconData = r as ReconciliationData | null;
+          const newRecon = Array.isArray(reconData?.clients) ? reconData.clients : [];
+          const newTotalClients = reconData?.totalClients ?? 0;
           const newTasks = Array.isArray(t) ? t : [];
           const newActivity = Array.isArray(a) ? a : [];
           const newDeadlineInstances = Array.isArray(dlData?.deadlines) ? dlData.deadlines : [];
@@ -178,7 +170,7 @@ export function DashboardDataProvider({
 
           setStats(newStats);
           setReconciliation(newRecon);
-          setDeadlines(newDeadlines);
+          setTotalClients(newTotalClients);
           setDeadlineInstances(newDeadlineInstances);
           setDeadlinesSummary(newDeadlinesSummary);
           setTasks(newTasks);
@@ -189,7 +181,7 @@ export function DashboardDataProvider({
             companyId,
             stats: newStats,
             reconciliation: newRecon,
-            deadlines: newDeadlines,
+            totalClients: newTotalClients,
             deadlineInstances: newDeadlineInstances,
             deadlinesSummary: newDeadlinesSummary,
             tasks: newTasks,
@@ -198,28 +190,22 @@ export function DashboardDataProvider({
           };
         })
         .catch((err) => {
-          if (!signal?.aborted) console.error("[DashboardData] fetch failed:", err);
+          if (mountedRef.current) console.error("[DashboardData] fetch failed:", err);
         })
         .finally(() => {
-          if (!signal?.aborted) setLoading(false);
+          if (mountedRef.current) setLoading(false);
         });
     },
     [tenantId, clientId, companyId]
   );
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
-    fetchAll(false, controller.signal);
-    return () => {
-      controller.abort();
-      clearTimeout(timeout);
-    };
+    fetchAll(false, undefined);
   }, [fetchAll]);
 
   return (
     <DashboardDataContext.Provider
-      value={{ stats, reconciliation, deadlines, deadlineInstances, deadlinesSummary, tasks, activity, loading, refresh: () => fetchAll(true, undefined) }}
+      value={{ stats, reconciliation, totalClients, deadlineInstances, deadlinesSummary, tasks, activity, loading, refresh: () => fetchAll(true, undefined) }}
     >
       {children}
     </DashboardDataContext.Provider>

@@ -17,6 +17,12 @@ import { useDashboardData } from "../dashboard-data-provider";
 
 type UrgencyLevel = "critical" | "warning" | "info";
 
+const krFmt = new Intl.NumberFormat("nb-NO", {
+  style: "currency",
+  currency: "NOK",
+  maximumFractionDigits: 0,
+});
+
 interface AttentionItem {
   id: string;
   type: "overdue_deadline" | "low_match_client" | "overdue_task" | "upcoming_deadline";
@@ -59,22 +65,31 @@ const TYPE_LABELS: Record<AttentionItem["type"], string> = {
   upcoming_deadline: "Kommende frist",
 };
 
+function daysUntil(dateStr: string): number {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const due = new Date(dateStr + "T00:00:00");
+  return Math.round((due.getTime() - now.getTime()) / 86_400_000);
+}
+
 export default function Deadlines() {
-  const { reconciliation, deadlines: deadlineData, tasks: taskData, loading } = useDashboardData();
+  const { reconciliation, deadlineInstances, tasks: taskData, loading } = useDashboardData();
 
   const items = useMemo<AttentionItem[]>(() => {
     const result: AttentionItem[] = [];
     const now = new Date();
 
-    for (const d of deadlineData) {
+    for (const d of deadlineInstances) {
+      const days = daysUntil(d.dueDate);
+
       if (d.status === "overdue") {
         result.push({
-          id: `deadline-overdue-${d.deadlineId}-${d.date}`,
+          id: `deadline-overdue-${d.id}`,
           type: "overdue_deadline",
           urgency: "critical",
-          title: d.title,
-          subtitle: `${Math.abs(d.daysLeft)} dager over frist`,
-          href: `/dashboard/kalender?date=${d.date}`,
+          title: `${d.template.name} — ${d.company.name}`,
+          subtitle: `${Math.abs(days)} dager over frist`,
+          href: `/dashboard/frister/${d.id}`,
           meta:
             d.taskSummary.total > 0
               ? `${d.taskSummary.completed}/${d.taskSummary.total} oppgaver`
@@ -84,13 +99,14 @@ export default function Deadlines() {
     }
 
     for (const c of reconciliation) {
-      if (c.status !== "no_data" && c.matchPercentage < 90) {
+      if (c.unmatchedCount > 0) {
+        const amt = c.unmatchedAmount ?? 0;
         result.push({
           id: `recon-${c.clientId}`,
           type: "low_match_client",
-          urgency: c.matchPercentage < 50 ? "critical" : "warning",
+          urgency: amt >= 100_000 ? "critical" : "warning",
           title: c.clientName,
-          subtitle: `${c.matchPercentage}% matchet — ${c.unmatchedCount} poster`,
+          subtitle: `${krFmt.format(amt)} uavstemt — ${c.unmatchedCount} poster`,
           href: `/dashboard/clients/${c.clientId}`,
           meta: c.companyName,
         });
@@ -113,20 +129,22 @@ export default function Deadlines() {
       }
     }
 
-    for (const d of deadlineData) {
-      if (d.daysLeft >= 0 && d.daysLeft <= 7 && d.status !== "completed") {
+    for (const d of deadlineInstances) {
+      const days = daysUntil(d.dueDate);
+
+      if (days >= 0 && days <= 7 && d.status !== "done") {
         result.push({
-          id: `deadline-upcoming-${d.deadlineId}-${d.date}`,
+          id: `deadline-upcoming-${d.id}`,
           type: "upcoming_deadline",
-          urgency: d.daysLeft <= 2 ? "warning" : "info",
-          title: d.title,
+          urgency: days <= 2 ? "warning" : "info",
+          title: `${d.template.name} — ${d.company.name}`,
           subtitle:
-            d.daysLeft === 0
+            days === 0
               ? "I dag"
-              : d.daysLeft === 1
+              : days === 1
                 ? "I morgen"
-                : `Om ${d.daysLeft} dager`,
-          href: `/dashboard/kalender?date=${d.date}`,
+                : `Om ${days} dager`,
+          href: `/dashboard/frister/${d.id}`,
           meta:
             d.taskSummary.total > 0
               ? `${d.taskSummary.completed}/${d.taskSummary.total} oppgaver`
@@ -139,7 +157,7 @@ export default function Deadlines() {
     result.sort((a, b) => urgencyOrder[a.urgency] - urgencyOrder[b.urgency]);
 
     return result;
-  }, [reconciliation, deadlineData, taskData]);
+  }, [reconciliation, deadlineInstances, taskData]);
 
   if (loading) {
     return (

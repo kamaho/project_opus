@@ -63,7 +63,7 @@ function StatTile({
 }
 
 export default function KeyFigures() {
-  const { stats, tasks, deadlines, loading } = useDashboardData();
+  const { stats, tasks, deadlineInstances, deadlinesSummary, loading } = useDashboardData();
   const searchParams = useSearchParams();
   const cq = searchParams.get("companyId");
   const companyQuery = cq ? `companyId=${encodeURIComponent(cq)}` : "";
@@ -84,16 +84,14 @@ export default function KeyFigures() {
   }, [tasks, now]);
 
   const deadlineInfo = useMemo(() => {
-    const monthDls = deadlines
-      .filter((d) => d.date?.startsWith(monthPrefix))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const monthDls = deadlineInstances
+      .filter((d) => d.dueDate?.startsWith(monthPrefix))
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     const thisMonth = monthDls.length;
-    const overdue = deadlines.filter(
-      (d) => typeof d.daysLeft === "number" && d.daysLeft < 0 && d.status !== "completed"
-    ).length;
-    const nearestDate = monthDls.length > 0 ? monthDls[0].date : null;
+    const overdue = deadlinesSummary?.overdue ?? 0;
+    const nearestDate = monthDls.length > 0 ? monthDls[0].dueDate : null;
     return { thisMonth, overdue, nearestDate };
-  }, [deadlines, monthPrefix]);
+  }, [deadlineInstances, deadlinesSummary, monthPrefix]);
 
   if (loading) {
     return (

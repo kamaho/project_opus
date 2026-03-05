@@ -1,0 +1,97 @@
+---
+description: Security, architecture, and AI-generated code rules for Revizo
+alwaysApply: true
+---
+
+# Revizo – Project Rules for AI-Assisted Development
+
+## Stack Context
+
+- **Framework**: Next.js 16, React 19, TypeScript (strict)
+- **Auth**: Clerk (multi-tenant, RBAC). Never build custom auth.
+- **Database**: Supabase (Postgres), Drizzle ORM, Row-Level Security enabled
+- **Infra**: Railway (worker), Brevo (email)
+- **Pattern**: Multi-tenant SaaS for Norwegian accounting firms
+
+---
+
+## Security Rules
+
+### Auth & Sessions
+
+- All auth goes through Clerk. Never generate custom JWT logic, session handling, or login flows.
+- Verify `orgId` from Clerk session on every server-side request. Never trust client-supplied tenant IDs.
+- Session tokens max 7 days. Refresh token rotation is handled by Clerk — do not override.
+- Never expose Clerk secret keys or Supabase service role keys in client code. All secrets via `process.env` server-side only.
+
+### Database & Queries
+
+- Every query must be scoped to the tenant (`org_id`). No exceptions, no "admin bypass" shortcuts.
+- Use Drizzle ORM parameterized queries exclusively. Never concatenate user input into SQL.
+- RLS is enabled — but treat it as a safety net, not primary access control. Application-level tenant filtering comes first.
+- New tables must have `org_id` column + RLS policy before any other work.
+
+### API Endpoints
+
+- Every API route must check auth (`auth()` from Clerk) and verify org membership.
+- Rate limit every endpoint. Default: 100 req/hour per org. Auth-sensitive routes (password reset, invites): 3 req/hour.
+- Validate all input server-side with Zod schemas. Client-side validation is UX, not security.
+- Never return data from other tenants in error messages, logs, or response bodies.
+- Validate redirect URLs against an explicit allow-list. Never redirect to user-supplied URLs unchecked.
+
+### File Handling
+
+- Validate file uploads by magic bytes (file signature), not file extension.
+- Max upload size enforced server-side (not just client).
+- Storage bucket access scoped to tenant. Users can only read/write their own org's files.
+
+### Secrets & Environment
+
+- `.gitignore` must exist before any other file in a new project/module.
+- Never paste API keys, tokens, or secrets into prompts, comments, or commit messages.
+- Separate environment configs for development and production. Test webhooks never touch production data.
+
+### Webhooks & External Integrations
+
+- Verify webhook signatures (Clerk, payment providers) before processing any data.
+- Maskinporten/Altinn tokens are tenant-scoped — never cache across orgs.
+
+### Logging & Audit
+
+- Log critical actions: deletions, role changes, tenant access, data exports, payment events.
+- Strip sensitive data (tokens, passwords, personal identifiers) from all log output.
+- Remove `console.log` debug statements before committing. Use structured logger for production.
+
+### Data Protection
+
+- Account deletion must cascade correctly across all tenant data. GDPR compliance is mandatory.
+- Never store personal data beyond what's needed for the feature.
+
+---
+
+## Code Philosophy
+
+### AI-Generated Code Review Checklist
+
+Before accepting any AI-generated code, verify:
+
+1. **Does it respect tenant isolation?** Every data access must be org-scoped.
+2. **Does it use existing patterns?** Check for adapter pattern (accounting systems), existing Drizzle schemas, existing API conventions.
+3. **Do suggested packages actually exist?** Verify on npm before installing. Check last publish date.
+4. **Is it the latest secure version?** Run `npm audit` after adding dependencies.
+5. **Does it duplicate existing functionality?** Search codebase before creating new utils/helpers.
+
+### Architecture Principles
+
+- **Controls vs Reports**: Controls flag deviations (QA). Reports are archival documents. Never mix these concepts.
+- **Mobile = read, Desktop = write**: Mobile surfaces status and alerts. Complex actions happen on desktop.
+- **Adapter pattern for accounting systems**: Tripletex, Visma NXT, PowerOffice are normalized through adapters. Never write system-specific logic in business layer.
+- **Deviation-focused, not percentage-focused**: Show unmatched amounts and overdue items, not abstract percentages.
+
+### What Not To Generate
+
+- Custom auth/session logic (use Clerk)
+- Direct Supabase client calls bypassing Drizzle ORM
+- API routes without auth + rate limiting
+- Components with hardcoded tenant data or cross-tenant assumptions
+- Test data that uses production API keys or real customer data

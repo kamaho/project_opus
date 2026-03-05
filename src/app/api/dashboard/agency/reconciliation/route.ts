@@ -17,6 +17,7 @@ export const GET = withTenant(async (req, { tenantId }) => {
     total_count: string;
     matched_count: string;
     unmatched_count: string;
+    unmatched_amount: string;
     last_activity: string | null;
   }>(sql`
     SELECT
@@ -26,6 +27,7 @@ export const GET = withTenant(async (req, { tenantId }) => {
       COUNT(t.id) AS total_count,
       COUNT(t.id) FILTER (WHERE t.match_status = 'matched') AS matched_count,
       COUNT(t.id) FILTER (WHERE t.match_status = 'unmatched') AS unmatched_count,
+      COALESCE(SUM(ABS(t.amount::numeric)) FILTER (WHERE t.match_status = 'unmatched'), 0) AS unmatched_amount,
       MAX(i.created_at)::text AS last_activity
     FROM clients c
     INNER JOIN companies co ON co.id = c.company_id
@@ -34,35 +36,37 @@ export const GET = withTenant(async (req, { tenantId }) => {
     WHERE ${companyClause}
     GROUP BY c.id, c.name, co.name
     ORDER BY
-      CASE WHEN COUNT(t.id) = 0 THEN 1 ELSE 0 END,
-      CASE WHEN COUNT(t.id) > 0
-        THEN COUNT(t.id) FILTER (WHERE t.match_status = 'matched')::float / COUNT(t.id)
-        ELSE 0 END
+      COALESCE(SUM(ABS(t.amount::numeric)) FILTER (WHERE t.match_status = 'unmatched'), 0) DESC
   `);
 
-  const result = (rows as unknown as Array<{
+  type RawRow = {
     client_id: string;
     client_name: string;
     company_name: string;
     total_count: string;
     matched_count: string;
     unmatched_count: string;
+    unmatched_amount: string;
     last_activity: string | null;
-  }>).map((r) => {
+  };
+
+  const allRows = (rows as unknown as RawRow[]);
+  const totalClients = allRows.length;
+
+  const result = allRows.map((r) => {
     const total = Number(r.total_count);
-    const matched = Number(r.matched_count);
-    const pct = total > 0 ? Math.round((matched / total) * 1000) / 10 : 0;
+    const unmatched = Number(r.unmatched_count);
 
     return {
       clientId: r.client_id,
       clientName: r.client_name,
       companyName: r.company_name,
-      matchPercentage: pct,
-      unmatchedCount: Number(r.unmatched_count),
+      unmatchedCount: unmatched,
+      unmatchedAmount: parseFloat(String(r.unmatched_amount)),
       lastActivity: r.last_activity,
-      status: total === 0 ? "no_data" : pct >= 100 ? "completed" : "in_progress",
+      status: total === 0 ? "no_data" : unmatched === 0 ? "completed" : "in_progress",
     };
   });
 
-  return NextResponse.json(result);
+  return NextResponse.json({ clients: result, totalClients });
 });
