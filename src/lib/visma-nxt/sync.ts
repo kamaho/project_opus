@@ -209,10 +209,9 @@ export async function syncAccountList(
       .insert(accounts)
       .values(accountRows.slice(i, i + BATCH_SIZE))
       .onConflictDoUpdate({
-        target: [accounts.companyId, accounts.accountNumber],
+        target: [accounts.companyId, accounts.accountNumber, accounts.accountType],
         set: {
           name: sql`excluded.name`,
-          accountType: sql`excluded.account_type`,
           vismaNxtAccountId: sql`excluded.visma_nxt_account_id`,
         },
       });

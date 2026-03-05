@@ -146,6 +146,8 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         const acct1Rows = await tx.execute<{ id: string }>(sql`
           INSERT INTO accounts (company_id, account_number, name, account_type, tripletex_account_id)
           VALUES (${companyId}, ${setting.accountNumber}, ${setting.accountName}, ${accountType}, ${setting.tripletexAccountId})
+          ON CONFLICT (company_id, account_number, account_type) DO UPDATE SET
+            name = EXCLUDED.name, tripletex_account_id = EXCLUDED.tripletex_account_id
           RETURNING id
         `);
         const acct1Id = Array.from(acct1Rows)[0]?.id;
@@ -153,6 +155,8 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         const acct2Rows = await tx.execute<{ id: string }>(sql`
           INSERT INTO accounts (company_id, account_number, name, account_type)
           VALUES (${companyId}, ${setting.accountNumber}, ${`${setting.accountName} (motkonto)`}, ${counterType})
+          ON CONFLICT (company_id, account_number, account_type) DO UPDATE SET
+            name = EXCLUDED.name
           RETURNING id
         `);
         const acct2Id = Array.from(acct2Rows)[0]?.id;
