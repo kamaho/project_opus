@@ -201,7 +201,7 @@ export async function syncAccountList(
   const existingMap = new Map(existingAccounts.map((a) => [a.accountNumber, a.id]));
 
   const toInsert: (typeof accounts.$inferInsert)[] = [];
-  const toUpdate: { id: string; name: string; accountType: string; vismaNxtAccountId: number }[] = [];
+  const toUpdate: { id: string; name: string; accountType: "ledger" | "bank"; vismaNxtAccountId: number }[] = [];
 
   for (const vnxtAcc of allAccounts) {
     const mapped = mapAccount(vnxtAcc);
