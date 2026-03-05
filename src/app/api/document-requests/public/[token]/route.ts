@@ -143,57 +143,64 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
   }
 
-  const uploaded: { filename: string; fileSize: number }[] = [];
+  let txExists = false;
+  if (row.transactionId && row.clientId) {
+    const [tx] = await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.id, row.transactionId),
+          eq(transactions.clientId, row.clientId)
+        )
+      );
+    txExists = !!tx;
+  }
+
+  const uploaded: { filename: string; fileSize: number; storagePath: string; contentType: string }[] = [];
 
   for (const file of files) {
     const safeName = sanitizeFilename(file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
     const storagePath = `${row.tenantId}/document-requests/${row.id}/${Date.now()}-${safeName}`;
+    const contentType = file.type || "application/octet-stream";
 
     const { error: uploadError } = await supabase.storage
       .from(ATTACHMENTS_BUCKET)
-      .upload(storagePath, new Blob([buffer]), {
-        contentType: file.type || "application/octet-stream",
-      });
+      .upload(storagePath, new Blob([buffer]), { contentType });
 
     if (uploadError) {
       console.error("[document-request-upload] Upload failed:", uploadError);
       continue;
     }
 
-    await db.insert(documentRequestFiles).values({
-      requestId: row.id,
-      filename: safeName,
-      filePath: storagePath,
-      fileSize: file.size,
-      contentType: file.type || "application/octet-stream",
-    });
+    uploaded.push({ filename: safeName, fileSize: file.size, storagePath, contentType });
+  }
 
-    if (row.transactionId && row.clientId) {
-      const [txExists] = await db
-        .select({ id: transactions.id })
-        .from(transactions)
-        .where(
-          and(
-            eq(transactions.id, row.transactionId),
-            eq(transactions.clientId, row.clientId)
-          )
-        );
+  if (uploaded.length > 0) {
+    await db.insert(documentRequestFiles).values(
+      uploaded.map((f) => ({
+        requestId: row.id,
+        filename: f.filename,
+        filePath: f.storagePath,
+        fileSize: f.fileSize,
+        contentType: f.contentType,
+      }))
+    );
 
-      if (txExists) {
-        await db.insert(transactionAttachments).values({
-          transactionId: row.transactionId,
-          clientId: row.clientId,
-          filename: safeName,
-          filePath: storagePath,
-          fileSize: file.size,
-          contentType: file.type || "application/octet-stream",
+    if (txExists && row.transactionId && row.clientId) {
+      await db.insert(transactionAttachments).values(
+        uploaded.map((f) => ({
+          transactionId: row.transactionId!,
+          clientId: row.clientId!,
+          filename: f.filename,
+          filePath: f.storagePath,
+          fileSize: f.fileSize,
+          contentType: f.contentType,
           uploadedBy: `external:${row.contactId}`,
-        });
-      }
+        }))
+      );
     }
-
-    uploaded.push({ filename: safeName, fileSize: file.size });
   }
 
   if (uploaded.length > 0) {

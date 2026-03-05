@@ -5,35 +5,36 @@ import { imports, clients, companies, agentJobLogs } from "@/lib/db/schema";
 import { eq, desc, and, isNull } from "drizzle-orm";
 
 export const GET = withTenant(async (_req, { tenantId }) => {
-  const recentImports = await db
-    .select({
-      id: imports.id,
-      filename: imports.filename,
-      recordCount: imports.recordCount,
-      clientName: clients.name,
-      timestamp: imports.createdAt,
-    })
-    .from(imports)
-    .innerJoin(clients, eq(imports.clientId, clients.id))
-    .innerJoin(companies, eq(clients.companyId, companies.id))
-    .where(and(eq(companies.tenantId, tenantId), isNull(imports.deletedAt)))
-    .orderBy(desc(imports.createdAt))
-    .limit(10);
-
-  const recentJobs = await db
-    .select({
-      id: agentJobLogs.id,
-      jobType: agentJobLogs.jobType,
-      status: agentJobLogs.status,
-      matchCount: agentJobLogs.matchCount,
-      transactionCount: agentJobLogs.transactionCount,
-      clientId: agentJobLogs.clientId,
-      timestamp: agentJobLogs.createdAt,
-    })
-    .from(agentJobLogs)
-    .where(eq(agentJobLogs.tenantId, tenantId))
-    .orderBy(desc(agentJobLogs.createdAt))
-    .limit(10);
+  const [recentImports, recentJobs] = await Promise.all([
+    db
+      .select({
+        id: imports.id,
+        filename: imports.filename,
+        recordCount: imports.recordCount,
+        clientName: clients.name,
+        timestamp: imports.createdAt,
+      })
+      .from(imports)
+      .innerJoin(clients, eq(imports.clientId, clients.id))
+      .innerJoin(companies, eq(clients.companyId, companies.id))
+      .where(and(eq(companies.tenantId, tenantId), isNull(imports.deletedAt)))
+      .orderBy(desc(imports.createdAt))
+      .limit(10),
+    db
+      .select({
+        id: agentJobLogs.id,
+        jobType: agentJobLogs.jobType,
+        status: agentJobLogs.status,
+        matchCount: agentJobLogs.matchCount,
+        transactionCount: agentJobLogs.transactionCount,
+        clientId: agentJobLogs.clientId,
+        timestamp: agentJobLogs.createdAt,
+      })
+      .from(agentJobLogs)
+      .where(eq(agentJobLogs.tenantId, tenantId))
+      .orderBy(desc(agentJobLogs.createdAt))
+      .limit(10),
+  ]);
 
   const jobClientIds = [...new Set(recentJobs.map((j) => j.clientId))];
   const clientNames: Record<string, string> = {};

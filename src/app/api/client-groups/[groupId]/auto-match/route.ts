@@ -68,22 +68,37 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
 
   try {
     if (mode === "commit") {
+      const MAX_CONCURRENT = 3;
       const clientResults: GroupAutoMatchClientResult[] = [];
       let totalMatches = 0;
       let totalTransactions = 0;
 
-      for (const member of memberRows) {
+      const tasks = memberRows.map((member) => async () => {
         const result = await runAutoMatch(member.clientId, userId);
-        totalMatches += result.totalMatches;
-        totalTransactions += result.totalTransactions;
-        clientResults.push({
+        return {
           clientId: member.clientId,
           clientName: member.clientName,
           matches: result.totalMatches,
           transactions: result.totalTransactions,
           remainingOpen: result.remainingOpen,
-        });
+        };
+      });
+
+      let idx = 0;
+      const running: Promise<void>[] = [];
+      async function next(): Promise<void> {
+        const i = idx++;
+        if (i >= tasks.length) return;
+        const result = await tasks[i]();
+        clientResults.push(result);
+        totalMatches += result.matches;
+        totalTransactions += result.transactions;
+        await next();
       }
+      for (let i = 0; i < Math.min(MAX_CONCURRENT, tasks.length); i++) {
+        running.push(next());
+      }
+      await Promise.all(running);
 
       if (totalMatches > 0) {
         await logAudit({

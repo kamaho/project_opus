@@ -6,6 +6,7 @@ import {
   tripletexConnections,
   webhookSubscriptions,
   notifications,
+  clients,
 } from "../src/lib/db/schema";
 import { eq, and, lte, sql, inArray } from "drizzle-orm";
 
@@ -122,41 +123,60 @@ async function markCompleted(db: Db, ids: string[]) {
 async function markFailed(db: Db, ids: string[], error: string) {
   if (ids.length === 0) return;
 
-  for (const id of ids) {
-    const [evt] = await db
-      .select({
-        attempts: webhookInbox.attempts,
-        tenantId: webhookInbox.tenantId,
-        source: webhookInbox.source,
-        eventType: webhookInbox.eventType,
-      })
-      .from(webhookInbox)
-      .where(eq(webhookInbox.id, id))
-      .limit(1);
+  const events = await db
+    .select({
+      id: webhookInbox.id,
+      attempts: webhookInbox.attempts,
+      tenantId: webhookInbox.tenantId,
+      source: webhookInbox.source,
+      eventType: webhookInbox.eventType,
+    })
+    .from(webhookInbox)
+    .where(inArray(webhookInbox.id, ids));
 
-    const attempts = evt?.attempts ?? 1;
-    const isPermanent = attempts >= MAX_ATTEMPTS;
+  const permanentIds: string[] = [];
+  const retryIds: string[] = [];
+  const retryAfter = new Map<string, Date>();
 
-    if (isPermanent) {
-      await reportToSentry(new Error(`Webhook permanently failed: ${error}`), {
-        webhookId: id,
-        tenantId: evt?.tenantId ?? "unknown",
-        source: evt?.source ?? "unknown",
-        eventType: evt?.eventType ?? "unknown",
+  for (const evt of events) {
+    const attempts = evt.attempts ?? 1;
+    if (attempts >= MAX_ATTEMPTS) {
+      permanentIds.push(evt.id);
+      reportToSentry(new Error(`Webhook permanently failed: ${error}`), {
+        webhookId: evt.id,
+        tenantId: evt.tenantId ?? "unknown",
+        source: evt.source ?? "unknown",
+        eventType: evt.eventType ?? "unknown",
         attempts: String(attempts),
       });
+    } else {
+      retryIds.push(evt.id);
+      retryAfter.set(evt.id, new Date(Date.now() + backoffDelay(attempts)));
     }
+  }
 
+  const truncatedError = error.slice(0, 2000);
+
+  if (permanentIds.length > 0) {
+    await db
+      .update(webhookInbox)
+      .set({ status: "failed", lastError: truncatedError })
+      .where(inArray(webhookInbox.id, permanentIds));
+  }
+
+  if (retryIds.length > 0) {
+    const maxBackoff = retryIds.reduce((max, id) => {
+      const after = retryAfter.get(id)!;
+      return after > max ? after : max;
+    }, new Date(0));
     await db
       .update(webhookInbox)
       .set({
-        status: isPermanent ? "failed" : "pending",
-        lastError: error.slice(0, 2000),
-        processAfter: isPermanent
-          ? undefined
-          : new Date(Date.now() + backoffDelay(attempts)),
+        status: "pending",
+        lastError: truncatedError,
+        processAfter: maxBackoff,
       })
-      .where(eq(webhookInbox.id, id));
+      .where(inArray(webhookInbox.id, retryIds));
   }
 }
 
@@ -357,11 +377,15 @@ async function processTripletexGroup(
 
       const { syncAccounts } = await import("../src/lib/tripletex/sync");
 
+      const clientIds = configs.map((c) => c.clientId);
+      const clientRows = await db
+        .select({ id: clients.id, companyId: clients.companyId })
+        .from(clients)
+        .where(inArray(clients.id, clientIds));
+      const companyByClient = new Map(clientRows.map((r) => [r.id, r.companyId]));
+
       for (const config of configs) {
-        const clientRow = await db.execute<{ company_id: string }>(sql`
-          SELECT company_id FROM clients WHERE id = ${config.clientId} LIMIT 1
-        `);
-        const companyId = Array.from(clientRow)[0]?.company_id;
+        const companyId = companyByClient.get(config.clientId);
         if (companyId) {
           await syncAccounts(config.tripletexCompanyId, companyId, tenantId);
         }
