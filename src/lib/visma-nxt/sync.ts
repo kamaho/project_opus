@@ -228,11 +228,17 @@ export async function syncAccountList(
     await db.insert(accounts).values(toInsert.slice(i, i + BATCH_SIZE));
   }
 
-  for (const row of toUpdate) {
-    await db
-      .update(accounts)
-      .set({ name: row.name, accountType: row.accountType, vismaNxtAccountId: row.vismaNxtAccountId })
-      .where(eq(accounts.id, row.id));
+  const PARALLEL = 25;
+  for (let i = 0; i < toUpdate.length; i += PARALLEL) {
+    const batch = toUpdate.slice(i, i + PARALLEL);
+    await Promise.all(
+      batch.map((row) =>
+        db
+          .update(accounts)
+          .set({ name: row.name, accountType: row.accountType, vismaNxtAccountId: row.vismaNxtAccountId })
+          .where(eq(accounts.id, row.id))
+      )
+    );
   }
 
   const duration = Date.now() - t0;
@@ -304,30 +310,39 @@ export async function syncBalancesForAccounts(
       )
     );
 
-  let balancesUpdated = 0;
   const now = new Date();
+  const toUpdateBalances = rows
+    .filter((acct) => balanceMap.has(acct.accountNumber))
+    .map((acct) => ({
+      accountNumber: acct.accountNumber,
+      balance: balanceMap.get(acct.accountNumber)!,
+    }));
 
-  for (const acct of rows) {
-    const balance = balanceMap.get(acct.accountNumber);
-    if (balance === undefined) continue;
-
-    await db
-      .update(accountSyncSettings)
-      .set({
-        balanceOut: balance.toFixed(2),
-        balanceYear: year,
-        lastBalanceSyncAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(accountSyncSettings.tenantId, tenantId),
-          eq(accountSyncSettings.companyId, companyId),
-          eq(accountSyncSettings.accountNumber, acct.accountNumber)
-        )
-      );
-    balancesUpdated++;
+  const PARALLEL = 25;
+  for (let i = 0; i < toUpdateBalances.length; i += PARALLEL) {
+    const batch = toUpdateBalances.slice(i, i + PARALLEL);
+    await Promise.all(
+      batch.map(({ accountNumber, balance }) =>
+        db
+          .update(accountSyncSettings)
+          .set({
+            balanceOut: balance.toFixed(2),
+            balanceYear: year,
+            lastBalanceSyncAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(accountSyncSettings.tenantId, tenantId),
+              eq(accountSyncSettings.companyId, companyId),
+              eq(accountSyncSettings.accountNumber, accountNumber)
+            )
+          )
+      )
+    );
   }
+
+  const balancesUpdated = toUpdateBalances.length;
 
   const duration = Date.now() - t0;
   console.log(
