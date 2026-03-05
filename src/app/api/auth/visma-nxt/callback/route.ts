@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { exchangeCode, decodeState, saveConnection } from "@/lib/visma-nxt/auth";
-import { getCompanies } from "@/lib/visma-nxt/sync";
+import {
+  getCompanies,
+  syncCompany,
+  syncAccountList,
+  syncBalancesForAccounts,
+} from "@/lib/visma-nxt/sync";
+
+export const maxDuration = 60;
 
 function redirect303(url: URL): NextResponse {
   return NextResponse.redirect(url, 303);
@@ -53,10 +60,24 @@ async function handleCallback(request: Request, params: URLSearchParams) {
 
     if (companies.length === 1) {
       const { setCompanyNo } = await import("@/lib/visma-nxt/auth");
-      await setCompanyNo(tenantId, companies[0].companyNo);
+      const companyNo = companies[0].companyNo;
+      await setCompanyNo(tenantId, companyNo);
+
+      let syncStatus = "connected";
+      try {
+        console.log(`[visma-nxt/callback] Starting inline sync for company ${companyNo}`);
+        const companyId = await syncCompany(companyNo, tenantId);
+        await syncAccountList(companyNo, companyId, tenantId);
+        await syncBalancesForAccounts(companyNo, companyId, tenantId);
+        console.log(`[visma-nxt/callback] Inline sync completed for company ${companyNo}`);
+        syncStatus = "synced";
+      } catch (err) {
+        console.error("[visma-nxt/callback] Inline sync failed (non-fatal):", err);
+      }
+
       return redirect303(
         new URL(
-          `/dashboard/integrasjoner?visma_nxt=connected&company=${companies[0].companyName}`,
+          `/dashboard/integrasjoner?visma_nxt=${syncStatus}&company=${encodeURIComponent(companies[0].companyName)}`,
           baseUrl
         )
       );

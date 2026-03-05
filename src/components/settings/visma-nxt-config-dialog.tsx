@@ -42,6 +42,8 @@ export function VismaNxtConfigDialog({
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     if (!tenantId) return;
@@ -93,6 +95,27 @@ export function VismaNxtConfigDialog({
     }
   };
 
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/visma-nxt/sync", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setSyncResult(
+          `Synkronisert: ${data.accounts} kontoer, ${data.balancesUpdated} saldoer`
+        );
+        fetchStatus();
+      } else {
+        setSyncResult(data.error ?? "Synkronisering feilet");
+      }
+    } catch {
+      setSyncResult("Nettverksfeil under synkronisering");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -139,30 +162,50 @@ export function VismaNxtConfigDialog({
               </p>
             )}
 
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-col gap-2 pt-2">
               <Button
-                variant="outline"
                 size="sm"
                 className="gap-1.5"
-                onClick={handleConnect}
+                onClick={handleSync}
+                disabled={syncing}
               >
-                <RefreshCw className="size-3" />
-                Koble til på nytt
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-destructive hover:text-destructive"
-                onClick={handleDisconnect}
-                disabled={disconnecting}
-              >
-                {disconnecting ? (
+                {syncing ? (
                   <Loader2 className="size-3 animate-spin" />
                 ) : (
-                  <Unplug className="size-3" />
+                  <RefreshCw className="size-3" />
                 )}
-                Koble fra
+                {syncing ? "Synkroniserer…" : "Synkroniser nå"}
               </Button>
+
+              {syncResult && (
+                <p className="text-xs text-muted-foreground">{syncResult}</p>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleConnect}
+                >
+                  <ExternalLink className="size-3" />
+                  Koble til på nytt
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-destructive hover:text-destructive"
+                  onClick={handleDisconnect}
+                  disabled={disconnecting}
+                >
+                  {disconnecting ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Unplug className="size-3" />
+                  )}
+                  Koble fra
+                </Button>
+              </div>
             </div>
           </div>
         ) : (

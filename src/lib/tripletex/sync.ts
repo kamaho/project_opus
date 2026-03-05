@@ -702,6 +702,14 @@ export async function runFullSync(
     await syncAccounts(config.tripletexCompanyId, companyId, config.tenantId);
     console.log(`[sync] config=${configId} syncAccounts done in ${Date.now() - tAccounts}ms`);
 
+    try {
+      const tAccountList = Date.now();
+      await syncAccountList(config.tripletexCompanyId, companyId, config.tenantId);
+      console.log(`[sync] config=${configId} syncAccountList done in ${Date.now() - tAccountList}ms`);
+    } catch (err) {
+      console.warn(`[sync] config=${configId} syncAccountList failed (non-fatal):`, err);
+    }
+
     const tPostings = Date.now();
     const [postings, bankTransactions] = await Promise.all([
       syncPostings(config),
