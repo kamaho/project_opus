@@ -60,7 +60,10 @@ export const accounts = pgTable(
     vismaNxtAccountId: bigint("visma_nxt_account_id", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (t) => [index("idx_accounts_company").on(t.companyId)]
+  (t) => [
+    index("idx_accounts_company").on(t.companyId),
+    uniqueIndex("idx_accounts_company_account_number").on(t.companyId, t.accountNumber),
+  ]
 );
 
 // ---------------------------------------------------------------------------

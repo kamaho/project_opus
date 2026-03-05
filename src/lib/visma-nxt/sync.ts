@@ -192,53 +192,30 @@ export async function syncAccountList(
       });
   }
 
-  // Upsert into the accounts table (bulk approach to avoid N+1 queries)
-  const existingAccounts = await db
-    .select({ id: accounts.id, accountNumber: accounts.accountNumber })
-    .from(accounts)
-    .where(eq(accounts.companyId, companyId));
-
-  const existingMap = new Map(existingAccounts.map((a) => [a.accountNumber, a.id]));
-
-  const toInsert: (typeof accounts.$inferInsert)[] = [];
-  const toUpdate: { id: string; name: string; accountType: "ledger" | "bank"; vismaNxtAccountId: number }[] = [];
-
-  for (const vnxtAcc of allAccounts) {
+  // Batch upsert into accounts using unique index on (company_id, account_number)
+  const accountRows = allAccounts.map((vnxtAcc) => {
     const mapped = mapAccount(vnxtAcc);
-    const existingId = existingMap.get(mapped.accountNumber);
-    if (existingId) {
-      toUpdate.push({
-        id: existingId,
-        name: mapped.name,
-        accountType: mapped.accountType,
-        vismaNxtAccountId: vnxtAcc.accountNo,
-      });
-    } else {
-      toInsert.push({
-        companyId,
-        accountNumber: mapped.accountNumber,
-        name: mapped.name,
-        accountType: mapped.accountType,
-        vismaNxtAccountId: vnxtAcc.accountNo,
-      });
-    }
-  }
+    return {
+      companyId,
+      accountNumber: mapped.accountNumber,
+      name: mapped.name,
+      accountType: mapped.accountType as "ledger" | "bank",
+      vismaNxtAccountId: vnxtAcc.accountNo,
+    };
+  });
 
-  for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
-    await db.insert(accounts).values(toInsert.slice(i, i + BATCH_SIZE));
-  }
-
-  const PARALLEL = 25;
-  for (let i = 0; i < toUpdate.length; i += PARALLEL) {
-    const batch = toUpdate.slice(i, i + PARALLEL);
-    await Promise.all(
-      batch.map((row) =>
-        db
-          .update(accounts)
-          .set({ name: row.name, accountType: row.accountType, vismaNxtAccountId: row.vismaNxtAccountId })
-          .where(eq(accounts.id, row.id))
-      )
-    );
+  for (let i = 0; i < accountRows.length; i += BATCH_SIZE) {
+    await db
+      .insert(accounts)
+      .values(accountRows.slice(i, i + BATCH_SIZE))
+      .onConflictDoUpdate({
+        target: [accounts.companyId, accounts.accountNumber],
+        set: {
+          name: sql`excluded.name`,
+          accountType: sql`excluded.account_type`,
+          vismaNxtAccountId: sql`excluded.visma_nxt_account_id`,
+        },
+      });
   }
 
   const duration = Date.now() - t0;
@@ -315,31 +292,29 @@ export async function syncBalancesForAccounts(
     .filter((acct) => balanceMap.has(acct.accountNumber))
     .map((acct) => ({
       accountNumber: acct.accountNumber,
-      balance: balanceMap.get(acct.accountNumber)!,
+      balance: balanceMap.get(acct.accountNumber)!.toFixed(2),
     }));
 
-  const PARALLEL = 25;
-  for (let i = 0; i < toUpdateBalances.length; i += PARALLEL) {
-    const batch = toUpdateBalances.slice(i, i + PARALLEL);
-    await Promise.all(
-      batch.map(({ accountNumber, balance }) =>
-        db
-          .update(accountSyncSettings)
-          .set({
-            balanceOut: balance.toFixed(2),
-            balanceYear: year,
-            lastBalanceSyncAt: now,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(accountSyncSettings.tenantId, tenantId),
-              eq(accountSyncSettings.companyId, companyId),
-              eq(accountSyncSettings.accountNumber, accountNumber)
-            )
-          )
-      )
-    );
+  if (toUpdateBalances.length > 0) {
+    const CHUNK = 200;
+    for (let i = 0; i < toUpdateBalances.length; i += CHUNK) {
+      const chunk = toUpdateBalances.slice(i, i + CHUNK);
+      const valuesList = chunk
+        .map((b) => `('${b.accountNumber}', ${b.balance})`)
+        .join(", ");
+
+      await db.execute(sql`
+        UPDATE account_sync_settings SET
+          balance_out = v.bal::text,
+          balance_year = ${year},
+          last_balance_sync_at = ${now},
+          updated_at = ${now}
+        FROM (VALUES ${sql.raw(valuesList)}) AS v(acct, bal)
+        WHERE account_sync_settings.tenant_id = ${tenantId}
+          AND account_sync_settings.company_id = ${companyId}
+          AND account_sync_settings.account_number = v.acct
+      `);
+    }
   }
 
   const balancesUpdated = toUpdateBalances.length;
