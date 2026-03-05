@@ -52,10 +52,10 @@ export const GET_TRANSACTIONS = `
     $companyNo: Int!
     $first: Int
     $after: String
-    $yearFrom: Int
-    $yearTo: Int
-    $periodFrom: Int
-    $periodTo: Int
+    $yearFrom: Short
+    $yearTo: Short
+    $periodFrom: Short
+    $periodTo: Short
     $accountNo: Int
   ) {
     useCompany(no: $companyNo) {
@@ -97,7 +97,7 @@ export const GET_TRANSACTIONS = `
 export const GET_TRANSACTIONS_BY_YEAR = `
   query GetTransactionsByYear(
     $companyNo: Int!
-    $year: Int!
+    $year: Short!
     $first: Int
     $after: String
   ) {
@@ -134,9 +134,9 @@ export const GET_TRANSACTIONS_BY_YEAR = `
 export const GET_TRIAL_BALANCE = `
   query GetTrialBalance(
     $companyNo: Int!
-    $year: Int!
-    $periodFrom: Int
-    $periodTo: Int
+    $year: Short!
+    $periodFrom: Short
+    $periodTo: Short
   ) {
     useCompany(no: $companyNo) {
       generalLedgerTransaction(
@@ -247,9 +247,9 @@ export const INTROSPECT_TABLES = `
 export const GET_VAT_TRANSACTIONS = `
   query GetVatTransactions(
     $companyNo: Int!
-    $year: Int!
-    $periodFrom: Int
-    $periodTo: Int
+    $year: Short!
+    $periodFrom: Short
+    $periodTo: Short
     $first: Int
     $after: String
   ) {
