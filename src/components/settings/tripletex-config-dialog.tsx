@@ -192,7 +192,7 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
       fetch("/api/clients")
         .then((r) => r.json())
         .then((d) => setClients(Array.isArray(d) ? d : []))
-        .catch(() => {});
+        .catch((err) => console.error("[tripletex-config] Failed to load clients:", err));
     }
   }, [connectionOk, loadCompanies, loadAccounts]);
 

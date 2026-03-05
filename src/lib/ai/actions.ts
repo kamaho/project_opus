@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getClientSummary, getUnmatchedSummary, getOrgContacts } from "./context";
 import { db } from "@/lib/db";
-import { regulatoryDeadlines, tutorials } from "@/lib/db/schema";
+import { deadlineTemplates, tutorials } from "@/lib/db/schema";
 import { sql, eq } from "drizzle-orm";
 import { validateClientTenant } from "@/lib/db/tenant";
 import { runAutoMatch } from "@/lib/matching/engine";
@@ -187,29 +187,24 @@ export async function executeAction(
     case "get_upcoming_deadlines": {
       const deadlines = await db
         .select({
-          obligation: regulatoryDeadlines.obligation,
-          title: regulatoryDeadlines.title,
-          description: regulatoryDeadlines.description,
-          frequency: regulatoryDeadlines.frequency,
-          legalReference: regulatoryDeadlines.legalReference,
-          legalUrl: regulatoryDeadlines.legalUrl,
-          deadlineRule: regulatoryDeadlines.deadlineRule,
+          name: deadlineTemplates.name,
+          slug: deadlineTemplates.slug,
+          description: deadlineTemplates.description,
+          category: deadlineTemplates.category,
+          periodicity: deadlineTemplates.periodicity,
+          dueDateRule: deadlineTemplates.dueDateRule,
         })
-        .from(regulatoryDeadlines)
-        .where(
-          sql`(${regulatoryDeadlines.validTo} IS NULL OR ${regulatoryDeadlines.validTo} >= CURRENT_DATE)`
-        )
+        .from(deadlineTemplates)
         .limit(20);
 
       return {
         frister: deadlines.map((d) => ({
-          type: d.obligation,
-          tittel: d.title,
+          type: d.slug,
+          tittel: d.name,
           beskrivelse: d.description,
-          frekvens: d.frequency,
-          lovhenvisning: d.legalReference,
-          url: d.legalUrl,
-          regel: d.deadlineRule,
+          frekvens: d.periodicity,
+          kategori: d.category,
+          regel: d.dueDateRule,
         })),
         merknad: `Viser ${deadlines.length} aktive frister. Verifiser alltid gjeldende frister på skatteetaten.no`,
       };

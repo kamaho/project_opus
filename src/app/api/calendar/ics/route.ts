@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { calendarEvents, tasks, deadlineTemplates } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
@@ -55,21 +54,14 @@ function resolveDeadlineDatesForYear(
   return dates;
 }
 
-export async function GET(req: NextRequest) {
-  const { orgId, userId } = await auth();
-  if (!orgId || !userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+export const GET = withTenant(async (_req, { tenantId }) => {
   const now = new Date();
-  const yearStart = new Date(now.getFullYear(), 0, 1);
-  const yearEnd = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
 
   const [events, taskRows, deadlines] = await Promise.all([
     db
       .select()
       .from(calendarEvents)
-      .where(eq(calendarEvents.tenantId, orgId))
+      .where(eq(calendarEvents.tenantId, tenantId))
       .limit(1000),
     db
       .select({
@@ -82,7 +74,7 @@ export async function GET(req: NextRequest) {
       .from(tasks)
       .where(
         and(
-          eq(tasks.tenantId, orgId),
+          eq(tasks.tenantId, tenantId),
           inArray(tasks.status, ["open", "in_progress", "waiting"]),
         )
       )
@@ -171,4 +163,4 @@ export async function GET(req: NextRequest) {
       "Content-Disposition": "attachment; filename=revizo-kalender.ics",
     },
   });
-}
+});

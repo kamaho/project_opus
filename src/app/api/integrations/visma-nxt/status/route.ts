@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { withTenant } from "@/lib/auth";
 import { getConnection } from "@/lib/visma-nxt/auth";
 import { db } from "@/lib/db";
 import { companies, vismaNxtSyncConfigs } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
-export async function GET() {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return NextResponse.json({ connected: false }, { status: 401 });
-  }
-
-  const conn = await getConnection(orgId);
+export const GET = withTenant(async (_req, { tenantId }) => {
+  const conn = await getConnection(tenantId);
   if (!conn || !conn.isActive) {
     return NextResponse.json({
       connected: false,
@@ -28,7 +23,7 @@ export async function GET() {
       .from(companies)
       .where(
         and(
-          eq(companies.tenantId, orgId),
+          eq(companies.tenantId, tenantId),
           eq(companies.vismaNxtCompanyNo, conn.companyNo)
         )
       )
@@ -40,7 +35,7 @@ export async function GET() {
   const [syncConfig] = await db
     .select({ lastSyncAt: vismaNxtSyncConfigs.lastSyncAt })
     .from(vismaNxtSyncConfigs)
-    .where(eq(vismaNxtSyncConfigs.tenantId, orgId))
+    .where(eq(vismaNxtSyncConfigs.tenantId, tenantId))
     .limit(1);
   if (syncConfig?.lastSyncAt) {
     lastSync = syncConfig.lastSyncAt.toISOString();
@@ -52,4 +47,4 @@ export async function GET() {
     companyName,
     lastSync,
   });
-}
+});

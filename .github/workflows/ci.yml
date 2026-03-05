@@ -37,7 +37,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder"
           ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      - name: Unit tests
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          DATABASE_MIGRATION_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_placeholder"
+          CLERK_SECRET_KEY: "sk_test_placeholder"
+          NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+          SUPABASE_SERVICE_ROLE_KEY: "placeholder"
+          ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+        run: npm test
 
       - name: Build
         env:

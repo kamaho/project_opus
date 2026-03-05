@@ -109,7 +109,7 @@ export function AppBreadcrumb() {
       .then((data) => {
         if (!cancelled && data) setCurrentClientFromApi(data);
       })
-      .catch(() => {});
+      .catch((err) => { if (!cancelled) console.error("[breadcrumb] fetch error:", err); });
     return () => { cancelled = true; };
   }, [clientIdFromPath]);
 

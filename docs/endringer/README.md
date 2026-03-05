@@ -14,5 +14,6 @@ Filer her er ment som **supplement** til commit-meldinger og kan referere til ko
 
 | Fil | Beskrivelse |
 |---|---|
+| `2026-03-04-systematisk-kodegjennomgang.md` | Systematisk kodegjennomgang: 5 kritiske + 5 viktige sikkerhet/kvalitet/ytelse-fikser, 15 TS-feil fikset |
 | `2026-03-02-prod-hardening.md` | Onboarding-bugfix, full prod-skjema-migrering, GitHub Actions-pipeline, indekser, schema-drift hardening |
 | `2025-02-19-import-excel-klink-felter.md` | Excel-import og klink-felter |

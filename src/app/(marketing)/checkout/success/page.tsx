@@ -11,8 +11,6 @@ interface SessionInfo {
   planName: string;
   price: number;
   interval: string;
-  stripeCustomerId: string;
-  stripeSubscriptionId: string;
 }
 
 function SuccessContent() {
@@ -33,15 +31,10 @@ function SuccessContent() {
         setSession(data);
         localStorage.setItem(
           "revizo_checkout",
-          JSON.stringify({
-            plan: data.plan,
-            stripeCustomerId: data.stripeCustomerId,
-            stripeSubscriptionId: data.stripeSubscriptionId,
-            sessionId,
-          })
+          JSON.stringify({ plan: data.plan, sessionId })
         );
       })
-      .catch(() => {})
+      .catch((err) => console.error("[checkout/success] fetch error:", err))
       .finally(() => setLoading(false));
   }, [sessionId]);
 

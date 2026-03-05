@@ -23,13 +23,12 @@ describe("mapCompany", () => {
     const input: VnxtCompany = {
       companyNo: 123456,
       companyName: "Test AS",
-      organizationNo: "912345678",
-      isActive: true,
+      customerNo: 1,
     };
     const result = mapCompany(input);
     expect(result).toEqual({
       name: "Test AS",
-      orgNumber: "912345678",
+      orgNumber: null,
       vismaNxtCompanyNo: 123456,
     });
   });
@@ -38,8 +37,7 @@ describe("mapCompany", () => {
     const input: VnxtCompany = {
       companyNo: 1,
       companyName: "No Org",
-      organizationNo: null,
-      isActive: true,
+      customerNo: 2,
     };
     expect(mapCompany(input).orgNumber).toBeNull();
   });

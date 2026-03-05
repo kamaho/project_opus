@@ -23,9 +23,6 @@ export async function GET(request: NextRequest) {
       planName: display.name,
       price:
         interval === "year" ? display.yearlyPrice : display.monthlyPrice,
-      customerEmail: session.customer_details?.email,
-      stripeCustomerId: session.customer,
-      stripeSubscriptionId: session.subscription,
     });
   } catch (error) {
     console.error("[checkout/session]", error);

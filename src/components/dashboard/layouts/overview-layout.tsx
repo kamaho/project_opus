@@ -27,7 +27,7 @@ export default function OverviewLayout({
   const deadlineWidget = byId["deadline-widget"] ?? null;
 
   return (
-    <DashboardDataProvider clientId={clientId} companyId={companyId}>
+    <DashboardDataProvider tenantId={tenantId} clientId={clientId} companyId={companyId}>
     <div className="space-y-4">
       {/* Row 1: Key figures + Attention — same size, side by side */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 items-stretch">

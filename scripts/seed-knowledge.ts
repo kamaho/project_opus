@@ -546,7 +546,7 @@ const deadlines = [
     name: "Årsregnskap til Brønnøysund",
     slug: "aarsregnskap",
     description: "Innsending av årsregnskap til Regnskapsregisteret",
-    category: "annual_accounts" as const,
+    category: "reporting" as const,
     periodicity: "annual" as const,
     dueDateRule: { type: "fixed_annual", month: 7, day: 31 },
     isSystem: true,

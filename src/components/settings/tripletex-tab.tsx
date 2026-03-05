@@ -176,7 +176,7 @@ export function TripletexTab() {
       fetch("/api/clients")
         .then((r) => r.json())
         .then((d) => setClients(Array.isArray(d) ? d : []))
-        .catch(() => {});
+        .catch((err) => console.error("[tripletex-tab] Failed to load clients:", err));
     }
   }, [connectionOk, loadCompanies, loadAccounts]);
 

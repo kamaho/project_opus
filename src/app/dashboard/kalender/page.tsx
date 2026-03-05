@@ -93,13 +93,11 @@ export default async function KalenderPage() {
     <CalendarClient
       deadlines={deadlines.map((d) => ({
         id: d.id,
-        title: d.title,
-        obligation: d.obligation,
+        title: d.name,
+        obligation: d.slug,
         description: d.description,
-        frequency: d.frequency,
-        deadlineRule: d.deadlineRule as { day: number; month?: number; relative_to?: string; months_after?: number },
-        periodStartMonth: d.periodStartMonth,
-        periodEndMonth: d.periodEndMonth,
+        frequency: d.periodicity,
+        deadlineRule: d.dueDateRule as { day: number; month?: number; relative_to?: string; months_after?: number },
       }))}
       tasks={activeTasks.map((t) => ({
         id: t.id,

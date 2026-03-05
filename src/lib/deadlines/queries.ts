@@ -24,6 +24,7 @@ export interface TaskRow {
 }
 
 interface RawDeadlineRow {
+  [key: string]: unknown;
   id: string;
   tenant_id: string;
   template_id: string;
@@ -206,6 +207,7 @@ export async function getDeadlineById(
 }
 
 interface RawTaskRow {
+  [key: string]: unknown;
   id: string;
   title: string;
   description: string | null;
@@ -267,6 +269,7 @@ export async function getDeadlineSummary(
 }
 
 interface SummaryRow {
+  [key: string]: unknown;
   total: number;
   done: number;
   on_track: number;

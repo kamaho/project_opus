@@ -5,6 +5,15 @@ import { db } from "@/lib/db";
 import { tutorials, tutorialSteps } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { isSystemAdmin } from "@/lib/auth/is-system-admin";
+import { z } from "zod";
+
+const patchTutorialSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  pathnamePattern: z.string().min(1).max(500).optional(),
+  visibility: z.enum(["all", "specific"]).optional(),
+  isPublished: z.boolean().optional(),
+});
 
 export const GET = withTenant(async (_req, _ctx, params) => {
   const tutorialId = params!.tutorialId;
@@ -38,20 +47,20 @@ export const PATCH = withTenant(async (req, _ctx, params) => {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
 
-  const { name, description, pathnamePattern, visibility, isPublished } = body as {
-    name?: string;
-    description?: string;
-    pathnamePattern?: string;
-    visibility?: "all" | "specific";
-    isPublished?: boolean;
-  };
+  const parsed = patchTutorialSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Ugyldig data" },
+      { status: 400 }
+    );
+  }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (name?.trim()) updates.name = name.trim();
-  if (description !== undefined) updates.description = description?.trim() || null;
-  if (pathnamePattern?.trim()) updates.pathnamePattern = pathnamePattern.trim();
-  if (visibility) updates.visibility = visibility;
-  if (isPublished !== undefined) updates.isPublished = isPublished;
+  if (parsed.data.name) updates.name = parsed.data.name.trim();
+  if (parsed.data.description !== undefined) updates.description = parsed.data.description?.trim() || null;
+  if (parsed.data.pathnamePattern) updates.pathnamePattern = parsed.data.pathnamePattern.trim();
+  if (parsed.data.visibility) updates.visibility = parsed.data.visibility;
+  if (parsed.data.isPublished !== undefined) updates.isPublished = parsed.data.isPublished;
 
   await db.update(tutorials).set(updates).where(eq(tutorials.id, tutorialId));
 

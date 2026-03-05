@@ -92,6 +92,7 @@ const DashboardDataContext = createContext<DashboardData | null>(null);
 /* ── Module-level cache ────────────────────────────────────────── */
 
 interface CachedDashboard {
+  tenantId: string;
   companyId: string | undefined;
   stats: AgencyStats | null;
   reconciliation: ReconciliationRow[];
@@ -109,15 +110,17 @@ const CACHE_TTL = 60_000;
 /* ── Provider ──────────────────────────────────────────────────── */
 
 export function DashboardDataProvider({
+  tenantId,
   clientId,
   companyId,
   children,
 }: {
+  tenantId: string;
   clientId?: string;
   companyId?: string;
   children: ReactNode;
 }) {
-  const hasFresh = cache && cache.companyId === companyId && Date.now() - cache.ts < CACHE_TTL;
+  const hasFresh = cache && cache.tenantId === tenantId && cache.companyId === companyId && Date.now() - cache.ts < CACHE_TTL;
 
   const [stats, setStats] = useState<AgencyStats | null>(cache?.stats ?? null);
   const [reconciliation, setReconciliation] = useState<ReconciliationRow[]>(cache?.reconciliation ?? []);
@@ -130,7 +133,7 @@ export function DashboardDataProvider({
 
   const fetchAll = useCallback(
     (force = false, signal?: AbortSignal) => {
-      if (!force && cache && cache.companyId === companyId && Date.now() - cache.ts < CACHE_TTL) {
+      if (!force && cache && cache.tenantId === tenantId && cache.companyId === companyId && Date.now() - cache.ts < CACHE_TTL) {
         setLoading(false);
         return;
       }
@@ -145,9 +148,9 @@ export function DashboardDataProvider({
         ? `/api/dashboard/clients/${clientId}/activity`
         : "/api/dashboard/agency/activity";
 
-      const safeFetch = (url: string, fallback: unknown) =>
+      const safeFetch = <T,>(url: string, fallback: T): Promise<T> =>
         fetch(url, { signal })
-          .then((r) => (r.ok ? r.json() : fallback))
+          .then((r) => (r.ok ? r.json() as Promise<T> : fallback))
           .catch(() => fallback);
 
       const now = new Date();
@@ -160,7 +163,7 @@ export function DashboardDataProvider({
         safeFetch(q("/api/dashboard/deadline-status"), []),
         safeFetch(q("/api/tasks?status=open,in_progress,waiting"), []),
         safeFetch(q(activityUrl), []),
-        safeFetch(q(`/api/deadlines?from=${fromDate}&to=${toDate}`), { deadlines: [], summary: null }),
+        safeFetch<{ deadlines: DeadlineWithSummary[]; summary: DeadlinesSummary | null }>(q(`/api/deadlines?from=${fromDate}&to=${toDate}`), { deadlines: [], summary: null }),
       ])
         .then(([s, r, d, t, a, dlData]) => {
           if (signal?.aborted) return;
@@ -182,6 +185,7 @@ export function DashboardDataProvider({
           setActivity(newActivity);
 
           cache = {
+            tenantId,
             companyId,
             stats: newStats,
             reconciliation: newRecon,
@@ -200,7 +204,7 @@ export function DashboardDataProvider({
           if (!signal?.aborted) setLoading(false);
         });
     },
-    [clientId, companyId]
+    [tenantId, clientId, companyId]
   );
 
   useEffect(() => {

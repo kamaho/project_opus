@@ -6,6 +6,15 @@ import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { getCompaniesByTenant } from "@/lib/db/tenant";
 import { revalidateCompanies } from "@/lib/revalidate";
+import { z } from "zod";
+
+const createCompanySchema = z.object({
+  name: z.string().min(1, "Navn er påkrevd").max(500),
+  orgNumber: z.string().max(20).optional(),
+  type: z.enum(["company", "group"]).default("company"),
+  parentCompanyId: z.string().uuid().optional(),
+  tripletexCompanyId: z.number().int().positive().optional(),
+});
 
 /** GET: Liste selskap for nåværende organisasjon (tenant). */
 export const GET = withTenant(async (_req, { tenantId }) => {
@@ -17,19 +26,16 @@ export const GET = withTenant(async (_req, { tenantId }) => {
 export const POST = withTenant(async (req, { tenantId }) => {
   try {
     const body = await req.json();
-    const { name, orgNumber, type, parentCompanyId, tripletexCompanyId } = body as {
-      name?: string;
-      orgNumber?: string;
-      type?: "company" | "group";
-      parentCompanyId?: string;
-      tripletexCompanyId?: number;
-    };
-
-    if (!name?.trim()) {
-      return NextResponse.json({ error: "Navn er påkrevd" }, { status: 400 });
+    const parsed = createCompanySchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "Ugyldig data" },
+        { status: 400 }
+      );
     }
+    const { name, orgNumber, type, parentCompanyId, tripletexCompanyId } = parsed.data;
 
-    const companyType = type === "group" ? "group" : "company";
+    const companyType = type;
 
     if (parentCompanyId) {
       const [parent] = await db

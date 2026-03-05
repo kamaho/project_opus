@@ -174,6 +174,7 @@ Revizo har et solid fundament — Clerk for autentisering, `withTenant()` wrappe
 | **Ruter** | `clients POST`, `clients/assign PATCH`, `companies POST`, `client-groups POST`, `clients/compare GET`, m.fl. |
 | **Problem** | Brukerinput valideres manuelt eller ikke i det hele tatt. Mangel på typesjekk for UUID-er, enumverdier, osv. |
 | **Tiltak** | Innfør Zod-skjemaer for alle ruter som aksepterer brukerinput. |
+| **Status** | **Delvis fikset (2026-03-04):** Zod-skjemaer lagt til på `companies`, `client-groups`, `client-groups/[id]`, `tutorials`, `tutorials/[id]`, `webhooks/subscriptions`, `deadlines/[id]`. Se `docs/endringer/2026-03-04-systematisk-kodegjennomgang.md`. |
 
 ### 3.5 Database SSL ikke eksplisitt konfigurert
 
@@ -238,6 +239,7 @@ Revizo har et solid fundament — Clerk for autentisering, `withTenant()` wrappe
 | **Fil** | `src/app/api/tutorials/[tutorialId]/route.ts` |
 | **Problem** | Enhver autentisert bruker kan lese enhver tutorial via ID. |
 | **Tiltak** | Akseptabelt hvis tutorials er globale; dokumenter beslutningen. |
+| **Status** | **Avklart (2026-03-04):** Tutorials-tabellen har ingen `tenantId`-kolonne — de er globale og opprettes kun av system-admins via `isSystemAdmin()`-sjekk. Lav risiko; Zod-validering lagt til på PATCH. |
 
 ---
 
@@ -405,6 +407,33 @@ Revizo har et solid fundament — Clerk for autentisering, `withTenant()` wrappe
 | AI-data | `aiUserMemory`, `aiConversations` | Nei | Ubestemt |
 | Revisjonsspor | `auditLogs.metadata` | Nei | Ubestemt |
 | API-credentials | `tripletexConnections` | **Nei — KRITISK** | Ubestemt |
+
+---
+
+---
+
+## 11. GJENNOMFØRTE TILTAK
+
+### 2026-03-04 — Systematisk kodegjennomgang
+
+Full gjennomgang av kodebasen med fokus på sikkerhet, kodekvalitet, ytelse og DX. 10 tiltak implementert:
+
+| # | Tiltak | Referanse |
+|---|--------|-----------|
+| 1 | Tverr-tenant cache-lekkasje i DashboardDataProvider fikset | Ny — C4 |
+| 2 | Tenant-eskalering i Visma authorize fjernet, 4 ruter migrert til `withTenant` | Ny — C1 |
+| 3 | Checkout/session returnerer ikke lenger sensitive Stripe-IDer | Ny — C2 |
+| 4 | Onboarding/complete verifiserer subscription server-side via Stripe | Ny — C3 |
+| 5 | Migrasjonsjournal reconcilert: 0021 lagt til, 22 orphans arkivert | Ny — A1 |
+| 6 | Zod-skjemaer på 7 API-ruter | §3.4 |
+| 7 | Sekvensielle DB-queries optimert (bulk-update + parallellisering) | Ny — P1/P2 |
+| 8 | Indeks på `parser_configs.tenant_id` | Ny — P3 |
+| 9 | Test-script, lint-script, pg fjernet, CI oppdatert | Ny — D1/D2/D3 |
+| 10 | Error-swallowing erstattet med logging (7 steder) | Ny — I4 |
+
+Webhook signaturverifisering og CSRF-beskyttelse ble også auditert — ingen funn.
+
+Se fullstendig dokumentasjon: `docs/endringer/2026-03-04-systematisk-kodegjennomgang.md`
 
 ---
 

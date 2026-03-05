@@ -7,7 +7,7 @@ import {
   accountSyncSettings,
   clients,
 } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { tripletexGet } from "@/lib/tripletex";
 import { fetchAllPages } from "./pagination";
 import {
@@ -295,6 +295,7 @@ export async function syncBalancesForAccounts(
   const now = new Date();
 
   for (const acct of rows) {
+    if (acct.tripletexAccountId == null) continue;
     const balance = balanceMap.get(acct.tripletexAccountId);
     if (!balance) continue;
 
@@ -390,17 +391,15 @@ export async function syncTransactionsForAccount(
       ...(config.set2TripletexAccountIds ?? []),
     ];
     if (accountIds.length > 0) {
-      for (const txAccId of accountIds) {
-        await db
-          .update(accountSyncSettings)
-          .set({ lastTxSyncAt: new Date(), txCount: totalTx, updatedAt: new Date() })
-          .where(
-            and(
-              eq(accountSyncSettings.tenantId, config.tenantId),
-              eq(accountSyncSettings.tripletexAccountId, txAccId)
-            )
-          );
-      }
+      await db
+        .update(accountSyncSettings)
+        .set({ lastTxSyncAt: new Date(), txCount: totalTx, updatedAt: new Date() })
+        .where(
+          and(
+            eq(accountSyncSettings.tenantId, config.tenantId),
+            inArray(accountSyncSettings.tripletexAccountId, accountIds)
+          )
+        );
     }
 
     await db

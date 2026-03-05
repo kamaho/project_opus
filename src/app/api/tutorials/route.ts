@@ -6,6 +6,23 @@ import { tutorials, tutorialSteps, tutorialCompletions } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { isSystemAdmin } from "@/lib/auth/is-system-admin";
 import { matchPathname } from "@/lib/tutorial/pathname-matcher";
+import { z } from "zod";
+
+const stepSchema = z.object({
+  elementSelector: z.string().min(1).max(500),
+  title: z.string().min(1).max(200),
+  description: z.string().max(1000).optional(),
+  pathname: z.string().max(500).optional(),
+  tooltipPosition: z.enum(["top", "bottom", "left", "right"]).optional(),
+});
+
+const createTutorialSchema = z.object({
+  name: z.string().min(1, "Navn er påkrevd").max(200),
+  description: z.string().max(1000).optional(),
+  pathnamePattern: z.string().min(1, "Pathname er påkrevd").max(500),
+  visibility: z.enum(["all", "specific"]).default("all"),
+  steps: z.array(stepSchema).optional(),
+});
 
 export const GET = withTenant(async (req, { userId }) => {
   const { searchParams } = new URL(req.url);
@@ -57,23 +74,16 @@ export const POST = withTenant(async (req) => {
   }
 
   const body = await req.json().catch(() => null);
-  if (!body?.name || !body?.pathnamePattern) {
-    return NextResponse.json({ error: "Navn og pathname kreves" }, { status: 400 });
-  }
+  if (!body) return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
 
-  const { name, description, pathnamePattern, visibility, steps } = body as {
-    name: string;
-    description?: string;
-    pathnamePattern: string;
-    visibility?: "all" | "specific";
-    steps?: {
-      elementSelector: string;
-      title: string;
-      description?: string;
-      pathname?: string;
-      tooltipPosition?: string;
-    }[];
-  };
+  const parsed = createTutorialSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Ugyldig data" },
+      { status: 400 }
+    );
+  }
+  const { name, description, pathnamePattern, visibility, steps } = parsed.data;
 
   const [tutorial] = await db
     .insert(tutorials)
@@ -96,7 +106,7 @@ export const POST = withTenant(async (req) => {
         title: s.title,
         description: s.description || null,
         pathname: s.pathname || null,
-        tooltipPosition: (s.tooltipPosition as "top" | "bottom" | "left" | "right") ?? "bottom",
+        tooltipPosition: s.tooltipPosition ?? "bottom",
       }))
     );
   }

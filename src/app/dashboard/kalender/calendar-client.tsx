@@ -35,8 +35,8 @@ interface Deadline {
   description: string | null;
   frequency: string;
   deadlineRule: { day: number; month?: number; relative_to?: string; months_after?: number };
-  periodStartMonth: number | null;
-  periodEndMonth: number | null;
+  periodStartMonth?: number | null;
+  periodEndMonth?: number | null;
 }
 
 interface TaskItem {

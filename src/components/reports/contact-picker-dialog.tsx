@@ -70,7 +70,7 @@ export function ContactPickerDialog({
         .then((data) => {
           if (Array.isArray(data)) setContacts(data);
         })
-        .catch(() => {})
+        .catch((err) => console.error("[contact-picker] Failed to load contacts:", err))
         .finally(() => setLoading(false));
     }
   }, [open, defaultMessage]);

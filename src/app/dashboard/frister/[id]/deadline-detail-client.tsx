@@ -84,7 +84,7 @@ export default function DeadlineDetailClient() {
         .then((data) => {
           if (Array.isArray(data)) setCompanies(data.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })));
         })
-        .catch(() => {});
+        .catch((err) => console.error("[deadline-detail] Failed to load companies:", err));
       fetch("/api/clients")
         .then((r) => (r.ok ? r.json() : []))
         .then((data) => {
@@ -96,7 +96,7 @@ export default function DeadlineDetailClient() {
               companyName: c.companyName ?? "",
             })));
         })
-        .catch(() => {});
+        .catch((err) => console.error("[deadline-detail] Failed to load clients:", err));
     }
   }, [createDialogOpen, companies.length]);
 

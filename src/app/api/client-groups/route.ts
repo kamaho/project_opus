@@ -4,6 +4,13 @@ import { db } from "@/lib/db";
 import { clientGroups, clientGroupMembers, clients, companies } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
+import { z } from "zod";
+
+const createGroupSchema = z.object({
+  name: z.string().min(1, "Navn er påkrevd").max(200),
+  description: z.string().max(1000).optional(),
+  clientIds: z.array(z.string().uuid()).min(2, "Minst 2 klienter er påkrevd"),
+});
 
 export const GET = withTenant(async (_req, { tenantId }) => {
   const groups = await db
@@ -56,18 +63,14 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
 
-  const { name, description, clientIds } = body as {
-    name?: string;
-    description?: string;
-    clientIds?: string[];
-  };
-
-  if (!name?.trim()) {
-    return NextResponse.json({ error: "Navn er påkrevd" }, { status: 400 });
+  const parsed = createGroupSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Ugyldig data" },
+      { status: 400 }
+    );
   }
-  if (!clientIds?.length || clientIds.length < 2) {
-    return NextResponse.json({ error: "Minst 2 klienter er påkrevd" }, { status: 400 });
-  }
+  const { name, description, clientIds } = parsed.data;
 
   const validClients = await db
     .select({ id: clients.id })

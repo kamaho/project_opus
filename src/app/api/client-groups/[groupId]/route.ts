@@ -4,6 +4,16 @@ import { db } from "@/lib/db";
 import { clientGroups, clientGroupMembers, clients, companies } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
+import { z } from "zod";
+
+const patchGroupSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  color: z.string().max(20).nullable().optional(),
+  icon: z.string().max(50).nullable().optional(),
+  clientIds: z.array(z.string().uuid()).min(2).optional(),
+  assignedUserId: z.string().nullable().optional(),
+});
 
 export const DELETE = withTenant(async (_req, { tenantId, userId }, params) => {
   const groupId = params!.groupId;
@@ -35,14 +45,14 @@ export const PATCH = withTenant(async (req, { tenantId }, params) => {
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Ugyldig JSON" }, { status: 400 });
 
-  const { name, description, color, icon, clientIds, assignedUserId } = body as {
-    name?: string;
-    description?: string;
-    color?: string | null;
-    icon?: string | null;
-    clientIds?: string[];
-    assignedUserId?: string | null;
-  };
+  const parsed = patchGroupSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Ugyldig data" },
+      { status: 400 }
+    );
+  }
+  const { name, description, color, icon, clientIds, assignedUserId } = parsed.data;
 
   const updates: Partial<{ name: string; description: string | null; color: string | null; icon: string | null; assignedUserId: string | null }> = {};
   if (name?.trim()) updates.name = name.trim();

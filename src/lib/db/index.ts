@@ -19,7 +19,7 @@ if (!globalForDb._drizzle) {
     connect_timeout: 15,
     prepare: false,
     connection: {
-      statement_timeout: "30000",
+      statement_timeout: 30_000,
     },
   });
   globalForDb._drizzle = drizzle(client, { schema });
