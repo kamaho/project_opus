@@ -52,41 +52,27 @@ async function cleanStaleLocks() {
 }
 
 async function claimDueConfigs(): Promise<typeof agentReportConfigs.$inferSelect[]> {
-  const now = new Date();
+  const slotsAvailable = CONCURRENCY - activeJobs;
+  if (slotsAvailable <= 0) return [];
 
-  const rows = await db
-    .select()
-    .from(agentReportConfigs)
-    .where(
-      and(
-        eq(agentReportConfigs.enabled, true),
-        isNull(agentReportConfigs.lockedAt),
-        or(
-          lte(agentReportConfigs.nextMatchRun, now),
-          lte(agentReportConfigs.nextReportRun, now)
-        )
-      )
+  const nowIso = new Date().toISOString();
+
+  const claimed = await db.execute<typeof agentReportConfigs.$inferSelect>(sql`
+    UPDATE agent_report_configs
+    SET locked_at = ${nowIso}::timestamptz, locked_by = ${WORKER_ID}
+    WHERE id IN (
+      SELECT id FROM agent_report_configs
+      WHERE enabled = true
+        AND locked_at IS NULL
+        AND (next_match_run <= ${nowIso}::timestamptz OR next_report_run <= ${nowIso}::timestamptz)
+      ORDER BY priority ASC, LEAST(next_match_run, next_report_run) ASC
+      LIMIT ${slotsAvailable}
+      FOR UPDATE SKIP LOCKED
     )
-    .limit(CONCURRENCY - activeJobs);
+    RETURNING *
+  `);
 
-  const claimed: typeof agentReportConfigs.$inferSelect[] = [];
-
-  for (const row of rows) {
-    const [locked] = await db
-      .update(agentReportConfigs)
-      .set({ lockedAt: now, lockedBy: WORKER_ID })
-      .where(
-        and(
-          eq(agentReportConfigs.id, row.id),
-          isNull(agentReportConfigs.lockedAt)
-        )
-      )
-      .returning();
-
-    if (locked) claimed.push(locked);
-  }
-
-  return claimed;
+  return Array.from(claimed);
 }
 
 async function unlock(configId: string) {

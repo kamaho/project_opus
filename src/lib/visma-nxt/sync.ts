@@ -298,9 +298,10 @@ export async function syncBalancesForAccounts(
     const CHUNK = 200;
     for (let i = 0; i < toUpdateBalances.length; i += CHUNK) {
       const chunk = toUpdateBalances.slice(i, i + CHUNK);
-      const valuesList = chunk
-        .map((b) => `('${b.accountNumber}', ${b.balance})`)
-        .join(", ");
+      const valuesFragments = chunk.map(
+        (b) => sql`(${b.accountNumber}, ${b.balance}::numeric)`
+      );
+      const valuesSql = sql.join(valuesFragments, sql`, `);
 
       const nowIso = now.toISOString();
       await db.execute(sql`
@@ -309,7 +310,7 @@ export async function syncBalancesForAccounts(
           balance_year = ${year},
           last_balance_sync_at = ${nowIso}::timestamptz,
           updated_at = ${nowIso}::timestamptz
-        FROM (VALUES ${sql.raw(valuesList)}) AS v(acct, bal)
+        FROM (VALUES ${valuesSql}) AS v(acct, bal)
         WHERE account_sync_settings.tenant_id = ${tenantId}
           AND account_sync_settings.company_id = ${companyId}
           AND account_sync_settings.account_number = v.acct

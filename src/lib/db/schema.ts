@@ -764,6 +764,8 @@ export const agentReportConfigs = pgTable(
     lastReportRun: timestamp("last_report_run", { withTimezone: true }),
     lastMatchCount: integer("last_match_count"),
 
+    priority: integer("priority").notNull().default(10),
+
     lockedAt: timestamp("locked_at", { withTimezone: true }),
     lockedBy: text("locked_by"),
 

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 import { notifySmartMatchCompleted } from "@/lib/notifications";
+import { refreshClientStats } from "@/lib/db/refresh-stats";
 
 export const maxDuration = 60;
 
@@ -49,6 +50,8 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
           totalItems: result.totalItems,
         }).catch((e) => console.error("[auto-match] notification failed:", e));
       }
+
+      refreshClientStats().catch(() => {});
 
       return NextResponse.json(result);
     }

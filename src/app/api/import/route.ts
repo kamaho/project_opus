@@ -13,6 +13,7 @@ import { logAuditTx } from "@/lib/audit";
 export const maxDuration = 60;
 import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { notifyImportCompleted } from "@/lib/notifications";
+import { refreshClientStats } from "@/lib/db/refresh-stats";
 import * as Sentry from "@sentry/nextjs";
 import { MAX_IMPORT_SIZE } from "@/lib/upload-validation";
 
@@ -527,6 +528,8 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       recordCount: txToInsert.length,
       setNumber: setNum,
     }).catch((e) => console.error("[import] notification failed:", e));
+
+    refreshClientStats().catch(() => {});
 
     return NextResponse.json({
       importId: result.id,

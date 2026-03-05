@@ -7,10 +7,10 @@ export const GET = withTenant(async (req, { tenantId }) => {
   const companyId = new URL(req.url).searchParams.get("companyId");
 
   const companyClause = companyId
-    ? sql`co.tenant_id = ${tenantId} AND co.id = ${companyId}`
-    : sql`co.tenant_id = ${tenantId}`;
+    ? sql`mv.tenant_id = ${tenantId} AND mv.company_id = ${companyId}`
+    : sql`mv.tenant_id = ${tenantId}`;
 
-  const rows = await db.execute<{
+  let rows: {
     client_id: string;
     client_name: string;
     company_name: string;
@@ -19,25 +19,47 @@ export const GET = withTenant(async (req, { tenantId }) => {
     unmatched_count: string;
     unmatched_amount: string;
     last_activity: string | null;
-  }>(sql`
-    SELECT
-      c.id AS client_id,
-      c.name AS client_name,
-      co.name AS company_name,
-      COUNT(t.id) AS total_count,
-      COUNT(t.id) FILTER (WHERE t.match_status = 'matched') AS matched_count,
-      COUNT(t.id) FILTER (WHERE t.match_status = 'unmatched') AS unmatched_count,
-      COALESCE(SUM(ABS(t.amount::numeric)) FILTER (WHERE t.match_status = 'unmatched'), 0) AS unmatched_amount,
-      MAX(i.created_at)::text AS last_activity
-    FROM clients c
-    INNER JOIN companies co ON co.id = c.company_id
-    LEFT JOIN transactions t ON t.client_id = c.id
-    LEFT JOIN imports i ON i.client_id = c.id AND i.deleted_at IS NULL
-    WHERE ${companyClause}
-    GROUP BY c.id, c.name, co.name
-    ORDER BY
-      COALESCE(SUM(ABS(t.amount::numeric)) FILTER (WHERE t.match_status = 'unmatched'), 0) DESC
-  `);
+  }[];
+
+  try {
+    rows = await db.execute(sql`
+      SELECT
+        mv.client_id,
+        mv.client_name,
+        mv.company_name,
+        (mv.set1_count + mv.set2_count)::text AS total_count,
+        mv.matched_count::text AS matched_count,
+        mv.unmatched_count::text AS unmatched_count,
+        mv.unmatched_abs_total::text AS unmatched_amount,
+        mv.last_activity::text AS last_activity
+      FROM client_stats_mv mv
+      WHERE ${companyClause}
+      ORDER BY mv.unmatched_abs_total DESC
+    `) as typeof rows;
+  } catch {
+    const fallbackCompanyClause = companyId
+      ? sql`co.tenant_id = ${tenantId} AND co.id = ${companyId}`
+      : sql`co.tenant_id = ${tenantId}`;
+
+    rows = await db.execute(sql`
+      SELECT
+        c.id AS client_id,
+        c.name AS client_name,
+        co.name AS company_name,
+        COUNT(t.id)::text AS total_count,
+        COUNT(t.id) FILTER (WHERE t.match_status = 'matched')::text AS matched_count,
+        COUNT(t.id) FILTER (WHERE t.match_status = 'unmatched')::text AS unmatched_count,
+        COALESCE(SUM(ABS(t.amount::numeric)) FILTER (WHERE t.match_status = 'unmatched'), 0)::text AS unmatched_amount,
+        MAX(t.created_at)::text AS last_activity
+      FROM clients c
+      INNER JOIN companies co ON co.id = c.company_id
+      LEFT JOIN transactions t ON t.client_id = c.id
+      WHERE ${fallbackCompanyClause}
+      GROUP BY c.id, c.name, co.name
+      ORDER BY
+        COALESCE(SUM(ABS(t.amount::numeric)) FILTER (WHERE t.match_status = 'unmatched'), 0) DESC
+    `) as typeof rows;
+  }
 
   type RawRow = {
     client_id: string;

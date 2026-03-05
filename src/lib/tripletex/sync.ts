@@ -10,6 +10,7 @@ import {
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { tripletexGet } from "@/lib/tripletex";
 import { fetchAllPages } from "./pagination";
+import { refreshClientStats } from "@/lib/db/refresh-stats";
 import {
   mapCompany,
   mapAccount,
@@ -162,15 +163,16 @@ export async function syncAccounts(
     const CHUNK = 200;
     for (let i = 0; i < toUpdate.length; i += CHUNK) {
       const chunk = toUpdate.slice(i, i + CHUNK);
-      const valuesList = chunk
-        .map((u) => `('${u.id}', '${u.accountNumber.replace(/'/g, "''")}', '${u.name.replace(/'/g, "''")}', '${u.accountType}')`)
-        .join(", ");
+      const valuesFragments = chunk.map(
+        (u) => sql`(${u.id}, ${u.accountNumber}, ${u.name}, ${u.accountType})`
+      );
+      const valuesSql = sql.join(valuesFragments, sql`, `);
       await db.execute(sql`
         UPDATE accounts SET
           account_number = v.acct_num,
           name = v.acct_name,
           account_type = v.acct_type
-        FROM (VALUES ${sql.raw(valuesList)}) AS v(id, acct_num, acct_name, acct_type)
+        FROM (VALUES ${valuesSql}) AS v(id, acct_num, acct_name, acct_type)
         WHERE accounts.id = v.id::uuid
       `);
     }
@@ -350,9 +352,10 @@ export async function syncBalancesForAccounts(
     const CHUNK = 200;
     for (let i = 0; i < toUpdate.length; i += CHUNK) {
       const chunk = toUpdate.slice(i, i + CHUNK);
-      const valuesList = chunk
-        .map((b) => `('${b.accountNumber}', ${b.balanceIn ?? "NULL"}, ${b.balanceOut ?? "NULL"})`)
-        .join(", ");
+      const valuesFragments = chunk.map(
+        (b) => sql`(${b.accountNumber}, ${b.balanceIn}::numeric, ${b.balanceOut}::numeric)`
+      );
+      const valuesSql = sql.join(valuesFragments, sql`, `);
       await db.execute(sql`
         UPDATE account_sync_settings SET
           balance_in = v.bal_in,
@@ -360,7 +363,7 @@ export async function syncBalancesForAccounts(
           balance_year = ${year},
           last_balance_sync_at = ${nowIso}::timestamptz,
           updated_at = ${nowIso}::timestamptz
-        FROM (VALUES ${sql.raw(valuesList)}) AS v(acct, bal_in, bal_out)
+        FROM (VALUES ${valuesSql}) AS v(acct, bal_in, bal_out)
         WHERE account_sync_settings.tenant_id = ${tenantId}
           AND account_sync_settings.company_id = ${companyId}
           AND account_sync_settings.account_number = v.acct
@@ -778,6 +781,7 @@ export async function runFullSync(
       .where(eq(tripletexSyncConfigs.id, configId));
 
     console.log(`[sync] config=${configId} completed in ${Date.now() - t0}ms`);
+    refreshClientStats().catch(() => {});
     return { postings, bankTransactions, balancesUpdated };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

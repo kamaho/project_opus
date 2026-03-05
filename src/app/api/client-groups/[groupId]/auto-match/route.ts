@@ -10,6 +10,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
+import { refreshClientStats } from "@/lib/db/refresh-stats";
 
 export const maxDuration = 120;
 
@@ -116,6 +117,8 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
           },
         });
       }
+
+      refreshClientStats().catch(() => {});
 
       const response: GroupAutoMatchResult = {
         totalMatches,
