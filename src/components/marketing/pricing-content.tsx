@@ -201,29 +201,21 @@ export function PricingContent() {
               </ul>
 
               <div className="mt-6">
-                {isEnterprise ? (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    asChild
-                  >
+                <Button
+                  variant={plan.highlighted ? "default" : "outline"}
+                  className="w-full"
+                  asChild
+                >
+                  {isEnterprise ? (
                     <a href="mailto:hei@revizo.ai?subject=Enterprise%20-%20Revizo">
                       {plan.cta}
                     </a>
-                  </Button>
-                ) : (
-                  <Button
-                    variant={plan.highlighted ? "default" : "outline"}
-                    className="w-full"
-                    asChild
-                  >
-                    <Link
-                      href={`/checkout?plan=${plan.id}&interval=${interval}`}
-                    >
-                      {plan.cta}
+                  ) : (
+                    <Link href="/sign-up">
+                      Kom i gang
                     </Link>
-                  </Button>
-                )}
+                  )}
+                </Button>
               </div>
             </div>
           );
