@@ -146,14 +146,34 @@ export async function syncAccounts(
   }
 
   for (let i = 0; i < toInsert.length; i += 500) {
-    await db.insert(accounts).values(toInsert.slice(i, i + 500));
+    await db
+      .insert(accounts)
+      .values(toInsert.slice(i, i + 500))
+      .onConflictDoUpdate({
+        target: [accounts.companyId, accounts.accountNumber, accounts.accountType],
+        set: {
+          name: sql`excluded.name`,
+          tripletexAccountId: sql`excluded.tripletex_account_id`,
+        },
+      });
   }
 
-  for (const upd of toUpdate) {
-    await db
-      .update(accounts)
-      .set({ accountNumber: upd.accountNumber, name: upd.name, accountType: upd.accountType })
-      .where(eq(accounts.id, upd.id));
+  if (toUpdate.length > 0) {
+    const CHUNK = 200;
+    for (let i = 0; i < toUpdate.length; i += CHUNK) {
+      const chunk = toUpdate.slice(i, i + CHUNK);
+      const valuesList = chunk
+        .map((u) => `('${u.id}', '${u.accountNumber.replace(/'/g, "''")}', '${u.name.replace(/'/g, "''")}', '${u.accountType}')`)
+        .join(", ");
+      await db.execute(sql`
+        UPDATE accounts SET
+          account_number = v.acct_num,
+          name = v.acct_name,
+          account_type = v.acct_type
+        FROM (VALUES ${sql.raw(valuesList)}) AS v(id, acct_num, acct_name, acct_type)
+        WHERE accounts.id = v.id::uuid
+      `);
+    }
   }
 
   return toInsert.length + toUpdate.length;
@@ -225,9 +245,29 @@ export async function syncAccountList(
       });
   }
 
-  syncAccounts(tripletexCompanyId, companyId, tenantId).catch((err) => {
-    console.error("[sync] syncAccounts failed (non-blocking):", err);
+  // Also upsert into the main accounts table (reuses already-fetched data)
+  const accountRows = allAccounts.map((txAcc) => {
+    const mapped = mapAccount(txAcc);
+    return {
+      companyId,
+      accountNumber: mapped.accountNumber,
+      name: mapped.name,
+      accountType: mapped.accountType as "ledger" | "bank",
+      tripletexAccountId: txAcc.id,
+    };
   });
+  for (let i = 0; i < accountRows.length; i += BATCH_SIZE) {
+    await db
+      .insert(accounts)
+      .values(accountRows.slice(i, i + BATCH_SIZE))
+      .onConflictDoUpdate({
+        target: [accounts.companyId, accounts.accountNumber, accounts.accountType],
+        set: {
+          name: sql`excluded.name`,
+          tripletexAccountId: sql`excluded.tripletex_account_id`,
+        },
+      });
+  }
 
   const duration = Date.now() - t0;
   console.log(`[sync] syncAccountList done: ${allAccounts.length} accounts in ${duration}ms`);
@@ -291,36 +331,46 @@ export async function syncBalancesForAccounts(
       )
     );
 
-  let balancesUpdated = 0;
   const now = new Date();
+  const nowIso = now.toISOString();
 
+  const toUpdate: Array<{ accountNumber: string; balanceIn: string | null; balanceOut: string | null }> = [];
   for (const acct of rows) {
     if (acct.tripletexAccountId == null) continue;
     const balance = balanceMap.get(acct.tripletexAccountId);
     if (!balance) continue;
+    toUpdate.push({
+      accountNumber: acct.accountNumber,
+      balanceIn: balance.balanceIn?.toFixed(2) ?? null,
+      balanceOut: balance.balanceOut?.toFixed(2) ?? null,
+    });
+  }
 
-    await db
-      .update(accountSyncSettings)
-      .set({
-        balanceIn: balance.balanceIn?.toFixed(2) ?? null,
-        balanceOut: balance.balanceOut?.toFixed(2) ?? null,
-        balanceYear: year,
-        lastBalanceSyncAt: now,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(accountSyncSettings.tenantId, tenantId),
-          eq(accountSyncSettings.companyId, companyId),
-          eq(accountSyncSettings.accountNumber, acct.accountNumber),
-        )
-      );
-    balancesUpdated++;
+  if (toUpdate.length > 0) {
+    const CHUNK = 200;
+    for (let i = 0; i < toUpdate.length; i += CHUNK) {
+      const chunk = toUpdate.slice(i, i + CHUNK);
+      const valuesList = chunk
+        .map((b) => `('${b.accountNumber}', ${b.balanceIn ?? "NULL"}, ${b.balanceOut ?? "NULL"})`)
+        .join(", ");
+      await db.execute(sql`
+        UPDATE account_sync_settings SET
+          balance_in = v.bal_in,
+          balance_out = v.bal_out,
+          balance_year = ${year},
+          last_balance_sync_at = ${nowIso}::timestamptz,
+          updated_at = ${nowIso}::timestamptz
+        FROM (VALUES ${sql.raw(valuesList)}) AS v(acct, bal_in, bal_out)
+        WHERE account_sync_settings.tenant_id = ${tenantId}
+          AND account_sync_settings.company_id = ${companyId}
+          AND account_sync_settings.account_number = v.acct
+      `);
+    }
   }
 
   const duration = Date.now() - t0;
-  console.log(`[sync] syncBalances done: ${balancesUpdated} balances in ${duration}ms`);
-  return { balancesUpdated, duration };
+  console.log(`[sync] syncBalances done: ${toUpdate.length} balances in ${duration}ms`);
+  return { balancesUpdated: toUpdate.length, duration };
 }
 
 /**
@@ -699,16 +749,8 @@ export async function runFullSync(
     console.log(`[sync] config=${configId} syncCompany done in ${Date.now() - tCompany}ms`);
 
     const tAccounts = Date.now();
-    await syncAccounts(config.tripletexCompanyId, companyId, config.tenantId);
-    console.log(`[sync] config=${configId} syncAccounts done in ${Date.now() - tAccounts}ms`);
-
-    try {
-      const tAccountList = Date.now();
-      await syncAccountList(config.tripletexCompanyId, companyId, config.tenantId);
-      console.log(`[sync] config=${configId} syncAccountList done in ${Date.now() - tAccountList}ms`);
-    } catch (err) {
-      console.warn(`[sync] config=${configId} syncAccountList failed (non-fatal):`, err);
-    }
+    await syncAccountList(config.tripletexCompanyId, companyId, config.tenantId);
+    console.log(`[sync] config=${configId} syncAccountList done in ${Date.now() - tAccounts}ms`);
 
     const tPostings = Date.now();
     const [postings, bankTransactions] = await Promise.all([

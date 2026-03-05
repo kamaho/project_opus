@@ -42,12 +42,28 @@ export async function GET(request: Request) {
 
   const now = new Date();
 
+  // Auto-reset configs stuck in "syncing" for >10 minutes (Vercel timeout)
+  await db
+    .update(tripletexSyncConfigs)
+    .set({
+      syncStatus: "failed",
+      syncError: "Auto-reset: stuck in syncing state (timeout)",
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(tripletexSyncConfigs.syncStatus, "syncing"),
+        lt(tripletexSyncConfigs.updatedAt, sql`now() - interval '10 minutes'`)
+      )
+    );
+
   const dueConfigs = await db
     .select()
     .from(tripletexSyncConfigs)
     .where(
       and(
         eq(tripletexSyncConfigs.isActive, true),
+        sql`${tripletexSyncConfigs.syncStatus} != 'syncing'`,
         or(
           isNull(tripletexSyncConfigs.lastSyncAt),
           lt(
