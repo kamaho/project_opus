@@ -303,12 +303,13 @@ export async function syncBalancesForAccounts(
         .map((b) => `('${b.accountNumber}', ${b.balance})`)
         .join(", ");
 
+      const nowIso = now.toISOString();
       await db.execute(sql`
         UPDATE account_sync_settings SET
           balance_out = v.bal,
           balance_year = ${year},
-          last_balance_sync_at = ${now},
-          updated_at = ${now}
+          last_balance_sync_at = ${nowIso}::timestamptz,
+          updated_at = ${nowIso}::timestamptz
         FROM (VALUES ${sql.raw(valuesList)}) AS v(acct, bal)
         WHERE account_sync_settings.tenant_id = ${tenantId}
           AND account_sync_settings.company_id = ${companyId}
