@@ -7,6 +7,8 @@ import {
   webhookInbox,
 } from "@/lib/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 export const dynamic = "force-dynamic";
 
@@ -24,27 +26,19 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     return NextResponse.json({ error: "companyId required" }, { status: 400 });
   }
 
-  const body = await req.json();
-  const { accountNumbers, dateFrom, syncLevel: requestedLevel } = body as {
-    accountNumbers?: string[];
-    dateFrom?: string;
-    syncLevel?: "balance_only" | "transactions";
-  };
-  const syncLevel = requestedLevel ?? "balance_only";
+  const bulkSchema = z.object({
+    accountNumbers: z
+      .array(z.string().min(1, "Kontonummer kan ikke være tomt"))
+      .min(1, "Minst ett kontonummer er påkrevd")
+      .max(MAX_BULK_ACTIVATE, `Maks ${MAX_BULK_ACTIVATE} kontoer per gang`),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Må være YYYY-MM-DD").optional(),
+    syncLevel: z.enum(["balance_only", "transactions"], { message: "Må være 'balance_only' eller 'transactions'" }).default("balance_only"),
+  });
 
-  if (!accountNumbers || accountNumbers.length === 0) {
-    return NextResponse.json(
-      { error: "accountNumbers required" },
-      { status: 400 }
-    );
-  }
+  const parsed = bulkSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
 
-  if (accountNumbers.length > MAX_BULK_ACTIVATE) {
-    return NextResponse.json(
-      { error: `Maks ${MAX_BULK_ACTIVATE} kontoer per gang` },
-      { status: 400 }
-    );
-  }
+  const { accountNumbers, dateFrom, syncLevel } = parsed.data;
 
   const [company] = await db
     .select({

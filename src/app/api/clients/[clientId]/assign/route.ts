@@ -5,17 +5,21 @@ import { db } from "@/lib/db";
 import { clients } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { clerkClient } from "@clerk/nextjs/server";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
+
+const bodySchema = z.object({
+  userId: z.string().min(1, "userId kan ikke være tom").nullable(),
+});
 
 export const PATCH = withTenant(async (req, { tenantId }, params) => {
   await verifyClientOwnership(params!.clientId, tenantId);
   const clientId = params!.clientId;
 
-  const body = await req.json().catch(() => null);
-  if (!body || !("userId" in body)) {
-    return NextResponse.json({ error: "userId er påkrevd" }, { status: 400 });
-  }
+  const parsed = bodySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return zodError(parsed.error);
 
-  const userId = body.userId as string | null;
+  const { userId } = parsed.data;
 
   if (userId) {
     try {

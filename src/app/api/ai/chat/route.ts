@@ -6,6 +6,8 @@ import { rateLimit, RATE_LIMITS } from "@/lib/rate-limit";
 import { classifyQuery, validateResponse, OFF_TOPIC_RESPONSE } from "@/lib/ai/guardrails";
 import { buildSystemPrompt, buildEnrichedPrompt } from "@/lib/ai/system-prompt";
 import { searchKnowledge } from "@/lib/ai/knowledge-search";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 export const maxDuration = 60;
 
 import {
@@ -62,22 +64,25 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
     );
   }
 
-  let body: ChatRequest;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
+  const chatSchema = z.object({
+    messages: z
+      .array(z.object({
+        role: z.enum(["user", "assistant"]),
+        content: z.string().min(1, "Melding kan ikke være tom"),
+      }))
+      .min(1, "Minst én melding er påkrevd"),
+    conversationId: z.string().uuid().nullable().optional(),
+    pageContext: z.string().max(500).nullable().optional(),
+  }).refine((d) => {
+    const last = d.messages[d.messages.length - 1];
+    return last.role === "user";
+  }, { message: "Siste melding må være fra bruker", path: ["messages"] });
 
-  const { messages, conversationId, pageContext: pagePath } = body;
-  if (!messages || messages.length === 0) {
-    return NextResponse.json({ error: "No messages" }, { status: 400 });
-  }
+  const parsed = chatSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
 
+  const { messages, conversationId, pageContext: pagePath } = parsed.data;
   const lastUserMessage = messages[messages.length - 1];
-  if (lastUserMessage.role !== "user" || !lastUserMessage.content.trim()) {
-    return NextResponse.json({ error: "Last message must be from user" }, { status: 400 });
-  }
 
   const classification = classifyQuery(lastUserMessage.content);
   if (!classification.onTopic && classification.confidence > 0.8) {

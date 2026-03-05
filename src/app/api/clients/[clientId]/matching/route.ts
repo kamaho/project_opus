@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { imports, transactions, matches } from "@/lib/db/schema";
 import { eq, and, sql, inArray } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 /**
  * Dissolve all match groups that include transactions belonging to the given import IDs.
@@ -178,12 +180,13 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
   await verifyClientOwnership(params!.clientId, tenantId);
   const clientId = params!.clientId;
 
-  const body = await req.json().catch(() => ({}));
-  const importId = body.importId as string | undefined;
+  const restoreSchema = z.object({
+    importId: z.string().uuid("Må være en gyldig UUID"),
+  });
+  const parsed = restoreSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
 
-  if (!importId) {
-    return NextResponse.json({ error: "Mangler importId" }, { status: 400 });
-  }
+  const { importId } = parsed.data;
 
   const result = await db
     .update(imports)

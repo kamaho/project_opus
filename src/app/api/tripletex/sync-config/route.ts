@@ -3,6 +3,8 @@ import { after, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tripletexSyncConfigs, webhookInbox, clients, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +37,22 @@ export const GET = withTenant(async (req, { tenantId }) => {
  * POST /api/tripletex/sync-config
  * Creates a new sync config and runs initial sync.
  */
+const postSchema = z.object({
+  clientId: z.string().uuid("Må være en gyldig UUID"),
+  tripletexCompanyId: z.number().int().positive("Må være et positivt heltall"),
+  set1TripletexAccountIds: z.array(z.number().int()).optional(),
+  set2TripletexAccountIds: z.array(z.number().int()).optional(),
+  enabledFields: z.record(z.string(), z.boolean()).optional(),
+  dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Må være YYYY-MM-DD"),
+  syncIntervalMinutes: z.number().int().min(1).max(1440).optional(),
+  set1TripletexAccountId: z.number().int().optional(),
+  set2TripletexAccountId: z.number().int().optional(),
+});
+
 export const POST = withTenant(async (req, { tenantId }) => {
-  const body = await req.json();
+  const parsed = postSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
+
   const {
     clientId,
     tripletexCompanyId,
@@ -45,27 +61,9 @@ export const POST = withTenant(async (req, { tenantId }) => {
     enabledFields,
     dateFrom,
     syncIntervalMinutes,
-    // Legacy single-account support
     set1TripletexAccountId,
     set2TripletexAccountId,
-  } = body as {
-    clientId: string;
-    tripletexCompanyId: number;
-    set1TripletexAccountIds?: number[];
-    set2TripletexAccountIds?: number[];
-    enabledFields?: Record<string, boolean>;
-    dateFrom: string;
-    syncIntervalMinutes?: number;
-    set1TripletexAccountId?: number;
-    set2TripletexAccountId?: number;
-  };
-
-  if (!clientId || !tripletexCompanyId || !dateFrom) {
-    return NextResponse.json(
-      { error: "clientId, tripletexCompanyId, and dateFrom are required" },
-      { status: 400 }
-    );
-  }
+  } = parsed.data;
 
   const resolvedSet1Ids = set1TripletexAccountIds ?? (set1TripletexAccountId ? [set1TripletexAccountId] : []);
   const resolvedSet2Ids = set2TripletexAccountIds ?? (set2TripletexAccountId ? [set2TripletexAccountId] : []);
@@ -96,7 +94,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
         set2TripletexAccountId: resolvedSet2Ids[0] ?? null,
         set1TripletexAccountIds: resolvedSet1Ids,
         set2TripletexAccountIds: resolvedSet2Ids,
-        enabledFields: enabledFields ?? undefined,
+        enabledFields: (enabledFields as Record<string, boolean>) ?? undefined,
         dateFrom,
         syncIntervalMinutes: syncIntervalMinutes ?? 60,
         syncStatus: "pending",
@@ -109,7 +107,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
           set2TripletexAccountId: resolvedSet2Ids[0] ?? null,
           set1TripletexAccountIds: resolvedSet1Ids,
           set2TripletexAccountIds: resolvedSet2Ids,
-          enabledFields: enabledFields ?? undefined,
+          enabledFields: (enabledFields as Record<string, boolean>) ?? undefined,
           dateFrom,
           syncIntervalMinutes: syncIntervalMinutes ?? 60,
           syncStatus: "pending",
@@ -156,22 +154,22 @@ export const POST = withTenant(async (req, { tenantId }) => {
  * PATCH /api/tripletex/sync-config
  * Updates an existing sync config.
  */
-export const PATCH = withTenant(async (req, { tenantId }) => {
-  const body = await req.json();
-  const { configId, ...updates } = body as {
-    configId: string;
-    set1TripletexAccountId?: number;
-    set2TripletexAccountId?: number;
-    set1TripletexAccountIds?: number[];
-    set2TripletexAccountIds?: number[];
-    enabledFields?: Record<string, boolean>;
-    syncIntervalMinutes?: number;
-    isActive?: boolean;
-  };
+const patchSchema = z.object({
+  configId: z.string().uuid("Må være en gyldig UUID"),
+  set1TripletexAccountId: z.number().int().optional(),
+  set2TripletexAccountId: z.number().int().optional(),
+  set1TripletexAccountIds: z.array(z.number().int()).optional(),
+  set2TripletexAccountIds: z.array(z.number().int()).optional(),
+  enabledFields: z.record(z.string(), z.boolean()).optional(),
+  syncIntervalMinutes: z.number().int().min(1).max(1440).optional(),
+  isActive: z.boolean().optional(),
+});
 
-  if (!configId) {
-    return NextResponse.json({ error: "configId required" }, { status: 400 });
-  }
+export const PATCH = withTenant(async (req, { tenantId }) => {
+  const parsed = patchSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
+
+  const { configId, ...updates } = parsed.data;
 
   const [existing] = await db
     .select()

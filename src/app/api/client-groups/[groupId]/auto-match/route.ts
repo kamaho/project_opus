@@ -11,6 +11,8 @@ import { eq, and } from "drizzle-orm";
 import { previewAutoMatch, runAutoMatch, TooManyTransactionsError } from "@/lib/matching/engine";
 import { logAudit } from "@/lib/audit";
 import { refreshClientStats } from "@/lib/db/refresh-stats";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 export const maxDuration = 120;
 
@@ -63,8 +65,12 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     );
   }
 
-  const body = await req.json().catch(() => ({}));
-  const mode = (body as { mode?: string }).mode ?? "preview";
+  const modeSchema = z.object({
+    mode: z.enum(["preview", "commit"], { message: "Må være 'preview' eller 'commit'" }).default("preview"),
+  });
+  const parsed = modeSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
+  const { mode } = parsed.data;
   const startMs = Date.now();
 
   try {

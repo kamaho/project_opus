@@ -5,29 +5,30 @@ import { db } from "@/lib/db";
 import { accounts, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { revalidateAccounts } from "@/lib/revalidate";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
-/** GET: Grunnleggende info om en konto (for breadcrumb m.m.). */
 export const GET = withTenant(async (req, { tenantId }, params) => {
   const client = await verifyClientOwnership(params!.clientId, tenantId);
   return NextResponse.json({ id: client.id, name: client.name, companyId: client.companyId });
 });
 
-/** PATCH: Rename an account belonging to this client. */
+const patchSchema = z.object({
+  accountId: z.string().uuid("Må være en gyldig UUID"),
+  name: z.string().min(1, "Navn kan ikke være tomt").max(100, "Navn kan maks være 100 tegn"),
+});
+
 export const PATCH = withTenant(async (req, { tenantId }, params) => {
   const client = await verifyClientOwnership(params!.clientId, tenantId);
 
-  const body = await req.json().catch(() => null);
-  if (!body || typeof body.accountId !== "string" || typeof body.name !== "string") {
-    return NextResponse.json({ error: "accountId og name er påkrevd" }, { status: 400 });
-  }
+  const parsed = patchSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return zodError(parsed.error);
 
-  const newName = body.name.trim();
-  if (!newName || newName.length > 100) {
-    return NextResponse.json({ error: "Navn må være mellom 1 og 100 tegn" }, { status: 400 });
-  }
+  const { accountId, name } = parsed.data;
+  const newName = name.trim();
 
   const validAccountId =
-    body.accountId === client.set1AccountId || body.accountId === client.set2AccountId;
+    accountId === client.set1AccountId || accountId === client.set2AccountId;
   if (!validAccountId) {
     return NextResponse.json({ error: "Kontoen tilhører ikke denne klienten" }, { status: 403 });
   }
@@ -36,7 +37,7 @@ export const PATCH = withTenant(async (req, { tenantId }, params) => {
     .select({ id: accounts.id })
     .from(accounts)
     .innerJoin(companies, eq(accounts.companyId, companies.id))
-    .where(and(eq(accounts.id, body.accountId), eq(companies.tenantId, tenantId)));
+    .where(and(eq(accounts.id, accountId), eq(companies.tenantId, tenantId)));
 
   if (!row) {
     return NextResponse.json({ error: "Konto ikke funnet" }, { status: 404 });
@@ -45,7 +46,7 @@ export const PATCH = withTenant(async (req, { tenantId }, params) => {
   await db
     .update(accounts)
     .set({ name: newName })
-    .where(eq(accounts.id, body.accountId));
+    .where(eq(accounts.id, accountId));
 
   revalidateAccounts();
 

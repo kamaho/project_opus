@@ -7,6 +7,8 @@ import { createTripletexSession, TripletexError } from "@/lib/tripletex";
 import { encrypt } from "@/lib/crypto";
 import { logAudit } from "@/lib/audit";
 import { subscribe } from "@/lib/webhooks/subscription-manager";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 export const dynamic = "force-dynamic";
 
@@ -17,20 +19,16 @@ export const dynamic = "force-dynamic";
 export const POST = withTenant(async (req, ctx) => {
   requireAdmin(ctx);
   const { tenantId } = ctx;
-  const body = await req.json();
-  const { consumerToken, employeeToken } = body as {
-    consumerToken?: string;
-    employeeToken?: string;
-  };
+  const connectSchema = z.object({
+    consumerToken: z.string().min(1, "Consumer token er påkrevd"),
+    employeeToken: z.string().min(1, "Employee token er påkrevd"),
+    isTest: z.boolean().optional().default(false),
+  });
 
-  const isTest = Boolean(body?.isTest);
+  const parsed = connectSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
 
-  if (!consumerToken?.trim() || !employeeToken?.trim()) {
-    return NextResponse.json(
-      { error: "Consumer token og employee token er påkrevd" },
-      { status: 400 }
-    );
-  }
+  const { consumerToken, employeeToken, isTest } = parsed.data;
 
   function padBase64(token: string): string {
     const t = token.trim();

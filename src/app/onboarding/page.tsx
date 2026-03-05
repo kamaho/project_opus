@@ -173,26 +173,13 @@ export default function OnboardingPage() {
     }
     setFinishing(true);
     try {
-      let checkout: Record<string, string> | undefined;
-      try {
-        const raw = localStorage.getItem("revizo_checkout");
-        if (raw) {
-          checkout = JSON.parse(raw);
-          localStorage.removeItem("revizo_checkout");
-        }
-      } catch {
-        // ignore parse errors
-      }
-
       const res = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path,
           erpConnected: (erpResult?.companies?.length ?? 0) > 0,
           userType,
           responsibilities,
-          checkout,
         }),
       });
       if (!res.ok) {

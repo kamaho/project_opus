@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { companies, webhookInbox } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -13,19 +15,16 @@ export const maxDuration = 120;
  * Phase 1 (accounts) runs inline (~2-3s).
  * Phase 2 (balances) queued via webhook_inbox for Railway Worker.
  */
-export const POST = withTenant(async (req, { tenantId }) => {
-  const body = await req.json();
-  const { companyId, tripletexCompanyId } = body as {
-    companyId: string;
-    tripletexCompanyId: number;
-  };
+const syncBalancesSchema = z.object({
+  companyId: z.string().uuid("Må være en gyldig UUID"),
+  tripletexCompanyId: z.number().int().positive("Må være et positivt heltall"),
+});
 
-  if (!companyId || !tripletexCompanyId) {
-    return NextResponse.json(
-      { error: "companyId and tripletexCompanyId are required" },
-      { status: 400 }
-    );
-  }
+export const POST = withTenant(async (req, { tenantId }) => {
+  const parsed = syncBalancesSchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
+
+  const { companyId, tripletexCompanyId } = parsed.data;
 
   const [company] = await db
     .select({ id: companies.id })
@@ -101,6 +100,16 @@ export const GET = withTenant(async (req, { tenantId }) => {
 
     companyId = c.id;
     txId = String(c.tripletexCompanyId);
+  } else {
+    const [owned] = await db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(and(eq(companies.id, companyId), eq(companies.tenantId, tenantId)))
+      .limit(1);
+
+    if (!owned) {
+      return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
+    }
   }
 
   try {

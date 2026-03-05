@@ -7,6 +7,8 @@ import { getClientsByTenant } from "@/lib/db/tenant";
 import { revalidateClients, revalidateAccounts } from "@/lib/revalidate";
 import { seedStandardRules } from "@/lib/matching/seed-rules";
 import { logAudit } from "@/lib/audit";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 /** GET: Liste avstemminger for org. Optional ?companyId= for å filtrere på selskap. */
 export const GET = withTenant(async (req, { tenantId }) => {
@@ -17,23 +19,27 @@ export const GET = withTenant(async (req, { tenantId }) => {
   return NextResponse.json(rows);
 });
 
+const accountSchema = z.object({
+  accountNumber: z.string().min(1, "Kontonummer er påkrevd"),
+  name: z.string().min(1, "Kontonavn er påkrevd"),
+  type: z.enum(["ledger", "bank"], { message: "Må være 'ledger' eller 'bank'" }),
+});
+
+const createClientSchema = z.object({
+  companyId: z.string().uuid("Må være en gyldig UUID"),
+  name: z.string().min(1, "Navn er påkrevd").max(200, "Navn kan maks være 200 tegn"),
+  set1: accountSchema,
+  set2: accountSchema,
+});
+
 /** POST: Opprett avstemming med to kontoer i én transaksjon. */
 export const POST = withTenant(async (req, { tenantId, userId }) => {
   try {
-    const body = await req.json();
-    const { companyId, name, set1, set2 } = body as {
-      companyId?: string;
-      name?: string;
-      set1?: { accountNumber: string; name: string; type: "ledger" | "bank" };
-      set2?: { accountNumber: string; name: string; type: "ledger" | "bank" };
-    };
+    const raw = await req.json().catch(() => null);
+    const parsed = createClientSchema.safeParse(raw);
+    if (!parsed.success) return zodError(parsed.error);
 
-    if (!companyId || !name?.trim() || !set1 || !set2) {
-      return NextResponse.json(
-        { error: "companyId, name, set1 og set2 er påkrevd" },
-        { status: 400 }
-      );
-    }
+    const { companyId, name, set1, set2 } = parsed.data;
 
     const [company] = await db
       .select({ id: companies.id })

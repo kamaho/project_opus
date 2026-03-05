@@ -5,6 +5,20 @@ import { db } from "@/lib/db";
 import { tutorialSteps } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { isSystemAdmin } from "@/lib/auth/is-system-admin";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
+
+const stepSchema = z.object({
+  elementSelector: z.string().min(1, "elementSelector er påkrevd"),
+  title: z.string().min(1, "title er påkrevd").max(200),
+  description: z.string().max(1000).optional(),
+  pathname: z.string().max(500).optional(),
+  tooltipPosition: z.enum(["top", "bottom", "left", "right"]).default("bottom"),
+});
+
+const bodySchema = z.object({
+  steps: z.array(stepSchema),
+});
 
 export const PUT = withTenant(async (req, _ctx, params) => {
   const user = await currentUser();
@@ -14,20 +28,11 @@ export const PUT = withTenant(async (req, _ctx, params) => {
   }
 
   const tutorialId = params!.tutorialId;
-  const body = await req.json().catch(() => null);
-  if (!body?.steps || !Array.isArray(body.steps)) {
-    return NextResponse.json({ error: "steps array kreves" }, { status: 400 });
-  }
 
-  const { steps } = body as {
-    steps: {
-      elementSelector: string;
-      title: string;
-      description?: string;
-      pathname?: string;
-      tooltipPosition?: string;
-    }[];
-  };
+  const parsed = bodySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return zodError(parsed.error);
+
+  const { steps } = parsed.data;
 
   await db.delete(tutorialSteps).where(eq(tutorialSteps.tutorialId, tutorialId));
 
@@ -40,7 +45,7 @@ export const PUT = withTenant(async (req, _ctx, params) => {
         title: s.title,
         description: s.description || null,
         pathname: s.pathname || null,
-        tooltipPosition: (s.tooltipPosition as "top" | "bottom" | "left" | "right") ?? "bottom",
+        tooltipPosition: s.tooltipPosition,
       }))
     );
   }

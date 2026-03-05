@@ -5,28 +5,34 @@ import { tripletexSyncConfigs } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { runFullSync } from "@/lib/tripletex/sync";
 import { TripletexError } from "@/lib/tripletex";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 export const maxDuration = 120;
 
-/**
- * POST /api/tripletex/sync
- * Manually trigger a sync for a specific client.
- */
+const bodySchema = z
+  .object({
+    clientId: z.string().uuid("Må være en gyldig UUID").optional(),
+    syncConfigId: z.string().uuid("Må være en gyldig UUID").optional(),
+  })
+  .refine((d) => d.clientId || d.syncConfigId, {
+    message: "Klient-ID eller synk-konfigurasjon-ID er påkrevd",
+    path: ["clientId"],
+  });
+
 export const POST = withTenant(async (req, { tenantId }) => {
-  const { clientId, syncConfigId } = (await req.json()) as {
-    clientId?: string;
-    syncConfigId?: string;
-  };
+  const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
 
-  let configId = syncConfigId;
+  let configId = parsed.data.syncConfigId;
 
-  if (!configId && clientId) {
+  if (!configId && parsed.data.clientId) {
     const [config] = await db
       .select({ id: tripletexSyncConfigs.id })
       .from(tripletexSyncConfigs)
       .where(
         and(
-          eq(tripletexSyncConfigs.clientId, clientId),
+          eq(tripletexSyncConfigs.clientId, parsed.data.clientId),
           eq(tripletexSyncConfigs.tenantId, tenantId)
         )
       )
@@ -41,20 +47,12 @@ export const POST = withTenant(async (req, { tenantId }) => {
     configId = config.id;
   }
 
-  if (!configId) {
-    return NextResponse.json(
-      { error: "Klient-ID eller synk-konfigurasjon-ID er påkrevd." },
-      { status: 400 }
-    );
-  }
-
-  // Verify ownership
   const [config] = await db
     .select()
     .from(tripletexSyncConfigs)
     .where(
       and(
-        eq(tripletexSyncConfigs.id, configId),
+        eq(tripletexSyncConfigs.id, configId!),
         eq(tripletexSyncConfigs.tenantId, tenantId)
       )
     )
@@ -65,7 +63,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
   }
 
   try {
-    const result = await runFullSync(configId);
+    const result = await runFullSync(configId!);
     return NextResponse.json({ result });
   } catch (error) {
     console.error("[tripletex/sync] Error:", error);

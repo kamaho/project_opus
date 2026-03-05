@@ -3,6 +3,8 @@ import { withTenant, requireAdmin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { webhookInbox } from "@/lib/db/schema";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { z } from "zod";
+import { zodError } from "@/lib/api/zod-error";
 
 /**
  * GET /api/admin/webhooks/inbox?status=failed&limit=50
@@ -64,19 +66,17 @@ export const GET = withTenant(async (req, ctx) => {
 export const POST = withTenant(async (req, ctx) => {
   requireAdmin(ctx);
 
-  const body = await req.json();
-  const ids = body?.ids as string[] | undefined;
+  const replaySchema = z.object({
+    ids: z
+      .array(z.string().uuid("Hver ID må være en gyldig UUID"))
+      .min(1, "Minst én ID er påkrevd")
+      .max(100, "Maks 100 events per replay"),
+  });
 
-  if (!ids || ids.length === 0) {
-    return NextResponse.json({ error: "ids required" }, { status: 400 });
-  }
+  const parsed = replaySchema.safeParse(await req.json().catch(() => ({})));
+  if (!parsed.success) return zodError(parsed.error);
 
-  if (ids.length > 100) {
-    return NextResponse.json(
-      { error: "Max 100 events per replay" },
-      { status: 400 }
-    );
-  }
+  const { ids } = parsed.data;
 
   const result = await db
     .update(webhookInbox)
