@@ -192,41 +192,47 @@ export async function syncAccountList(
       });
   }
 
-  // Also upsert into the accounts table
-  for (let i = 0; i < allAccounts.length; i += 500) {
-    const batch = allAccounts.slice(i, i + 500);
-    for (const vnxtAcc of batch) {
-      const mapped = mapAccount(vnxtAcc);
-      const existingAcc = await db
-        .select({ id: accounts.id })
-        .from(accounts)
-        .where(
-          and(
-            eq(accounts.companyId, companyId),
-            eq(accounts.accountNumber, mapped.accountNumber)
-          )
-        )
-        .limit(1);
+  // Upsert into the accounts table (bulk approach to avoid N+1 queries)
+  const existingAccounts = await db
+    .select({ id: accounts.id, accountNumber: accounts.accountNumber })
+    .from(accounts)
+    .where(eq(accounts.companyId, companyId));
 
-      if (existingAcc.length > 0) {
-        await db
-          .update(accounts)
-          .set({
-            name: mapped.name,
-            accountType: mapped.accountType,
-            vismaNxtAccountId: vnxtAcc.accountNo,
-          })
-          .where(eq(accounts.id, existingAcc[0].id));
-      } else {
-        await db.insert(accounts).values({
-          companyId,
-          accountNumber: mapped.accountNumber,
-          name: mapped.name,
-          accountType: mapped.accountType,
-          vismaNxtAccountId: vnxtAcc.accountNo,
-        });
-      }
+  const existingMap = new Map(existingAccounts.map((a) => [a.accountNumber, a.id]));
+
+  const toInsert: (typeof accounts.$inferInsert)[] = [];
+  const toUpdate: { id: string; name: string; accountType: string; vismaNxtAccountId: number }[] = [];
+
+  for (const vnxtAcc of allAccounts) {
+    const mapped = mapAccount(vnxtAcc);
+    const existingId = existingMap.get(mapped.accountNumber);
+    if (existingId) {
+      toUpdate.push({
+        id: existingId,
+        name: mapped.name,
+        accountType: mapped.accountType,
+        vismaNxtAccountId: vnxtAcc.accountNo,
+      });
+    } else {
+      toInsert.push({
+        companyId,
+        accountNumber: mapped.accountNumber,
+        name: mapped.name,
+        accountType: mapped.accountType,
+        vismaNxtAccountId: vnxtAcc.accountNo,
+      });
     }
+  }
+
+  for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+    await db.insert(accounts).values(toInsert.slice(i, i + BATCH_SIZE));
+  }
+
+  for (const row of toUpdate) {
+    await db
+      .update(accounts)
+      .set({ name: row.name, accountType: row.accountType, vismaNxtAccountId: row.vismaNxtAccountId })
+      .where(eq(accounts.id, row.id));
   }
 
   const duration = Date.now() - t0;
