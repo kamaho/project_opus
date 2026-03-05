@@ -305,7 +305,7 @@ export async function syncBalancesForAccounts(
 
       await db.execute(sql`
         UPDATE account_sync_settings SET
-          balance_out = v.bal::text,
+          balance_out = v.bal,
           balance_year = ${year},
           last_balance_sync_at = ${now},
           updated_at = ${now}
