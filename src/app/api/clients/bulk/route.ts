@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { revalidateClients, revalidateAccounts } from "@/lib/revalidate";
+import { revalidateClients, revalidateAccounts, revalidateCompanies } from "@/lib/revalidate";
 import { seedStandardRules } from "@/lib/matching/seed-rules";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
@@ -117,6 +117,7 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       );
     }
 
+    revalidateCompanies();
     revalidateClients();
     revalidateAccounts();
 

@@ -483,6 +483,7 @@ export const CreateClientDialog = forwardRef<CreateClientDialogRef>(
         if (!res.ok) throw new Error((body as { error?: string }).error ?? "Kunne ikke opprette klienter.");
         setCreatedCount((body as { count: number }).count);
         setExcelStep("confirm");
+        router.refresh();
       } catch (e) {
         setSubmitError(e instanceof Error ? e.message : "Noe gikk galt. Prøv igjen.");
       } finally {

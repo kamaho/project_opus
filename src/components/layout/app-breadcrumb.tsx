@@ -54,7 +54,7 @@ export function AppBreadcrumb() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [fetchCompanies]);
+  }, [fetchCompanies, pathname]);
 
   const allSelected = selectedIds.size === 0 || selectedIds.size === companies.length;
   const selectedCompanies = allSelected ? companies : companies.filter((c) => selectedIds.has(c.id));
