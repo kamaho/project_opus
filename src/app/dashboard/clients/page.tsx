@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, vismaNxtSyncConfigs, accountSyncSettings, tripletexConnections } from "@/lib/db/schema";
+import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, vismaNxtSyncConfigs, accountSyncSettings } from "@/lib/db/schema";
 import { eq, and, sql, inArray, asc, desc } from "drizzle-orm";
 import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
@@ -106,14 +106,18 @@ export default async function ClientsPage({
   }
 
   if (clientIds.length === 0 && accountSyncRows.length === 0) {
-    const [txConn] = await db
-      .select({ id: tripletexConnections.id })
-      .from(tripletexConnections)
-      .where(and(eq(tripletexConnections.tenantId, orgId), eq(tripletexConnections.isActive, true)))
-      .limit(1);
+    // Only show the Tripletex sync-in-progress view when the selected
+    // company actually has a Tripletex integration linked.
+    if (selectedCompanyId) {
+      const [selectedCo] = await db
+        .select({ tripletexCompanyId: companies.tripletexCompanyId })
+        .from(companies)
+        .where(and(eq(companies.id, selectedCompanyId), eq(companies.tenantId, orgId)))
+        .limit(1);
 
-    if (txConn) {
-      return <SyncInProgressView />;
+      if (selectedCo?.tripletexCompanyId != null) {
+        return <SyncInProgressView />;
+      }
     }
 
     return (
