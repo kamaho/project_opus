@@ -6,6 +6,7 @@ import {
   syncAccountList,
   syncBalancesForAccounts,
 } from "@/lib/visma-nxt/sync";
+import { revalidateCompanies, revalidateAccounts } from "@/lib/revalidate";
 
 export const maxDuration = 60;
 
@@ -71,8 +72,11 @@ async function handleCallback(request: Request, params: URLSearchParams) {
         await syncBalancesForAccounts(companyNo, companyId, tenantId);
         console.log(`[visma-nxt/callback] Inline sync completed for company ${companyNo}`);
         syncStatus = "synced";
+        revalidateCompanies();
+        revalidateAccounts();
       } catch (err) {
         console.error("[visma-nxt/callback] Inline sync failed (non-fatal):", err);
+        revalidateCompanies();
       }
 
       return redirect303(

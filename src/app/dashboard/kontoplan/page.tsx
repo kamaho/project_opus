@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { companies, accountSyncSettings, tripletexConnections } from "@/lib/db/schema";
+import { companies, accountSyncSettings, tripletexConnections, vismaNxtConnections } from "@/lib/db/schema";
 import { eq, and, inArray, asc, desc } from "drizzle-orm";
 import { KontoplanClient } from "./kontoplan-client";
 
@@ -38,29 +38,31 @@ export default async function KontoplanPage({
     .orderBy(asc(companies.name));
 
   const companyRows = allCompanyRows.filter((c) => c.type === "company");
-  const firstSelected = selectedCompanyIds.find((id) => companyRows.some((c) => c.id === id));
-  const targetId = firstSelected ?? companyRows[0]?.id;
-  const companyIds = targetId ? [targetId] : [];
+  const companyIds = companyRows.map((c) => c.id);
 
   if (companyIds.length === 0) {
-    const [txConn] = await db
-      .select({ id: tripletexConnections.id })
-      .from(tripletexConnections)
-      .where(
-        and(
-          eq(tripletexConnections.tenantId, orgId),
-          eq(tripletexConnections.isActive, true)
-        )
-      )
-      .limit(1);
+    const [[txConn], [vnxtConn]] = await Promise.all([
+      db
+        .select({ id: tripletexConnections.id })
+        .from(tripletexConnections)
+        .where(and(eq(tripletexConnections.tenantId, orgId), eq(tripletexConnections.isActive, true)))
+        .limit(1),
+      db
+        .select({ id: vismaNxtConnections.id })
+        .from(vismaNxtConnections)
+        .where(eq(vismaNxtConnections.tenantId, orgId))
+        .limit(1),
+    ]);
+
+    const hasIntegration = txConn || vnxtConn;
 
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-semibold">Kontoplan</h1>
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed bg-muted/20 p-12 text-center">
           <p className="text-sm text-muted-foreground max-w-sm">
-            {txConn
-              ? "Kontoplanen synkroniseres fra Tripletex. Sjekk igjen om et øyeblikk."
+            {hasIntegration
+              ? "Kontoplanen synkroniseres fra regnskapssystemet. Sjekk igjen om et øyeblikk."
               : "Koble til et regnskapssystem under Integrasjoner for å hente kontoplanen, eller opprett selskaper manuelt."}
           </p>
         </div>

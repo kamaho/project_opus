@@ -6,6 +6,7 @@ import {
   syncAccountList,
   syncBalancesForAccounts,
 } from "@/lib/visma-nxt/sync";
+import { revalidateCompanies, revalidateAccounts } from "@/lib/revalidate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -40,6 +41,9 @@ export const POST = withTenant(async (_req, { tenantId }) => {
     } catch (err) {
       console.warn("[visma-nxt/sync] Balance sync failed (non-fatal):", err);
     }
+
+    revalidateCompanies();
+    revalidateAccounts();
 
     return NextResponse.json({
       ok: true,
