@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Plug,
   Search,
@@ -198,6 +199,8 @@ const INTEGRATIONS: Integration[] = [
 ];
 
 export default function IntegrasjonsPage() {
+  const searchParams = useSearchParams();
+  const companyId = searchParams.get("companyId");
   const [activeCategory, setActiveCategory] = useState<Category>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [enabledIds, setEnabledIds] = useState<Set<string>>(
@@ -333,6 +336,7 @@ export default function IntegrasjonsPage() {
       <TripletexConfigDialog
         open={tripletexOpen}
         onOpenChange={setTripletexOpen}
+        companyId={companyId}
       />
 
       <VismaNxtConfigDialog

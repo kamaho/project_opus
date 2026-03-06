@@ -236,6 +236,15 @@ export function AccountsTable({
               </TooltipTrigger>
               <TooltipContent side="top">Tripletex</TooltipContent>
             </Tooltip>
+          ) : row.integrationSource === "visma_nxt" ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 cursor-default">
+                  V
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top">Visma Business NXT</TooltipContent>
+            </Tooltip>
           ) : (
             <span className="text-muted-foreground/50">—</span>
           ),

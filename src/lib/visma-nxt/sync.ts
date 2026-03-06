@@ -70,6 +70,7 @@ export async function syncCompany(
 
   const mapped = mapCompany(vnxtCompany);
 
+  // 1. Exact match by visma_nxt_company_no
   const existing = await db
     .select({ id: companies.id })
     .from(companies)
@@ -91,6 +92,31 @@ export async function syncCompany(
       })
       .where(eq(companies.id, existing[0].id));
     return existing[0].id;
+  }
+
+  // 2. Merge: if a company with the same org_number exists (e.g. from Tripletex),
+  //    link it to Visma NXT instead of creating a duplicate.
+  if (mapped.orgNumber) {
+    const byOrgNumber = await db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.tenantId, tenantId),
+          eq(companies.orgNumber, mapped.orgNumber),
+          sql`${companies.vismaNxtCompanyNo} IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (byOrgNumber.length > 0) {
+      await db
+        .update(companies)
+        .set({ vismaNxtCompanyNo: companyNo, updatedAt: new Date() })
+        .where(eq(companies.id, byOrgNumber[0].id));
+      console.log(`[visma-nxt/sync] Linked Visma NXT company ${companyNo} to existing company ${byOrgNumber[0].id} via org_number=${mapped.orgNumber}`);
+      return byOrgNumber[0].id;
+    }
   }
 
   const [inserted] = await db

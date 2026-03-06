@@ -53,6 +53,7 @@ export async function syncCompany(
 
   const mapped = mapCompany(res.value);
 
+  // 1. Exact match by tripletex_company_id
   const existing = await db
     .select({ id: companies.id })
     .from(companies)
@@ -70,6 +71,31 @@ export async function syncCompany(
       .set({ name: mapped.name, orgNumber: mapped.orgNumber, updatedAt: new Date() })
       .where(eq(companies.id, existing[0].id));
     return existing[0].id;
+  }
+
+  // 2. Merge: if a company with the same org_number exists (e.g. from Visma NXT),
+  //    link it to Tripletex instead of creating a duplicate.
+  if (mapped.orgNumber) {
+    const byOrgNumber = await db
+      .select({ id: companies.id })
+      .from(companies)
+      .where(
+        and(
+          eq(companies.tenantId, tenantId),
+          eq(companies.orgNumber, mapped.orgNumber),
+          sql`${companies.tripletexCompanyId} IS NULL`
+        )
+      )
+      .limit(1);
+
+    if (byOrgNumber.length > 0) {
+      await db
+        .update(companies)
+        .set({ tripletexCompanyId, updatedAt: new Date() })
+        .where(eq(companies.id, byOrgNumber[0].id));
+      console.log(`[sync] Linked Tripletex company ${tripletexCompanyId} to existing company ${byOrgNumber[0].id} via org_number=${mapped.orgNumber}`);
+      return byOrgNumber[0].id;
+    }
   }
 
   const [inserted] = await db
@@ -747,9 +773,23 @@ export async function runFullSync(
     .where(eq(tripletexSyncConfigs.id, configId));
 
   try {
+    // Resolve the client's actual company so accounts land in the right place.
+    // syncCompany may merge with the client's company (via org_number) or create
+    // a separate one — either way, we use the client's company_id for accounts.
     const tCompany = Date.now();
-    const companyId = await syncCompany(config.tripletexCompanyId, config.tenantId);
+    await syncCompany(config.tripletexCompanyId, config.tenantId);
     console.log(`[sync] config=${configId} syncCompany done in ${Date.now() - tCompany}ms`);
+
+    const [clientRow] = await db
+      .select({ companyId: clients.companyId })
+      .from(clients)
+      .where(eq(clients.id, config.clientId))
+      .limit(1);
+
+    const companyId = clientRow?.companyId;
+    if (!companyId) {
+      throw new Error(`Client ${config.clientId} not found — cannot determine company for account sync`);
+    }
 
     const tAccounts = Date.now();
     await syncAccountList(config.tripletexCompanyId, companyId, config.tenantId);

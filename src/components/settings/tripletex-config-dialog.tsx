@@ -68,9 +68,10 @@ interface ClientOption {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  companyId?: string | null;
 }
 
-export function TripletexConfigDialog({ open, onOpenChange }: Props) {
+export function TripletexConfigDialog({ open, onOpenChange, companyId }: Props) {
   const [connectionOk, setConnectionOk] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -189,7 +190,10 @@ export function TripletexConfigDialog({ open, onOpenChange }: Props) {
     if (connectionOk) {
       loadCompanies();
       loadAccounts();
-      fetch("/api/clients")
+      const clientsUrl = companyId
+        ? `/api/clients?companyId=${encodeURIComponent(companyId)}`
+        : "/api/clients";
+      fetch(clientsUrl)
         .then((r) => r.json())
         .then((d) => setClients(Array.isArray(d) ? d : []))
         .catch((err) => console.error("[tripletex-config] Failed to load clients:", err));

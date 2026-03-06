@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
-import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, accountSyncSettings, tripletexConnections } from "@/lib/db/schema";
+import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, vismaNxtSyncConfigs, accountSyncSettings, tripletexConnections } from "@/lib/db/schema";
 import { eq, and, sql, inArray, asc, desc } from "drizzle-orm";
 import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
@@ -40,11 +40,14 @@ export default async function ClientsPage({
         txSyncActive: tripletexSyncConfigs.isActive,
         syncStatus: tripletexSyncConfigs.syncStatus,
         syncError: tripletexSyncConfigs.syncError,
+        vismaSyncActive: vismaNxtSyncConfigs.isActive,
+        vismaSyncStatus: vismaNxtSyncConfigs.syncStatus,
       })
       .from(clients)
       .innerJoin(companies, eq(clients.companyId, companies.id))
       .innerJoin(accounts, eq(clients.set1AccountId, accounts.id))
       .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
+      .leftJoin(vismaNxtSyncConfigs, eq(vismaNxtSyncConfigs.clientId, clients.id))
       .where(companyFilter),
     db
       .select({ id: companies.id })
@@ -241,7 +244,7 @@ export default async function ClientsPage({
       hasDoc: false,
       lastRecon: null as string | null,
       assignedUserId: c.assignedUserId,
-      integrationSource: c.txSyncActive ? "tripletex" as const : null,
+      integrationSource: c.txSyncActive ? "tripletex" as const : c.vismaSyncActive ? "visma_nxt" as const : null,
       syncStatus: c.syncStatus as string | null,
       syncError: c.syncError as string | null,
     };
