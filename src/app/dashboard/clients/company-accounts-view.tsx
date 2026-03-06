@@ -399,6 +399,33 @@ export function CompanyAccountsView({
         </div>
       )}
 
+      {/* Import in-progress banner */}
+      {activating.size > 0 && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50/50 dark:bg-blue-950/20 p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/40">
+              <Loader2 className="h-4 w-4 text-blue-600 dark:text-blue-400 animate-spin" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                Importerer {activating.size} {activating.size === 1 ? "konto" : "kontoer"}...
+              </p>
+              <p className="text-xs text-blue-700/80 dark:text-blue-300/70 mt-0.5">
+                Du kan fortsette å jobbe mens vi henter data i bakgrunnen. Vi gir deg beskjed når importen er ferdig.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-center">
+              <span className="text-xs font-mono tabular-nums text-blue-600 dark:text-blue-400">
+                {activating.size} {activating.size === 1 ? "konto" : "kontoer"}
+              </span>
+            </div>
+          </div>
+          <div className="h-1 w-full rounded-full bg-blue-100 dark:bg-blue-900/40 overflow-hidden">
+            <div className="h-full w-1/3 rounded-full bg-blue-500 dark:bg-blue-400 animate-[indeterminate_1.5s_ease-in-out_infinite]" />
+          </div>
+        </div>
+      )}
+
       {/* Account groups by class range */}
       <div className="space-y-1">
         {Array.from(classRanges.entries()).map(([digit, rangeGroups]) => (
@@ -542,7 +569,12 @@ export function CompanyAccountsView({
 
                               {/* Action */}
                               <div className="flex justify-end">
-                                {isTransactions ? (
+                                {isActivating ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-2.5 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                    Synkroniserer...
+                                  </span>
+                                ) : isTransactions ? (
                                   <a
                                     href={`/dashboard/clients/${acct.clientId}/matching`}
                                     className="inline-flex items-center gap-1.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 transition-colors"
@@ -561,7 +593,6 @@ export function CompanyAccountsView({
                                     variant="outline"
                                     size="sm"
                                     className="h-7 text-xs gap-1.5 px-3"
-                                    disabled={isActivating}
                                     onClick={() =>
                                       requestImport(
                                         acct.accountNumber,
@@ -569,14 +600,8 @@ export function CompanyAccountsView({
                                       )
                                     }
                                   >
-                                    {isActivating ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <>
-                                        <Download className="h-3 w-3" />
-                                        Importer data
-                                      </>
-                                    )}
+                                    <Download className="h-3 w-3" />
+                                    Importer data
                                   </Button>
                                 ) : null}
                               </div>

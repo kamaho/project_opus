@@ -37,14 +37,40 @@ interface CreateReconciliationDialogProps {
   noTrigger?: boolean;
 }
 
+const ACCOUNT_TYPE_OPTIONS = [
+  { value: "ledger", label: "Hovedbok" },
+  { value: "bank", label: "Bank" },
+  { value: "accounts_receivable", label: "Kundefordringer" },
+  { value: "accounts_payable", label: "Leverandørgjeld" },
+  { value: "payroll", label: "Lønn" },
+  { value: "tax", label: "Skatt/avgift" },
+  { value: "fixed_assets", label: "Anleggsmidler" },
+  { value: "intercompany", label: "Mellomværende" },
+  { value: "external", label: "Eksternt system" },
+  { value: "custom", label: "Annet" },
+] as const;
+
+type AccountType = (typeof ACCOUNT_TYPE_OPTIONS)[number]["value"];
+
+const CURRENCIES = [
+  "NOK", "USD", "EUR", "GBP", "SEK", "DKK", "CHF", "CAD", "AUD", "JPY", "PLN", "ISK",
+] as const;
+
 interface ReconciliationItem {
   name: string;
   set1AccountNumber: string;
   set1Name: string;
-  set1Type: "ledger" | "bank";
+  set1Type: AccountType;
+  set1Currency: string;
   set2AccountNumber: string;
   set2Name: string;
-  set2Type: "ledger" | "bank";
+  set2Type: AccountType;
+  set2Currency: string;
+  openingBalanceDate: string;
+  openingBalanceSet1: string;
+  openingBalanceSet2: string;
+  openingBalanceCurrencySet1: string;
+  openingBalanceCurrencySet2: string;
 }
 
 interface CompanyOption {
@@ -57,9 +83,16 @@ const DEFAULT_ITEM: ReconciliationItem = {
   set1AccountNumber: "",
   set1Name: "Hovedbok",
   set1Type: "ledger",
+  set1Currency: "NOK",
   set2AccountNumber: "",
   set2Name: "Bank",
   set2Type: "bank",
+  set2Currency: "NOK",
+  openingBalanceDate: "",
+  openingBalanceSet1: "",
+  openingBalanceSet2: "",
+  openingBalanceCurrencySet1: "",
+  openingBalanceCurrencySet2: "",
 };
 
 export const CreateReconciliationDialog = forwardRef<
@@ -138,12 +171,23 @@ export const CreateReconciliationDialog = forwardRef<
               accountNumber: rec.set1AccountNumber.trim(),
               name: rec.set1Name.trim(),
               type: rec.set1Type,
+              currency: rec.set1Currency,
             },
             set2: {
               accountNumber: rec.set2AccountNumber.trim(),
               name: rec.set2Name.trim(),
               type: rec.set2Type,
+              currency: rec.set2Currency,
             },
+            openingBalanceDate: rec.openingBalanceDate || undefined,
+            openingBalanceSet1: rec.openingBalanceSet1 || undefined,
+            openingBalanceSet2: rec.openingBalanceSet2 || undefined,
+            openingBalanceCurrencySet1: rec.set1Currency !== "NOK" && rec.openingBalanceCurrencySet1
+              ? rec.openingBalanceCurrencySet1
+              : undefined,
+            openingBalanceCurrencySet2: rec.set2Currency !== "NOK" && rec.openingBalanceCurrencySet2
+              ? rec.openingBalanceCurrencySet2
+              : undefined,
           }),
           credentials: "include",
         });
@@ -195,7 +239,6 @@ export const CreateReconciliationDialog = forwardRef<
           </DialogHeader>
 
           <div className="space-y-6 pt-2">
-            {/* Company selector — only shown if multiple companies */}
             {companies.length > 1 && (
               <div className="space-y-1.5">
                 <Label>Selskap</Label>
@@ -220,110 +263,242 @@ export const CreateReconciliationDialog = forwardRef<
               </p>
             )}
 
-            {/* Reconciliation items */}
-            {items.map((rec, idx) => (
-              <div key={idx} className="rounded-lg border p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Klient {items.length > 1 ? idx + 1 : ""}
-                    </span>
-                  </div>
-                  {items.length > 1 && (
-                    <Button variant="ghost" size="icon-xs" onClick={() => removeItem(idx)}>
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
+            {items.map((rec, idx) => {
+              const set1IsForeign = rec.set1Currency !== "NOK";
+              const set2IsForeign = rec.set2Currency !== "NOK";
 
-                <div className="space-y-1.5">
-                  <Label>Navn på klient / avstemming</Label>
-                  <Input
-                    placeholder="F.eks. 1920 - Bankavstemming"
-                    value={rec.name}
-                    onChange={(e) => update(idx, "name", e.target.value)}
-                    autoFocus={idx === 0}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-3 rounded-md border border-violet-200 dark:border-violet-800/40 bg-violet-50/50 dark:bg-violet-950/20 p-3">
-                    <span className="text-xs font-semibold text-violet-700 dark:text-violet-400">
-                      Mengde 1
-                    </span>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Kontonummer</Label>
-                      <Input
-                        placeholder="1920"
-                        value={rec.set1AccountNumber}
-                        onChange={(e) => update(idx, "set1AccountNumber", e.target.value)}
-                      />
+              return (
+                <div key={idx} className="rounded-lg border p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Klient {items.length > 1 ? idx + 1 : ""}
+                      </span>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Kontonavn</Label>
-                      <Input
-                        placeholder="Hovedbok"
-                        value={rec.set1Name}
-                        onChange={(e) => update(idx, "set1Name", e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Type</Label>
-                      <Select
-                        value={rec.set1Type}
-                        onValueChange={(v) => update(idx, "set1Type", v)}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ledger">Hovedbok</SelectItem>
-                          <SelectItem value="bank">Bank</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {items.length > 1 && (
+                      <Button variant="ghost" size="icon-xs" onClick={() => removeItem(idx)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
                   </div>
 
-                  <div className="space-y-3 rounded-md border border-blue-200 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-950/20 p-3">
-                    <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">
-                      Mengde 2
-                    </span>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Kontonummer</Label>
-                      <Input
-                        placeholder="1920"
-                        value={rec.set2AccountNumber}
-                        onChange={(e) => update(idx, "set2AccountNumber", e.target.value)}
-                      />
+                  <div className="space-y-1.5">
+                    <Label>Navn på klient / avstemming</Label>
+                    <Input
+                      placeholder="F.eks. 1920 - Bankavstemming"
+                      value={rec.name}
+                      onChange={(e) => update(idx, "name", e.target.value)}
+                      autoFocus={idx === 0}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Mengde 1 */}
+                    <div className="space-y-3 rounded-md border border-violet-200 dark:border-violet-800/40 bg-violet-50/50 dark:bg-violet-950/20 p-3">
+                      <span className="text-xs font-semibold text-violet-700 dark:text-violet-400">
+                        Mengde 1
+                      </span>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Kontonummer</Label>
+                        <Input
+                          placeholder="1920"
+                          value={rec.set1AccountNumber}
+                          onChange={(e) => update(idx, "set1AccountNumber", e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Kontonavn</Label>
+                        <Input
+                          placeholder="Hovedbok"
+                          value={rec.set1Name}
+                          onChange={(e) => update(idx, "set1Name", e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Type</Label>
+                        <Select
+                          value={rec.set1Type}
+                          onValueChange={(v) => update(idx, "set1Type", v)}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ACCOUNT_TYPE_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Valuta</Label>
+                        <Select
+                          value={rec.set1Currency}
+                          onValueChange={(v) => update(idx, "set1Currency", v)}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CURRENCIES.map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {c}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Kontonavn</Label>
-                      <Input
-                        placeholder="Bank"
-                        value={rec.set2Name}
-                        onChange={(e) => update(idx, "set2Name", e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Type</Label>
-                      <Select
-                        value={rec.set2Type}
-                        onValueChange={(v) => update(idx, "set2Type", v)}
-                      >
-                        <SelectTrigger className="h-8 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ledger">Hovedbok</SelectItem>
-                          <SelectItem value="bank">Bank</SelectItem>
-                        </SelectContent>
-                      </Select>
+
+                    {/* Mengde 2 */}
+                    <div className="space-y-3 rounded-md border border-blue-200 dark:border-blue-800/40 bg-blue-50/50 dark:bg-blue-950/20 p-3">
+                      <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">
+                        Mengde 2
+                      </span>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Kontonummer</Label>
+                        <Input
+                          placeholder="1920"
+                          value={rec.set2AccountNumber}
+                          onChange={(e) => update(idx, "set2AccountNumber", e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Kontonavn</Label>
+                        <Input
+                          placeholder="Bank"
+                          value={rec.set2Name}
+                          onChange={(e) => update(idx, "set2Name", e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Type</Label>
+                        <Select
+                          value={rec.set2Type}
+                          onValueChange={(v) => update(idx, "set2Type", v)}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ACCOUNT_TYPE_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Valuta</Label>
+                        <Select
+                          value={rec.set2Currency}
+                          onValueChange={(v) => update(idx, "set2Currency", v)}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CURRENCIES.map((c) => (
+                              <SelectItem key={c} value={c}>
+                                {c}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Opening balance section */}
+                  <div className="space-y-3 rounded-md border border-dashed p-3">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      Oppstartssaldo (valgfritt)
+                    </span>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Dato for oppstartssaldo</Label>
+                      <Input
+                        type="date"
+                        value={rec.openingBalanceDate}
+                        onChange={(e) => update(idx, "openingBalanceDate", e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">
+                          Saldo mengde 1 <span className="text-muted-foreground">(NOK)</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0,00"
+                          value={rec.openingBalanceSet1}
+                          onChange={(e) => update(idx, "openingBalanceSet1", e.target.value)}
+                          className="h-8 text-xs font-mono tabular-nums"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">
+                          Saldo mengde 2 <span className="text-muted-foreground">(NOK)</span>
+                        </Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0,00"
+                          value={rec.openingBalanceSet2}
+                          onChange={(e) => update(idx, "openingBalanceSet2", e.target.value)}
+                          className="h-8 text-xs font-mono tabular-nums"
+                        />
+                      </div>
+                    </div>
+                    {(set1IsForeign || set2IsForeign) && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {set1IsForeign ? (
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">
+                              Valutasaldo mengde 1{" "}
+                              <span className="text-muted-foreground">({rec.set1Currency})</span>
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0,00"
+                              value={rec.openingBalanceCurrencySet1}
+                              onChange={(e) => update(idx, "openingBalanceCurrencySet1", e.target.value)}
+                              className="h-8 text-xs font-mono tabular-nums"
+                            />
+                          </div>
+                        ) : (
+                          <div />
+                        )}
+                        {set2IsForeign ? (
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">
+                              Valutasaldo mengde 2{" "}
+                              <span className="text-muted-foreground">({rec.set2Currency})</span>
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              placeholder="0,00"
+                              value={rec.openingBalanceCurrencySet2}
+                              onChange={(e) => update(idx, "openingBalanceCurrencySet2", e.target.value)}
+                              className="h-8 text-xs font-mono tabular-nums"
+                            />
+                          </div>
+                        ) : (
+                          <div />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             <Button variant="outline" size="sm" onClick={addItem} className="w-full">
               <Plus className="h-4 w-4" />

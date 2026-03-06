@@ -112,8 +112,10 @@ export default async function MatchingPage({
       .then((rows) => rows[0] ?? null),
   ]);
 
-  const set1Label = set1Account?.name ?? "Mengde 1";
-  const set2Label = set2Account?.name ?? "Mengde 2";
+  const set1Label = set1Account?.accountNumber || set1Account?.name || "Mengde 1";
+  const set2Label = set2Account?.accountNumber || set2Account?.name || "Mengde 2";
+  const set1AccountNumber = set1Account?.accountNumber ?? "";
+  const set2AccountNumber = set2Account?.accountNumber ?? "";
 
   const set1Source = syncConfig?.isActive && (syncConfig.set1Ids?.length ?? 0) > 0 ? "tripletex" : null;
   const set2Source = syncConfig?.isActive && (syncConfig.set2Ids?.length ?? 0) > 0 ? "tripletex" : null;
@@ -192,10 +194,13 @@ export default async function MatchingPage({
       <MatchingViewClient
         clientId={clientId}
         clientName={clientRow.name}
+        companyName={clientRow.companyName}
         set1Label={set1Label}
         set2Label={set2Label}
         set1AccountId={clientRow.set1AccountId}
         set2AccountId={clientRow.set2AccountId}
+        set1AccountNumber={set1AccountNumber}
+        set2AccountNumber={set2AccountNumber}
         rows1={rows1}
         rows2={rows2}
         balance1={balance1}

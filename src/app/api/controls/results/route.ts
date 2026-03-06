@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withTenant } from "@/lib/auth/api-handler";
 import { db, controlResults } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 
 export const GET = withTenant(async (req: NextRequest, ctx) => {
   const url = new URL(req.url);
@@ -12,7 +12,11 @@ export const GET = withTenant(async (req: NextRequest, ctx) => {
   const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
 
   const conditions = [eq(controlResults.tenantId, ctx.tenantId)];
-  if (companyId) conditions.push(eq(controlResults.companyId, companyId));
+  if (companyId) {
+    const ids = companyId.split(",").filter(Boolean);
+    if (ids.length === 1) conditions.push(eq(controlResults.companyId, ids[0]));
+    else if (ids.length > 1) conditions.push(inArray(controlResults.companyId, ids));
+  }
   if (controlType) conditions.push(eq(controlResults.controlType, controlType));
 
   const rows = await db

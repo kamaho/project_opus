@@ -1,15 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OrganizationSwitcher } from "@clerk/nextjs";
-import { ChevronDown, Building2, Check } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Building2, ChevronDown, Search, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { IntegrationBadge } from "@/components/ui/integration-badge";
 
@@ -27,8 +23,15 @@ export function AppBreadcrumb() {
   const searchParams = useSearchParams();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const companyIdFromUrl = searchParams.get("companyId");
+  const companyIdParam = searchParams.get("companyId");
+  const selectedIds = useMemo<Set<string>>(() => {
+    if (!companyIdParam) return new Set<string>();
+    return new Set(companyIdParam.split(",").filter(Boolean));
+  }, [companyIdParam]);
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -48,25 +51,57 @@ export function AppBreadcrumb() {
       const fetched = await fetchCompanies();
       if (cancelled) return;
       setCompanies(fetched);
-
-      if (fetched.length > 0 && !companyIdFromUrl) {
-        const first = fetched[0];
-        const params = new URLSearchParams(searchParams.toString());
-        params.set("companyId", first.id);
-        router.replace(`${pathname}?${params.toString()}`);
-      }
-
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [fetchCompanies]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchCompanies]);
 
-  const selectedCompany = companies.find((c) => c.id === companyIdFromUrl);
+  const allSelected = selectedIds.size === 0 || selectedIds.size === companies.length;
+  const selectedCompanies = allSelected ? companies : companies.filter((c) => selectedIds.has(c.id));
 
-  function selectCompany(id: string) {
+  function updateUrl(ids: Set<string>) {
     const params = new URLSearchParams(searchParams.toString());
-    params.set("companyId", id);
+    if (ids.size === 0 || ids.size === companies.length) {
+      params.delete("companyId");
+    } else {
+      params.set("companyId", Array.from(ids).join(","));
+    }
     router.replace(`${pathname}?${params.toString()}`);
+  }
+
+  function toggleCompany(id: string) {
+    const effectiveSelected = allSelected
+      ? new Set(companies.map((c) => c.id))
+      : new Set(selectedIds);
+    if (effectiveSelected.has(id)) {
+      effectiveSelected.delete(id);
+    } else {
+      effectiveSelected.add(id);
+    }
+    updateUrl(effectiveSelected);
+  }
+
+  function selectAll() {
+    updateUrl(new Set(companies.map((c) => c.id)));
+  }
+
+  function selectNone() {
+    updateUrl(new Set());
+  }
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return companies;
+    const q = search.toLowerCase();
+    return companies.filter((c) => c.name.toLowerCase().includes(q));
+  }, [companies, search]);
+
+  let triggerLabel: string;
+  if (allSelected) {
+    triggerLabel = "Alle selskaper";
+  } else if (selectedCompanies.length === 1) {
+    triggerLabel = selectedCompanies[0].name;
+  } else {
+    triggerLabel = `${selectedCompanies.length} selskaper`;
   }
 
   const segmentButtonClass =
@@ -77,7 +112,6 @@ export function AppBreadcrumb() {
       className="flex items-center gap-0 flex-1 min-w-0"
       aria-label="Brødsmule"
     >
-      {/* Segment 1: Organisasjon */}
       <div className="flex items-center gap-0 shrink-0">
         <OrganizationSwitcher
           hidePersonal
@@ -95,40 +129,90 @@ export function AppBreadcrumb() {
 
       {separator}
 
-      {/* Segment 2: Selskapsvelger */}
-      <DropdownMenu>
-        <DropdownMenuTrigger
+      <Popover open={open} onOpenChange={(v) => { setOpen(v); if (v) setTimeout(() => searchInputRef.current?.focus(), 0); else setSearch(""); }}>
+        <PopoverTrigger
           className={cn(segmentButtonClass, "data-[state=open]:bg-muted/80")}
           disabled={loading}
         >
           <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate max-w-[180px]">
-            {selectedCompany?.name ?? "Velg selskap"}
-          </span>
-          {selectedCompany?.integrationSources && (
-            <IntegrationBadge sources={selectedCompany.integrationSources} />
+          <span className="truncate max-w-[200px]">{triggerLabel}</span>
+          {selectedCompanies.length === 1 && selectedCompanies[0].integrationSources && (
+            <IntegrationBadge sources={selectedCompanies[0].integrationSources} />
           )}
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-[220px]">
-          {companies.length === 0 && !loading && (
-            <DropdownMenuItem disabled>Ingen selskap</DropdownMenuItem>
-          )}
-          {companies.map((c) => (
-            <DropdownMenuItem
-              key={c.id}
-              onClick={() => selectCompany(c.id)}
-              className="flex items-center gap-2"
-            >
-              <span className="flex-1 truncate">{c.name}</span>
-              <IntegrationBadge sources={c.integrationSources ?? []} />
-              {c.id === companyIdFromUrl && (
-                <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </PopoverTrigger>
+
+        <PopoverContent align="start" className="w-[280px] p-0">
+          {/* Search */}
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Søk selskap..."
+              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Select all / none */}
+          <div className="flex items-center justify-between border-b px-3 py-1.5">
+            <span className="text-xs text-muted-foreground">
+              {allSelected ? "Alle" : `${selectedCompanies.length} av ${companies.length}`} valgt
+            </span>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={selectAll}
+                className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+              >
+                Alle
+              </button>
+              <button
+                type="button"
+                onClick={selectNone}
+                className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+              >
+                Ingen
+              </button>
+            </div>
+          </div>
+
+          {/* Company list */}
+          <div className="max-h-[300px] overflow-y-auto py-1">
+            {filtered.length === 0 && (
+              <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                Ingen selskap funnet
+              </div>
+            )}
+            {filtered.map((c) => {
+              const checked = allSelected || selectedIds.has(c.id);
+              return (
+                <label
+                  key={c.id}
+                  className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-muted/60 transition-colors"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={() => toggleCompany(c.id)}
+                  />
+                  <span className="flex-1 truncate text-sm">{c.name}</span>
+                  <IntegrationBadge sources={c.integrationSources ?? []} />
+                </label>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
     </nav>
   );
 }

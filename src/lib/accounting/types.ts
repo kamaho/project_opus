@@ -25,6 +25,7 @@ export interface AccountingSystemAdapter {
   getVatSummary(params: PeriodParams): Promise<VatSummary>;
   getAccountsReceivable(asOfDate: Date): Promise<ReceivableEntry[]>;
   getAccountsPayable(asOfDate: Date): Promise<PayableEntry[]>;
+  getTrialBalance(params: PeriodParams, accountFilter?: string[]): Promise<TrialBalanceEntry[]>;
   getHolidayPayData(year: number): Promise<HolidayPayData>;
 }
 
@@ -127,6 +128,19 @@ export interface PayableEntry {
   originalAmount: number;
   remainingAmount: number;
   currency: string;
+}
+
+// ---------------------------------------------------------------------------
+// Saldobalanse (Trial Balance)
+// ---------------------------------------------------------------------------
+
+export interface TrialBalanceEntry {
+  accountNumber: string;
+  accountName: string;
+  openingBalance: number;
+  periodDebit: number;
+  periodCredit: number;
+  closingBalance: number;
 }
 
 // ---------------------------------------------------------------------------

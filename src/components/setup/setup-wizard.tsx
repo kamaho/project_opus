@@ -39,14 +39,29 @@ interface CompanyData {
   orgNumber: string;
 }
 
+const ACCOUNT_TYPE_OPTIONS = [
+  { value: "ledger", label: "Hovedbok" },
+  { value: "bank", label: "Bank" },
+  { value: "accounts_receivable", label: "Kundefordringer" },
+  { value: "accounts_payable", label: "Leverandørgjeld" },
+  { value: "payroll", label: "Lønn" },
+  { value: "tax", label: "Skatt/avgift" },
+  { value: "fixed_assets", label: "Anleggsmidler" },
+  { value: "intercompany", label: "Mellomværende" },
+  { value: "external", label: "Eksternt system" },
+  { value: "custom", label: "Annet" },
+] as const;
+
+type AccountType = (typeof ACCOUNT_TYPE_OPTIONS)[number]["value"];
+
 interface ReconciliationData {
   name: string;
   set1AccountNumber: string;
   set1Name: string;
-  set1Type: "ledger" | "bank";
+  set1Type: AccountType;
   set2AccountNumber: string;
   set2Name: string;
-  set2Type: "ledger" | "bank";
+  set2Type: AccountType;
 }
 
 export interface SetupResult {
@@ -650,8 +665,11 @@ function StepReconciliation({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ledger">Hovedbok</SelectItem>
-                      <SelectItem value="bank">Bank</SelectItem>
+                      {ACCOUNT_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -688,8 +706,11 @@ function StepReconciliation({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ledger">Hovedbok</SelectItem>
-                      <SelectItem value="bank">Bank</SelectItem>
+                      {ACCOUNT_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

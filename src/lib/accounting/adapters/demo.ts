@@ -7,6 +7,7 @@ import type {
   VatSummaryLine,
   ReceivableEntry,
   PayableEntry,
+  TrialBalanceEntry,
   HolidayPayData,
   HolidayPayEmployee,
   PeriodParams,
@@ -243,6 +244,26 @@ export function createDemoAdapter(
         totalBasis: lines.reduce((s, l) => s + l.basis, 0),
         totalVat: lines.reduce((s, l) => s + l.vatAmount, 0),
       };
+    },
+
+    async getTrialBalance(_params: PeriodParams, _accountFilter?: string[]): Promise<TrialBalanceEntry[]> {
+      const accounts: TrialBalanceEntry[] = [
+        { accountNumber: "1500", accountName: "Kundefordringer", openingBalance: 245000, periodDebit: 380000, periodCredit: 350000, closingBalance: 275000 },
+        { accountNumber: "1700", accountName: "Forskuddsbetalte kostnader", openingBalance: 18000, periodDebit: 0, periodCredit: 0, closingBalance: 18000 },
+        { accountNumber: "1920", accountName: "Bankinnskudd", openingBalance: 520000, periodDebit: 890000, periodCredit: 870000, closingBalance: 540000 },
+        { accountNumber: "2400", accountName: "Leverandørgjeld", openingBalance: -185000, periodDebit: 310000, periodCredit: 340000, closingBalance: -215000 },
+        { accountNumber: "2900", accountName: "Annen kortsiktig gjeld", openingBalance: -45000, periodDebit: 0, periodCredit: 0, closingBalance: -45000 },
+        { accountNumber: "2960", accountName: "Påløpt feriepenger", openingBalance: -128000, periodDebit: 0, periodCredit: 12000, closingBalance: -140000 },
+        { accountNumber: "3000", accountName: "Salgsinntekt", openingBalance: 0, periodDebit: 0, periodCredit: 380000, closingBalance: -380000 },
+        { accountNumber: "5000", accountName: "Lønn", openingBalance: 0, periodDebit: 285000, periodCredit: 0, closingBalance: 285000 },
+        { accountNumber: "6300", accountName: "Leie lokale", openingBalance: 0, periodDebit: 25000, periodCredit: 0, closingBalance: 25000 },
+      ];
+      if (_accountFilter && _accountFilter.length > 0) {
+        return accounts.filter((a) =>
+          _accountFilter.some((f) => a.accountNumber.startsWith(f))
+        );
+      }
+      return accounts;
     },
 
     async getHolidayPayData(year: number): Promise<HolidayPayData> {

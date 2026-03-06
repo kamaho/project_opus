@@ -1,8 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { tasks, companies, clients } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { TasksClient } from "./tasks-client";
+import { parseCompanyIds } from "@/lib/utils";
 
 export default async function OppgaverPage({
   searchParams,
@@ -19,10 +20,11 @@ export default async function OppgaverPage({
     );
   }
 
-  const { companyId: selectedCompanyId } = await searchParams;
+  const { companyId: companyIdParam } = await searchParams;
+  const selectedCompanyIds = parseCompanyIds(companyIdParam);
 
-  const companyFilter = selectedCompanyId
-    ? and(eq(companies.tenantId, orgId), eq(companies.id, selectedCompanyId))
+  const companyFilter = selectedCompanyIds.length > 0
+    ? and(eq(companies.tenantId, orgId), inArray(companies.id, selectedCompanyIds))
     : eq(companies.tenantId, orgId);
 
   const [companyList, clientList, stats] = await Promise.all([
@@ -42,7 +44,7 @@ export default async function OppgaverPage({
       .innerJoin(companies, eq(clients.companyId, companies.id))
       .where(companyFilter)
       .orderBy(clients.name),
-    selectedCompanyId
+    selectedCompanyIds.length > 0
       ? db
           .select({
             total: sql<number>`count(*)::int`,
@@ -54,7 +56,7 @@ export default async function OppgaverPage({
           .from(tasks)
           .innerJoin(clients, eq(tasks.clientId, clients.id))
           .innerJoin(companies, eq(clients.companyId, companies.id))
-          .where(and(eq(tasks.tenantId, orgId), eq(companies.id, selectedCompanyId)))
+          .where(and(eq(tasks.tenantId, orgId), inArray(companies.id, selectedCompanyIds)))
       : db
           .select({
             total: sql<number>`count(*)::int`,

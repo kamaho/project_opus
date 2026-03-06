@@ -8,6 +8,7 @@ import type {
   VatSummaryLine,
   ReceivableEntry,
   PayableEntry,
+  TrialBalanceEntry,
   HolidayPayData,
   HolidayPayEmployee,
   PeriodParams,
@@ -336,6 +337,44 @@ export function createTripletexAdapter(
             currency: cur ?? "NOK",
           };
         });
+    },
+
+    async getTrialBalance(params: PeriodParams, accountFilter?: string[]): Promise<TrialBalanceEntry[]> {
+      const dateFrom = `${params.year}-${String(params.month ?? 1).padStart(2, "0")}-01`;
+      const month = params.month ?? 12;
+      const lastDay = new Date(params.year, month, 0).getDate();
+      const dateTo = `${params.year}-${String(month).padStart(2, "0")}-${lastDay}`;
+
+      interface AccountRow {
+        number?: number;
+        name?: string;
+        openingBalance?: number;
+        debitBalance?: number;
+        creditBalance?: number;
+        closingBalance?: number;
+      }
+
+      const data = await tripletexGet<{ values: AccountRow[] }>(
+        `/v2/ledger/account`,
+        { dateFrom, dateTo, count: 1000 },
+        tenantId
+      );
+
+      const entries: TrialBalanceEntry[] = (data?.values ?? []).map((acc) => ({
+        accountNumber: String(acc.number ?? ""),
+        accountName: String(acc.name ?? ""),
+        openingBalance: Number(acc.openingBalance ?? 0),
+        periodDebit: Number(acc.debitBalance ?? 0),
+        periodCredit: Number(acc.creditBalance ?? 0),
+        closingBalance: Number(acc.closingBalance ?? 0),
+      }));
+
+      if (accountFilter && accountFilter.length > 0) {
+        return entries.filter((e) =>
+          accountFilter.some((f) => e.accountNumber.startsWith(f))
+        );
+      }
+      return entries;
     },
 
     async getHolidayPayData(year: number): Promise<HolidayPayData> {

@@ -2,12 +2,13 @@ import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
+import { parseCompanyIds } from "@/lib/utils";
 
 export const GET = withTenant(async (req, { tenantId }) => {
-  const companyId = new URL(req.url).searchParams.get("companyId");
+  const companyIds = parseCompanyIds(new URL(req.url).searchParams.get("companyId"));
 
-  const companyClause = companyId
-    ? sql`mv.tenant_id = ${tenantId} AND mv.company_id = ${companyId}`
+  const companyClause = companyIds.length > 0
+    ? sql`mv.tenant_id = ${tenantId} AND mv.company_id = ANY(${companyIds})`
     : sql`mv.tenant_id = ${tenantId}`;
 
   let rows: {
@@ -37,8 +38,8 @@ export const GET = withTenant(async (req, { tenantId }) => {
       ORDER BY mv.unmatched_abs_total DESC
     `) as typeof rows;
   } catch {
-    const fallbackCompanyClause = companyId
-      ? sql`co.tenant_id = ${tenantId} AND co.id = ${companyId}`
+    const fallbackCompanyClause = companyIds.length > 0
+      ? sql`co.tenant_id = ${tenantId} AND co.id = ANY(${companyIds})`
       : sql`co.tenant_id = ${tenantId}`;
 
     rows = await db.execute(sql`

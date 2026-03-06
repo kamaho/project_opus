@@ -2,17 +2,18 @@ import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { clients, companies } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
+import { parseCompanyIds } from "@/lib/utils";
 
 export const GET = withTenant(async (req, { tenantId }) => {
-  const companyId = new URL(req.url).searchParams.get("companyId");
+  const companyIds = parseCompanyIds(new URL(req.url).searchParams.get("companyId"));
 
-  const companyWhere = companyId
-    ? and(eq(companies.tenantId, tenantId), eq(companies.id, companyId))
+  const companyWhere = companyIds.length > 0
+    ? and(eq(companies.tenantId, tenantId), inArray(companies.id, companyIds))
     : eq(companies.tenantId, tenantId);
 
-  const companyClause = companyId
-    ? sql`co.tenant_id = ${tenantId} AND co.id = ${companyId}`
+  const companyClause = companyIds.length > 0
+    ? sql`co.tenant_id = ${tenantId} AND co.id = ANY(${companyIds})`
     : sql`co.tenant_id = ${tenantId}`;
 
   const [[clientCount], [stats]] = await Promise.all([

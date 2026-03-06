@@ -28,13 +28,23 @@ import { DayPopover } from "./day-popover";
 import { CalendarEventDialog, type CalendarEventData } from "./calendar-event-dialog";
 import { CreateTaskDialog } from "@/app/dashboard/oppgaver/create-task-dialog";
 
+interface DeadlineRule {
+  type?: "fixed_annual" | "offset_after_period";
+  day: number | null;
+  month?: number;
+  offset_months?: number;
+  relative_to?: string;
+  months_after?: number;
+  [key: string]: unknown;
+}
+
 interface Deadline {
   id: string;
   title: string;
   obligation: string;
   description: string | null;
   frequency: string;
-  deadlineRule: { day: number; month?: number; relative_to?: string; months_after?: number };
+  deadlineRule: DeadlineRule;
   periodStartMonth?: number | null;
   periodEndMonth?: number | null;
 }
@@ -96,31 +106,73 @@ const EVENT_TYPE_ICON = {
 function resolveDeadlineDates(deadline: Deadline, year: number, month: number): Date[] {
   const rule = deadline.deadlineRule;
   const dates: Date[] = [];
+  const day = rule.day ?? 28;
 
-  if (deadline.frequency === "yearly") {
+  if (rule.type === "fixed_annual") {
+    if (rule.month === month + 1) {
+      dates.push(new Date(year, month, day));
+    }
+    return dates;
+  }
+
+  if (rule.type === "offset_after_period") {
+    const offset = rule.offset_months ?? 0;
+
+    if (deadline.frequency === "annual") {
+      const deadlineMonth = 11 + offset;
+      if (deadlineMonth % 12 === month) {
+        dates.push(new Date(year, month, day));
+      }
+    } else if (deadline.frequency === "monthly") {
+      const sourceMonth = month - offset;
+      if (sourceMonth >= 0 && sourceMonth < 12) {
+        dates.push(new Date(year, month, day));
+      }
+    } else if (deadline.frequency === "bimonthly") {
+      const startMonth = deadline.periodStartMonth ?? 1;
+      for (let pStart = startMonth - 1; pStart < 12; pStart += 2) {
+        const pEnd = pStart + 1;
+        const deadlineMonth = pEnd + offset;
+        if (deadlineMonth === month) {
+          dates.push(new Date(year, month, day));
+        }
+      }
+    } else if (deadline.frequency === "quarterly") {
+      for (let q = 0; q < 4; q++) {
+        const qEnd = (q + 1) * 3 - 1;
+        const deadlineMonth = qEnd + offset;
+        if (deadlineMonth === month) {
+          dates.push(new Date(year, month, day));
+        }
+      }
+    }
+    return dates;
+  }
+
+  // Legacy format (no type field): fall back to old logic
+  if (deadline.frequency === "yearly" || deadline.frequency === "annual") {
     if (rule.month !== undefined && rule.month === month + 1) {
-      dates.push(new Date(year, month, rule.day));
+      dates.push(new Date(year, month, day));
     }
   } else if (deadline.frequency === "monthly") {
     if (rule.relative_to === "period_end" && rule.months_after) {
-      const deadlineMonth = month + rule.months_after;
-      if (deadlineMonth >= 12) return dates;
-      const d = new Date(year, month + rule.months_after, rule.day);
-      if (d.getMonth() === month) dates.push(d);
+      const sourceMonth = month - rule.months_after;
+      if (sourceMonth >= 0 && sourceMonth < 12) {
+        dates.push(new Date(year, month, day));
+      }
     } else {
-      dates.push(new Date(year, month, rule.day));
+      dates.push(new Date(year, month, day));
     }
   } else if (deadline.frequency === "bimonthly") {
     const startMonth = deadline.periodStartMonth ?? 1;
-    const periodLength = 2;
-    for (let pStart = startMonth - 1; pStart < 12; pStart += periodLength) {
-      const pEnd = pStart + periodLength - 1;
+    for (let pStart = startMonth - 1; pStart < 12; pStart += 2) {
+      const pEnd = pStart + 1;
       let deadlineMonth = pEnd;
       if (rule.relative_to === "period_end" && rule.months_after) {
         deadlineMonth = pEnd + rule.months_after;
       }
       if (deadlineMonth === month) {
-        dates.push(new Date(year, month, rule.day));
+        dates.push(new Date(year, month, day));
       }
     }
   } else if (deadline.frequency === "quarterly") {
@@ -131,7 +183,7 @@ function resolveDeadlineDates(deadline: Deadline, year: number, month: number): 
         deadlineMonth = qEnd + rule.months_after;
       }
       if (deadlineMonth === month) {
-        dates.push(new Date(year, month, rule.day));
+        dates.push(new Date(year, month, day));
       }
     }
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,22 @@ interface Company {
   name: string;
 }
 
+interface AccountOption {
+  accountNumber: string;
+  accountName: string;
+  syncLevel: string;
+}
+
+const REPORT_ACCOUNT_PREFIX: Partial<Record<ReportType, string>> = {
+  accounts_receivable: "15",
+  accounts_payable: "24",
+};
+
+const REPORT_ACCOUNT_LABEL: Partial<Record<ReportType, string>> = {
+  accounts_receivable: "kundefordrings",
+  accounts_payable: "leverandørgjeld",
+};
+
 interface ReportGeneratorDialogProps {
   companies: Company[];
   onGenerated?: () => void;
@@ -35,6 +51,9 @@ export function ReportGeneratorDialog({ companies, onGenerated }: ReportGenerato
   const [open, setOpen] = useState(false);
   const [selectedType, setSelectedType] = useState<ReportType | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>("");
+  const [selectedAccount, setSelectedAccount] = useState<string>("all");
+  const [companyAccounts, setCompanyAccounts] = useState<AccountOption[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [format, setFormat] = useState<ReportFormat>("pdf");
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10));
   const [periodYear, setPeriodYear] = useState(new Date().getFullYear());
@@ -47,12 +66,49 @@ export function ReportGeneratorDialog({ companies, onGenerated }: ReportGenerato
   const needsYear = typeDef?.requiredParams.includes("periodYear");
   const needsMonth = typeDef?.requiredParams.includes("periodMonth");
 
+  const accountPrefix = selectedType ? REPORT_ACCOUNT_PREFIX[selectedType] ?? null : null;
+
+  const filteredAccounts = accountPrefix
+    ? companyAccounts.filter(
+        (a) => a.accountNumber.startsWith(accountPrefix) && a.syncLevel === "transactions"
+      )
+    : [];
+
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
   const months = [
     "Januar", "Februar", "Mars", "April", "Mai", "Juni",
     "Juli", "August", "September", "Oktober", "November", "Desember",
   ];
+
+  useEffect(() => {
+    if (!selectedCompany) {
+      setCompanyAccounts([]);
+      setSelectedAccount("all");
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingAccounts(true);
+
+    fetch(`/api/companies/${selectedCompany}/accounts`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: AccountOption[]) => {
+        if (!cancelled) setCompanyAccounts(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setCompanyAccounts([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAccounts(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedCompany]);
+
+  useEffect(() => {
+    setSelectedAccount("all");
+  }, [selectedType]);
 
   const handleGenerate = useCallback(async () => {
     if (!selectedType || !selectedCompany) return;
@@ -68,6 +124,9 @@ export function ReportGeneratorDialog({ companies, onGenerated }: ReportGenerato
       if (needsDate) body.asOfDate = new Date(asOfDate).toISOString();
       if (needsYear) body.periodYear = periodYear;
       if (needsMonth) body.periodMonth = periodMonth;
+      if (selectedAccount !== "all" && accountPrefix) {
+        body.accountNumbers = [selectedAccount];
+      }
 
       const res = await fetch("/api/reports/generate", {
         method: "POST",
@@ -83,13 +142,14 @@ export function ReportGeneratorDialog({ companies, onGenerated }: ReportGenerato
       setOpen(false);
       setSelectedType(null);
       setSelectedCompany("");
+      setSelectedAccount("all");
       onGenerated?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ukjent feil");
     } finally {
       setRunning(false);
     }
-  }, [selectedType, selectedCompany, format, asOfDate, periodYear, periodMonth, needsDate, needsYear, needsMonth, onGenerated]);
+  }, [selectedType, selectedCompany, selectedAccount, accountPrefix, format, asOfDate, periodYear, periodMonth, needsDate, needsYear, needsMonth, onGenerated]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -130,6 +190,41 @@ export function ReportGeneratorDialog({ companies, onGenerated }: ReportGenerato
                   Selskapet må ha aktiv regnskapssystem-tilkobling.
                 </p>
               </div>
+
+              {/* Account selection — only for AR/AP report types */}
+              {accountPrefix && selectedCompany && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Konto</label>
+                  {loadingAccounts ? (
+                    <div className="flex items-center gap-2 h-9 px-3 text-sm text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Henter kontoer...
+                    </div>
+                  ) : filteredAccounts.length > 0 ? (
+                    <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">
+                          Alle {REPORT_ACCOUNT_LABEL[selectedType] ?? ""}-kontoer ({filteredAccounts.length})
+                        </SelectItem>
+                        {filteredAccounts.map((a) => (
+                          <SelectItem key={a.accountNumber} value={a.accountNumber}>
+                            <span className="font-mono tabular-nums">{a.accountNumber}</span>
+                            {" "}
+                            {a.accountName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Ingen importerte {accountPrefix}xx-kontoer funnet for dette selskapet.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {needsDate && (
                 <div className="space-y-2">

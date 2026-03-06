@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { BarChart3, FolderPlus, X } from "lucide-react";
+import { BarChart3, FolderPlus, Upload, X, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SelectionActionBarProps {
@@ -9,6 +9,8 @@ interface SelectionActionBarProps {
   onCompare: () => void;
   onCreateGroup: () => void;
   onCancel: () => void;
+  onSmartMatch?: () => void;
+  onBulkImport?: () => void;
 }
 
 export function SelectionActionBar({
@@ -16,6 +18,8 @@ export function SelectionActionBar({
   onCompare,
   onCreateGroup,
   onCancel,
+  onSmartMatch,
+  onBulkImport,
 }: SelectionActionBarProps) {
   const canCompare = count >= 2;
 
@@ -35,12 +39,32 @@ export function SelectionActionBar({
 
       <Button
         size="sm"
+        onClick={onSmartMatch}
+        className="gap-1.5"
+      >
+        <Zap className="h-3.5 w-3.5" />
+        Smart Match
+      </Button>
+
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onBulkImport}
+        className="gap-1.5"
+      >
+        <Upload className="h-3.5 w-3.5" />
+        Importer filer
+      </Button>
+
+      <Button
+        size="sm"
+        variant="outline"
         onClick={onCompare}
         disabled={!canCompare}
         className="gap-1.5"
       >
         <BarChart3 className="h-3.5 w-3.5" />
-        Sammenlign saldoer
+        Sammenlign
       </Button>
 
       <Button

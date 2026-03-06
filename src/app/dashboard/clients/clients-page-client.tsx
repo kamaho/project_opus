@@ -16,12 +16,14 @@ import {
 import { AccountsTable, type AccountRow, type ClientGroup } from "./accounts-table";
 import { GroupCards } from "./group-cards";
 import {
-  CreateReconciliationDialog,
-  type CreateReconciliationDialogRef,
-} from "@/components/setup/create-reconciliation-dialog";
+  CreateClientDialog,
+  type CreateClientDialogRef,
+} from "@/components/setup/create-client-dialog";
 import { ComparisonOverlay } from "@/components/clients/comparison-overlay";
 import { ClientGroupDialog, type ClientOption } from "@/components/clients/client-group-dialog";
 import { GroupAutoMatchDialog } from "@/components/clients/group-auto-match-dialog";
+import { BulkAutoMatchDialog } from "@/components/clients/bulk-auto-match-dialog";
+import { BulkImportDialog } from "@/components/clients/bulk-import-dialog";
 
 interface ClientsPageClientProps {
   rows: AccountRow[];
@@ -81,18 +83,22 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
   const [editGroup, setEditGroup] = useState<ClientGroup | null>(null);
   const [groupToDelete, setGroupToDelete] = useState<ClientGroup | null>(null);
   const [groupForMatchDialog, setGroupForMatchDialog] = useState<ClientGroup | null>(null);
+  const [bulkMatchClientIds, setBulkMatchClientIds] = useState<string[]>([]);
+  const [showBulkMatch, setShowBulkMatch] = useState(false);
+  const [bulkImportClientIds, setBulkImportClientIds] = useState<string[]>([]);
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   // Track which group is active inside the table (for group header actions)
   const [, setActiveGroupFromTable] = useState<ClientGroup | null>(null);
 
-  const createDialogRef = useRef<CreateReconciliationDialogRef>(null);
+  const createDialogRef = useRef<CreateClientDialogRef>(null);
   const newClientToolbarButton = (
     <Button
       variant="outline"
       size="sm"
       className="gap-1.5"
       onClick={() => createDialogRef.current?.open()}
-      data-smart-info="Ny klient — opprett en ny klient (avstemmingsenhet)."
+      data-smart-info="Ny klient — opprett en ny klient manuelt eller importer fra Excel."
     >
       <Plus className="h-3.5 w-3.5" />
       Ny klient
@@ -113,6 +119,16 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
 
   const handleSmartMatchGroup = useCallback((group: ClientGroup) => {
     setGroupForMatchDialog(group);
+  }, []);
+
+  const handleBulkSmartMatch = useCallback((clientIds: string[]) => {
+    setBulkMatchClientIds(clientIds);
+    setShowBulkMatch(true);
+  }, []);
+
+  const handleBulkImport = useCallback((clientIds: string[]) => {
+    setBulkImportClientIds(clientIds);
+    setShowBulkImport(true);
   }, []);
 
   const handleExportGroup = useCallback(async (group: ClientGroup) => {
@@ -224,8 +240,6 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Klient avstemming</h1>
 
-      <CreateReconciliationDialog ref={createDialogRef} noTrigger />
-
       <Tabs
         value={tab}
         onValueChange={(v) => {
@@ -268,6 +282,8 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
             onSmartMatchGroup={handleSmartMatchGroup}
             onExportGroup={handleExportGroup}
             onActiveGroupChange={setActiveGroupFromTable}
+            onBulkSmartMatch={handleBulkSmartMatch}
+            onBulkImport={handleBulkImport}
             toolbarAppend={newClientToolbarButton}
           />
           <p className="text-muted-foreground text-sm mt-3">
@@ -291,6 +307,8 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
                 onCreateGroup={handleCreateGroupFromSelection}
                 onSmartMatchGroup={handleSmartMatchGroup}
                 onExportGroup={handleExportGroup}
+                onBulkSmartMatch={handleBulkSmartMatch}
+                onBulkImport={handleBulkImport}
                 toolbarAppend={newClientToolbarButton}
               />
             );
@@ -378,6 +396,22 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
           group={groupForMatchDialog}
         />
       )}
+
+      <BulkAutoMatchDialog
+        open={showBulkMatch}
+        onOpenChange={setShowBulkMatch}
+        clientIds={bulkMatchClientIds}
+        onComplete={() => router.refresh()}
+      />
+
+      <BulkImportDialog
+        open={showBulkImport}
+        onOpenChange={setShowBulkImport}
+        availableClients={rows.map((r) => ({ id: r.id, name: r.matchGroup, companyName: r.company }))}
+        onComplete={() => router.refresh()}
+      />
+
+      <CreateClientDialog ref={createDialogRef} />
     </div>
   );
 }

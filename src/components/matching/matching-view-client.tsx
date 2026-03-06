@@ -186,10 +186,13 @@ interface DuplicateReport {
 export interface MatchingViewClientProps {
   clientId: string;
   clientName: string;
+  companyName: string;
   set1Label: string;
   set2Label: string;
   set1AccountId: string;
   set2AccountId: string;
+  set1AccountNumber: string;
+  set2AccountNumber: string;
   rows1: TransactionRow[];
   rows2: TransactionRow[];
   balance1: number;
@@ -314,10 +317,13 @@ function EditableAccountBadge({
 export function MatchingViewClient({
   clientId,
   clientName,
+  companyName,
   set1Label: initialSet1Label,
   set2Label: initialSet2Label,
   set1AccountId,
   set2AccountId,
+  set1AccountNumber,
+  set2AccountNumber,
   rows1,
   rows2,
   balance1,
@@ -1613,6 +1619,10 @@ export function MatchingViewClient({
   const [wizardFileSum, setWizardFileSum] = useState<number | null>(null);
   const [wizardNewSum, setWizardNewSum] = useState<number | null>(null);
 
+  const [recognizedConfig, setRecognizedConfig] = useState<{ id: string; name: string; config: Record<string, unknown>; matchType: "exact" | "fuzzy"; similarity: number } | null>(null);
+  const [recognizedPending, setRecognizedPending] = useState(false);
+  const [wizardResultForSave, setWizardResultForSave] = useState<{ headerSample: string[]; headerSet: string[]; signature: string; fileType: "csv" | "excel"; columns: Record<string, number>; dataStartRow: number; delimiter?: string; dateFormats?: Record<string, string> } | null>(null);
+
   const openImportDialog = useCallback(
     async (file: File, setNumber: 1 | 2) => {
       setPendingFile(file);
@@ -1621,6 +1631,9 @@ export function MatchingViewClient({
       setImportError(null);
       setWizardRawRows(null);
       setExcelBuffer(null);
+      setRecognizedConfig(null);
+      setRecognizedPending(false);
+      setWizardResultForSave(null);
 
       const parsers = await loadParsers();
       const detected = await parsers.detectFileTypeFromFile(file);
@@ -1631,16 +1644,17 @@ export function MatchingViewClient({
         setExcelBuffer(buffer);
         const rawRows = parsers.readExcelRows(buffer);
         const maxCol = Math.max(...rawRows.map((r) => (Array.isArray(r) ? r.length : 0)), 1);
-        setWizardRawRows(
-          rawRows.map((r) => {
-            const out: string[] = [];
-            for (let c = 0; c < maxCol; c++)
-              out.push(cellToString(Array.isArray(r) ? r[c] : undefined));
-            return out;
-          })
-        );
+        const stringRows = rawRows.map((r) => {
+          const out: string[] = [];
+          for (let c = 0; c < maxCol; c++)
+            out.push(cellToString(Array.isArray(r) ? r[c] : undefined));
+          return out;
+        });
+        setWizardRawRows(stringRows);
         setFileContent(null);
-        setImportOpen(true);
+
+        const headerRow = stringRows[0] ?? [];
+        await tryRecognizeConfig(headerRow, "excel", buffer, null, parsers, file);
         return;
       }
 
@@ -1651,7 +1665,9 @@ export function MatchingViewClient({
         const rawRows = parsers.readCsvRawRows(content);
         setWizardRawRows(rawRows);
         setCsvDelimiter(detectDelimiterFromContent(content));
-        setImportOpen(true);
+
+        const headerRow = rawRows[0] ?? [];
+        await tryRecognizeConfig(headerRow, "csv", null, content, parsers, file);
       } else if (detected === "klink") {
         setFileContent(content);
         setWizardRawRows(null);
@@ -1668,6 +1684,137 @@ export function MatchingViewClient({
       }
     },
     []
+  );
+
+  const tryRecognizeConfig = useCallback(
+    async (
+      headerRow: string[],
+      fileType: "csv" | "excel",
+      excelBuf: ArrayBuffer | null,
+      csvContent: string | null,
+      parsers: Awaited<ReturnType<typeof loadParsers>>,
+      file: File
+    ) => {
+      try {
+        const hSet = parsers.headerSet(headerRow);
+        const signature = await parsers.computeSignature(headerRow);
+        const params = new URLSearchParams({ signature, headerSet: hSet.join(",") });
+        const res = await fetch(`/api/parser-configs?${params}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.config && (data.matchType === "exact" || data.matchType === "fuzzy")) {
+            const cfg = data.config;
+            if (data.matchType === "exact") {
+              const storedCfg = cfg.config as Record<string, unknown>;
+              const columns = storedCfg.columns as Record<string, number>;
+              const dataStartRow = storedCfg.dataStartRow as number;
+
+              if (fileType === "excel" && excelBuf) {
+                const excelCfg: ExcelParserConfig = {
+                  dataStartRow,
+                  columns,
+                  dateFormats: (storedCfg.dateFormats as Record<string, string>) ?? {},
+                  headerExtractions: (storedCfg.headerExtractions as ExcelParserConfig["headerExtractions"]) ?? [],
+                };
+                const out = parsers.parseExcel(excelBuf, excelCfg);
+                setPreview({ transactions: out.transactions, errors: out.errors });
+              } else if (fileType === "csv" && csvContent) {
+                const csvCfg: CsvParserConfig = {
+                  delimiter: (storedCfg.delimiter as CsvParserConfig["delimiter"]) ?? ";",
+                  decimalSeparator: (storedCfg.decimalSeparator as CsvParserConfig["decimalSeparator"]) ?? ",",
+                  hasHeader: true,
+                  columns,
+                  dataStartRow,
+                };
+                const out = parsers.parseCsv(csvContent, csvCfg);
+                setPreview({ transactions: out.transactions, errors: out.errors });
+              }
+              setRecognizedConfig({ id: cfg.id, name: cfg.name, config: cfg.config, matchType: "exact", similarity: 1 });
+              setImportOpen(true);
+              return;
+            }
+            if (data.matchType === "fuzzy") {
+              setRecognizedConfig({ id: cfg.id, name: cfg.name, config: cfg.config, matchType: "fuzzy", similarity: data.similarity });
+              setRecognizedPending(true);
+              setImportOpen(true);
+              return;
+            }
+          }
+        }
+      } catch {
+        // Config lookup failed, fall through to wizard
+      }
+      setImportOpen(true);
+    },
+    []
+  );
+
+  const acceptRecognizedConfig = useCallback(() => {
+    if (!recognizedConfig) return;
+    const storedCfg = recognizedConfig.config as Record<string, unknown>;
+    const columns = storedCfg.columns as Record<string, number>;
+    const dataStartRow = storedCfg.dataStartRow as number;
+
+    loadParsers().then((parsers) => {
+      if (parserType === "excel" && excelBuffer) {
+        const excelCfg: ExcelParserConfig = {
+          dataStartRow,
+          columns,
+          dateFormats: (storedCfg.dateFormats as Record<string, string>) ?? {},
+          headerExtractions: (storedCfg.headerExtractions as ExcelParserConfig["headerExtractions"]) ?? [],
+        };
+        const out = parsers.parseExcel(excelBuffer, excelCfg);
+        setPreview({ transactions: out.transactions, errors: out.errors });
+      } else if (parserType === "csv" && fileContent) {
+        const csvCfg: CsvParserConfig = {
+          delimiter: (storedCfg.delimiter as CsvParserConfig["delimiter"]) ?? ";",
+          decimalSeparator: (storedCfg.decimalSeparator as CsvParserConfig["decimalSeparator"]) ?? ",",
+          hasHeader: true,
+          columns,
+          dataStartRow,
+        };
+        const out = parsers.parseCsv(fileContent, csvCfg);
+        setPreview({ transactions: out.transactions, errors: out.errors });
+      }
+    });
+    setRecognizedPending(false);
+  }, [recognizedConfig, parserType, excelBuffer, fileContent]);
+
+  const rejectRecognizedConfig = useCallback(() => {
+    setRecognizedConfig(null);
+    setRecognizedPending(false);
+  }, []);
+
+  const saveParserConfig = useCallback(
+    async (wizardMeta: typeof wizardResultForSave) => {
+      if (!wizardMeta) return;
+      try {
+        await fetch("/api/parser-configs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileType: wizardMeta.fileType,
+            config: {
+              headerSignature: wizardMeta.signature,
+              headerSet: wizardMeta.headerSet,
+              headerSample: wizardMeta.headerSample,
+              fileType: wizardMeta.fileType,
+              delimiter: wizardMeta.delimiter,
+              decimalSeparator: ",",
+              dataStartRow: wizardMeta.dataStartRow,
+              columns: wizardMeta.columns,
+              dateFormats: wizardMeta.dateFormats ?? {},
+            },
+            fileName: pendingFile?.name,
+          }),
+        });
+        toast.success("Importformat lagret for fremtidig gjenkjenning");
+      } catch {
+        toast.error("Kunne ikke lagre importformat");
+      }
+      setWizardResultForSave(null);
+    },
+    [pendingFile]
   );
 
   // --- Stable callbacks for TransactionPanel (avoids re-render on every parent state change) ---
@@ -1699,6 +1846,18 @@ export function MatchingViewClient({
       setPreview({ transactions: out.transactions, errors: out.errors });
     });
   }, [parserType, fileContent, klinkSpec, importOpen]);
+
+  useEffect(() => {
+    if (!wizardResultForSave) return;
+    toast("Lagre dette importformatet?", {
+      description: "Neste gang du importerer en lignende fil, slipper du å mappe kolonnene på nytt.",
+      duration: 10000,
+      action: {
+        label: "Lagre",
+        onClick: () => saveParserConfig(wizardResultForSave),
+      },
+    });
+  }, [wizardResultForSave, saveParserConfig]);
 
   const buildFormData = useCallback(
     (result: WizardResult): FormData => {
@@ -1789,6 +1948,86 @@ export function MatchingViewClient({
     []
   );
 
+  const handleRecognizedImport = useCallback(async () => {
+    if (!pendingFile || !recognizedConfig) return;
+    setLoading(true);
+    setImportError(null);
+    try {
+      const storedCfg = recognizedConfig.config as Record<string, unknown>;
+      const columns = storedCfg.columns as Record<string, number>;
+      const dataStartRow = storedCfg.dataStartRow as number;
+
+      const formData = new FormData();
+      formData.set("file", pendingFile);
+      formData.set("clientId", clientId);
+      formData.set("setNumber", String(pendingSet));
+      formData.set("parserType", parserType);
+
+      if (parserType === "excel") {
+        const excelCfg: ExcelParserConfig = {
+          dataStartRow,
+          columns,
+          dateFormats: (storedCfg.dateFormats as Record<string, string>) ?? {},
+          headerExtractions: (storedCfg.headerExtractions as ExcelParserConfig["headerExtractions"]) ?? [],
+        };
+        formData.set("excelConfig", JSON.stringify(excelCfg));
+      } else if (parserType === "csv") {
+        const config: CsvParserConfig = {
+          delimiter: (storedCfg.delimiter as CsvParserConfig["delimiter"]) ?? ";",
+          decimalSeparator: (storedCfg.decimalSeparator as CsvParserConfig["decimalSeparator"]) ?? ",",
+          hasHeader: true,
+          columns,
+          dataStartRow,
+        };
+        formData.set("csvConfig", JSON.stringify(config));
+      }
+
+      const dryRunFd = new FormData();
+      for (const [k, v] of formData.entries()) dryRunFd.set(k, v);
+      dryRunFd.set("dryRun", "true");
+
+      const dryRes = await doImport(dryRunFd);
+      if (!dryRes) return;
+
+      const dryData = await dryRes.json().catch(() => ({}));
+      if (!dryRes.ok && !dryData.dryRun) {
+        const msg = [dryData.error ?? "Import feilet"]
+          .concat(dryData.details ? [dryData.details] : [])
+          .filter(Boolean)
+          .join(" — ");
+        setImportError(msg);
+        return;
+      }
+
+      if (dryData.duplicateCount > 0 && dryData.newCount === 0) {
+        setImportError(`Alle ${dryData.duplicateCount} transaksjoner finnes allerede.`);
+        return;
+      }
+
+      const res = await doImport(formData);
+      if (!res) return;
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setImportError(data.error ?? "Import feilet");
+        return;
+      }
+
+      showImportToast(data);
+      setImportOpen(false);
+      setPendingFile(null);
+      setPreview(null);
+      setWizardRawRows(null);
+      setExcelBuffer(null);
+      setRecognizedConfig(null);
+      refreshData();
+    } catch {
+      setImportError("En uventet feil oppstod under importen. Prøv igjen.");
+    } finally {
+      setLoading(false);
+    }
+  }, [pendingFile, recognizedConfig, clientId, pendingSet, parserType, doImport, refreshData]);
+
   const handleWizardComplete = useCallback(
     async (result: WizardResult) => {
       if (!pendingFile) return;
@@ -1863,6 +2102,37 @@ export function MatchingViewClient({
         setWizardRawRows(null);
         setExcelBuffer(null);
         refreshData();
+
+        if (!recognizedConfig && (parserType === "csv" || parserType === "excel") && wizardRawRows) {
+          const headerRow = wizardRawRows[result.headerRowIndex] ?? wizardRawRows[0] ?? [];
+          const colMap = Object.fromEntries(
+            result.columnMappings.map((m) => [m.field, m.colIndex])
+          ) as Record<string, number>;
+          loadParsers().then(async (p) => {
+            const hSet = p.headerSet(headerRow);
+            const sig = await p.computeSignature(headerRow);
+            setWizardResultForSave({
+              headerSample: headerRow,
+              headerSet: hSet,
+              signature: sig,
+              fileType: parserType as "csv" | "excel",
+              columns: colMap,
+              dataStartRow: result.headerRowIndex + 1,
+              delimiter: parserType === "csv" ? csvDelimiter : undefined,
+              dateFormats: (() => {
+                const df: Record<string, string> = {};
+                for (const m of result.columnMappings) {
+                  if (["date1", "date2"].includes(m.field)) {
+                    const rows = (wizardRawRows ?? []).slice(result.headerRowIndex + 1);
+                    const samples = rows.slice(0, 10).map((r) => String(r[m.colIndex] ?? "")).filter(Boolean);
+                    df[m.field] = detectDateFormat(samples);
+                  }
+                }
+                return Object.keys(df).length > 0 ? df : undefined;
+              })(),
+            });
+          });
+        }
       } catch {
         setImportError("En uventet feil oppstod under importen. Prøv igjen.");
       } finally {
@@ -2849,6 +3119,59 @@ export function MatchingViewClient({
               ) : loading ? (
                 <div className="flex flex-1 items-center justify-center">
                   <p className="text-muted-foreground text-sm">Importerer…</p>
+                </div>
+              ) : recognizedPending && recognizedConfig ? (
+                <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+                  <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+                  <div className="text-center space-y-1">
+                    <p className="font-medium text-sm">Gjenkjent format</p>
+                    <p className="text-muted-foreground text-sm">
+                      Denne filen ligner på <span className="font-semibold">{recognizedConfig.name}</span>{" "}
+                      ({Math.round(recognizedConfig.similarity * 100)}% samsvar). Bruk dette formatet?
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={rejectRecognizedConfig}>
+                      Nei, velg manuelt
+                    </Button>
+                    <Button size="sm" onClick={acceptRecognizedConfig}>
+                      Ja, bruk dette formatet
+                    </Button>
+                  </div>
+                </div>
+              ) : recognizedConfig && preview ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden gap-3">
+                  <div className="flex items-center gap-2 rounded-md border bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 px-3 py-2 text-sm shrink-0">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                    <span className="text-emerald-800 dark:text-emerald-300">
+                      Gjenkjent format: <span className="font-semibold">{recognizedConfig.name}</span>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-6 text-xs"
+                      onClick={() => { setRecognizedConfig(null); setPreview(null); }}
+                    >
+                      Endre mapping
+                    </Button>
+                  </div>
+                  <ImportPreview
+                    transactions={preview.transactions}
+                    errors={preview.errors}
+                    className="min-h-0 flex-1"
+                  />
+                  <div className="flex shrink-0 items-center justify-end gap-2 border-t pt-3">
+                    <Button variant="outline" size="sm" onClick={handleCloseImport}>
+                      Avbryt
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleRecognizedImport}
+                      disabled={loading || preview.transactions.length === 0}
+                    >
+                      {loading ? "Importerer…" : `Importer ${preview.transactions.length} poster`}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <ColumnImportWizard

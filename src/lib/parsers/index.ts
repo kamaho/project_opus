@@ -3,6 +3,14 @@ export { parseCsv, readCsvRawRows } from "./csv-parser";
 export { parseCamt } from "./camt-parser";
 export { parseKlink, parseKlinkSpec } from "./klink-parser";
 export {
+  computeSignature,
+  headerSet,
+  jaccardSimilarity,
+  autoConfigName,
+  FUZZY_THRESHOLD,
+} from "./header-signature";
+export { peekAccountNumber, type PeekResult } from "./peek-account";
+export {
   parseExcel,
   parseExcelToMeta,
   readExcelRows,

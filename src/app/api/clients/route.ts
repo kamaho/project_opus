@@ -19,10 +19,16 @@ export const GET = withTenant(async (req, { tenantId }) => {
   return NextResponse.json(rows);
 });
 
+const ACCOUNT_TYPES = [
+  "ledger", "bank", "accounts_receivable", "accounts_payable",
+  "payroll", "tax", "fixed_assets", "intercompany", "external", "custom",
+] as const;
+
 const accountSchema = z.object({
   accountNumber: z.string().min(1, "Kontonummer er påkrevd"),
   name: z.string().min(1, "Kontonavn er påkrevd"),
-  type: z.enum(["ledger", "bank"], { message: "Må være 'ledger' eller 'bank'" }),
+  type: z.enum(ACCOUNT_TYPES),
+  currency: z.string().min(1).max(10).default("NOK"),
 });
 
 const createClientSchema = z.object({
@@ -30,6 +36,11 @@ const createClientSchema = z.object({
   name: z.string().min(1, "Navn er påkrevd").max(200, "Navn kan maks være 200 tegn"),
   set1: accountSchema,
   set2: accountSchema,
+  openingBalanceDate: z.string().optional(),
+  openingBalanceSet1: z.string().optional(),
+  openingBalanceSet2: z.string().optional(),
+  openingBalanceCurrencySet1: z.string().optional(),
+  openingBalanceCurrencySet2: z.string().optional(),
 });
 
 /** POST: Opprett avstemming med to kontoer i én transaksjon. */
@@ -39,7 +50,14 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
     const parsed = createClientSchema.safeParse(raw);
     if (!parsed.success) return zodError(parsed.error);
 
-    const { companyId, name, set1, set2 } = parsed.data;
+    const {
+      companyId, name, set1, set2,
+      openingBalanceDate,
+      openingBalanceSet1,
+      openingBalanceSet2,
+      openingBalanceCurrencySet1,
+      openingBalanceCurrencySet2,
+    } = parsed.data;
 
     const [company] = await db
       .select({ id: companies.id })
@@ -50,17 +68,15 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
     }
 
-    // Wrap all three inserts in a single transaction so no orphaned accounts are left
-    // on partial failure. Use raw SQL for RETURNING to avoid schema-drift 500s.
     const result = await db.transaction(async (tx) => {
       const acct1Rows = await tx.execute<{ id: string }>(
-        sql`INSERT INTO accounts (company_id, account_number, name, account_type)
-            VALUES (${companyId}, ${set1.accountNumber.trim()}, ${set1.name.trim()}, ${set1.type})
+        sql`INSERT INTO accounts (company_id, account_number, name, account_type, currency)
+            VALUES (${companyId}, ${set1.accountNumber.trim()}, ${set1.name.trim()}, ${set1.type}, ${set1.currency})
             RETURNING id`
       );
       const acct2Rows = await tx.execute<{ id: string }>(
-        sql`INSERT INTO accounts (company_id, account_number, name, account_type)
-            VALUES (${companyId}, ${set2.accountNumber.trim()}, ${set2.name.trim()}, ${set2.type})
+        sql`INSERT INTO accounts (company_id, account_number, name, account_type, currency)
+            VALUES (${companyId}, ${set2.accountNumber.trim()}, ${set2.name.trim()}, ${set2.type}, ${set2.currency})
             RETURNING id`
       );
 
@@ -69,6 +85,12 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
       if (!account1Id || !account2Id) {
         throw new Error("Kunne ikke opprette kontoer");
       }
+
+      const obSet1 = openingBalanceSet1 || "0";
+      const obSet2 = openingBalanceSet2 || "0";
+      const obDate = openingBalanceDate || null;
+      const obCurrSet1 = openingBalanceCurrencySet1 || null;
+      const obCurrSet2 = openingBalanceCurrencySet2 || null;
 
       const clientRows = await tx.execute<{
         id: string;
@@ -80,8 +102,16 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
         created_at: string;
         updated_at: string;
       }>(
-        sql`INSERT INTO clients (company_id, name, set1_account_id, set2_account_id)
-            VALUES (${companyId}, ${name.trim()}, ${account1Id}, ${account2Id})
+        sql`INSERT INTO clients (
+              company_id, name, set1_account_id, set2_account_id,
+              opening_balance_set1, opening_balance_set2, opening_balance_date,
+              opening_balance_currency_set1, opening_balance_currency_set2
+            )
+            VALUES (
+              ${companyId}, ${name.trim()}, ${account1Id}, ${account2Id},
+              ${obSet1}, ${obSet2}, ${obDate},
+              ${obCurrSet1}, ${obCurrSet2}
+            )
             RETURNING id, company_id, name, set1_account_id, set2_account_id, status, created_at, updated_at`
       );
 

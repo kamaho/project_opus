@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { clients, companies, accounts, tripletexSyncConfigs } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 /**
  * Validates that a client belongs to the given tenant.
@@ -15,6 +15,7 @@ export async function validateClientTenant(
       id: clients.id,
       name: clients.name,
       companyId: clients.companyId,
+      companyName: companies.name,
       set1AccountId: clients.set1AccountId,
       set2AccountId: clients.set2AccountId,
     })
@@ -73,7 +74,12 @@ export async function getClientsByTenant(
     .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
     .where(
       companyId
-        ? and(eq(companies.tenantId, tenantId), eq(clients.companyId, companyId))
+        ? (() => {
+            const ids = companyId.split(",").filter(Boolean);
+            return ids.length === 1
+              ? and(eq(companies.tenantId, tenantId), eq(clients.companyId, ids[0]))
+              : and(eq(companies.tenantId, tenantId), inArray(clients.companyId, ids));
+          })()
         : eq(companies.tenantId, tenantId)
     )
     .orderBy(clients.name);

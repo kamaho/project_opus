@@ -6,6 +6,7 @@ import type {
   VatSummaryLine,
   ReceivableEntry,
   PayableEntry,
+  TrialBalanceEntry,
   HolidayPayData,
   PeriodParams,
 } from "../types";
@@ -223,6 +224,10 @@ export function createVismaNxtAdapter(
             currency: mapped.currency,
           };
         });
+    },
+
+    async getTrialBalance(_params: PeriodParams, _accountFilter?: string[]): Promise<TrialBalanceEntry[]> {
+      throw new NotSupportedError("visma_nxt", "getTrialBalance");
     },
 
     async getHolidayPayData(_year: number): Promise<HolidayPayData> {

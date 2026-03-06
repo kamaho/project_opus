@@ -13,6 +13,8 @@ export interface ReceivableControlConfig {
   overdueErrorDays: number;
   totalOverdueWarningAmount: number;
   customerOverdueWarningAmount: number;
+  minAmount: number;
+  maxOverdueCount: number;
 }
 
 const DEFAULT_CONFIG: ReceivableControlConfig = {
@@ -20,6 +22,8 @@ const DEFAULT_CONFIG: ReceivableControlConfig = {
   overdueErrorDays: 90,
   totalOverdueWarningAmount: 100_000,
   customerOverdueWarningAmount: 50_000,
+  minAmount: 0,
+  maxOverdueCount: Infinity,
 };
 
 const NOK = new Intl.NumberFormat("nb-NO", {
@@ -51,8 +55,10 @@ export function runAccountsReceivableControl(
 
   const agingBuckets = buildAgingBuckets(agingEntries);
 
-  // Per-invoice deviations
+  // Per-invoice deviations (skip entries below minAmount threshold)
   for (const entry of agingEntries) {
+    if (Math.abs(entry.amount) < cfg.minAmount) continue;
+
     if (entry.daysOverdue >= cfg.overdueErrorDays) {
       deviations.push({
         id: String(++deviationId),
@@ -119,6 +125,22 @@ export function runAccountsReceivableControl(
         details: { invoiceCount: cust.invoiceCount, oldestOverdueDays: cust.oldestOverdueDays },
       });
     }
+  }
+
+  // Overdue count check
+  const overdueInvoices = agingEntries.filter(
+    (e) => e.daysOverdue > 0 && Math.abs(e.amount) >= cfg.minAmount
+  );
+  if (isFinite(cfg.maxOverdueCount) && overdueInvoices.length > cfg.maxOverdueCount) {
+    deviations.push({
+      id: String(++deviationId),
+      severity: "warning",
+      category: "overdue_count",
+      description: `${overdueInvoices.length} forfalte fakturaer (grense: ${cfg.maxOverdueCount})`,
+      reference: "Antall forfalt",
+      amount: overdueInvoices.reduce((s, e) => s + e.amount, 0),
+      details: { count: overdueInvoices.length, limit: cfg.maxOverdueCount },
+    });
   }
 
   // Total overdue deviation

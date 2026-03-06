@@ -19,6 +19,7 @@ import {
   Sparkles,
   Settings,
   ClipboardList,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -211,6 +212,15 @@ export const NAVIGATION: NavGroup[] = [
         tier: "ENTERPRISE",
         status: "LOCKED",
         smartInfo: "Dokumentarkiv — sentralt filarkiv per klient med versjonskontroll.",
+      },
+      {
+        id: "verktoy",
+        label: "IBAN-verktøy",
+        icon: Wrench,
+        href: "/dashboard/verktoy",
+        tier: "STARTER",
+        status: "ACTIVE",
+        smartInfo: "IBAN-verktøy — konverter norske kontonummer (BBAN) til IBAN, enkeltvis eller i bulk.",
       },
       {
         id: "integrations",

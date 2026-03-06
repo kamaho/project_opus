@@ -53,7 +53,10 @@ export const accounts = pgTable(
     accountNumber: text("account_number").notNull(),
     name: text("name").notNull(),
     accountType: text("account_type", {
-      enum: ["ledger", "bank"],
+      enum: [
+        "ledger", "bank", "accounts_receivable", "accounts_payable",
+        "payroll", "tax", "fixed_assets", "intercompany", "external", "custom",
+      ],
     }).notNull(),
     currency: text("currency").default("NOK"),
     tripletexAccountId: bigint("tripletex_account_id", { mode: "number" }),
@@ -100,6 +103,8 @@ export const clients = pgTable(
       .references(() => accounts.id),
     openingBalanceSet1: numeric("opening_balance_set1", { precision: 18, scale: 2 }).default("0"),
     openingBalanceSet2: numeric("opening_balance_set2", { precision: 18, scale: 2 }).default("0"),
+    openingBalanceCurrencySet1: numeric("opening_balance_currency_set1", { precision: 18, scale: 2 }),
+    openingBalanceCurrencySet2: numeric("opening_balance_currency_set2", { precision: 18, scale: 2 }),
     openingBalanceDate: date("opening_balance_date"),
     allowTolerance: boolean("allow_tolerance").default(false),
     toleranceAmount: numeric("tolerance_amount", { precision: 18, scale: 2 }).default("0"),
@@ -856,6 +861,33 @@ export const contacts = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Control Configs (per-tenant/klient kontrollkonfigurasjon med terskler)
+// ---------------------------------------------------------------------------
+export const controlConfigs = pgTable(
+  "control_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+    controlType: text("control_type").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    parameters: jsonb("parameters").notNull().default({}),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index("idx_control_configs_tenant").on(t.tenantId),
+    index("idx_control_configs_lookup").on(
+      t.tenantId,
+      t.controlType,
+      t.companyId
+    ),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Control Results (kontrollresultater — kundefordringer, leverandørgjeld, etc.)
 // ---------------------------------------------------------------------------
 export const controlResults = pgTable(
@@ -867,6 +899,7 @@ export const controlResults = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: "cascade" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    configId: uuid("config_id").references(() => controlConfigs.id, { onDelete: "set null" }),
     controlType: text("control_type").notNull(),
     periodYear: integer("period_year"),
     periodMonth: integer("period_month"),
@@ -876,6 +909,10 @@ export const controlResults = pgTable(
     summary: jsonb("summary").notNull(),
     deviations: jsonb("deviations").notNull(),
     sourceSystem: text("source_system").notNull(),
+    parametersUsed: jsonb("parameters_used").default({}),
+    deviationCount: integer("deviation_count"),
+    warningCount: integer("warning_count"),
+    totalDeviationAmount: numeric("total_deviation_amount"),
     reportPdfUrl: text("report_pdf_url"),
     reportExcelUrl: text("report_excel_url"),
     executedAt: timestamp("executed_at", { withTimezone: true }).defaultNow(),
@@ -888,6 +925,7 @@ export const controlResults = pgTable(
     index("idx_control_results_company").on(t.companyId),
     index("idx_control_results_type").on(t.controlType),
     index("idx_control_results_type_period").on(t.controlType, t.periodYear, t.periodMonth),
+    index("idx_control_results_config").on(t.configId),
   ]
 );
 
@@ -1338,6 +1376,29 @@ export const subscriptions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [index("idx_subscriptions_tenant").on(t.tenantId)]
+);
+
+// ---------------------------------------------------------------------------
+// Bulk Jobs (progress tracking for long-running bulk operations)
+// ---------------------------------------------------------------------------
+export const bulkJobs = pgTable(
+  "bulk_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    type: text("type", { enum: ["smart_match", "import"] }).notNull(),
+    status: text("status", {
+      enum: ["pending", "running", "completed", "failed"],
+    }).default("pending"),
+    total: integer("total").notNull(),
+    completed: integer("completed").default(0),
+    results: jsonb("results").default([]),
+    error: text("error"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_bulk_jobs_tenant").on(t.tenantId, t.createdAt)]
 );
 
 // ---------------------------------------------------------------------------

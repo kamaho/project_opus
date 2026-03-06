@@ -23,10 +23,13 @@ export default async function ClientsPage({
     );
   }
 
-  const { companyId: selectedCompanyId } = await searchParams;
+  const { companyId: companyIdParam } = await searchParams;
+  const selectedCompanyIds = companyIdParam
+    ? companyIdParam.split(",").filter(Boolean)
+    : [];
 
-  const companyFilter = selectedCompanyId
-    ? and(eq(companies.tenantId, orgId), eq(companies.id, selectedCompanyId))
+  const companyFilter = selectedCompanyIds.length > 0
+    ? and(eq(companies.tenantId, orgId), inArray(companies.id, selectedCompanyIds))
     : eq(companies.tenantId, orgId);
 
   const [list, companyRows] = await Promise.all([
@@ -108,11 +111,11 @@ export default async function ClientsPage({
   if (clientIds.length === 0 && accountSyncRows.length === 0) {
     // Only show the Tripletex sync-in-progress view when the selected
     // company actually has a Tripletex integration linked.
-    if (selectedCompanyId) {
+    if (selectedCompanyIds.length === 1) {
       const [selectedCo] = await db
         .select({ tripletexCompanyId: companies.tripletexCompanyId })
         .from(companies)
-        .where(and(eq(companies.id, selectedCompanyId), eq(companies.tenantId, orgId)))
+        .where(and(eq(companies.id, selectedCompanyIds[0]), eq(companies.tenantId, orgId)))
         .limit(1);
 
       if (selectedCo?.tripletexCompanyId != null) {

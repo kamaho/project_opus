@@ -9,7 +9,8 @@ export type ControlType =
   | "vat_reconciliation"
   | "accounts_receivable"
   | "accounts_payable"
-  | "holiday_pay";
+  | "holiday_pay"
+  | "periodization";
 
 export type Severity = "ok" | "info" | "warning" | "error";
 
@@ -94,6 +95,7 @@ export const CONTROL_TYPE_LABELS: Record<ControlType, string> = {
   payroll_a07: "Lønnsavstemming",
   vat_reconciliation: "MVA-avstemming",
   holiday_pay: "Feriepenger",
+  periodization: "Periodisering",
 };
 
 export const SEVERITY_LABELS: Record<Severity, string> = {

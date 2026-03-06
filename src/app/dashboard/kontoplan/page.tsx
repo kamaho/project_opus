@@ -21,7 +21,8 @@ export default async function KontoplanPage({
     );
   }
 
-  const { companyId: selectedCompanyId } = await searchParams;
+  const { companyId: companyIdParam } = await searchParams;
+  const selectedCompanyIds = companyIdParam ? companyIdParam.split(",").filter(Boolean) : [];
 
   const allCompanyRows = await db
     .select({
@@ -37,9 +38,8 @@ export default async function KontoplanPage({
     .orderBy(asc(companies.name));
 
   const companyRows = allCompanyRows.filter((c) => c.type === "company");
-  const targetId = selectedCompanyId && companyRows.some((c) => c.id === selectedCompanyId)
-    ? selectedCompanyId
-    : companyRows[0]?.id;
+  const firstSelected = selectedCompanyIds.find((id) => companyRows.some((c) => c.id === id));
+  const targetId = firstSelected ?? companyRows[0]?.id;
   const companyIds = targetId ? [targetId] : [];
 
   if (companyIds.length === 0) {

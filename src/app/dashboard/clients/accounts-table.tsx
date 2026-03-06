@@ -2,12 +2,13 @@
 
 import { useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   BarChart3,
   ChevronLeft,
   FolderOpen,
+  Upload,
   Zap,
   FileText,
   X,
@@ -60,6 +61,8 @@ interface AccountsTableProps {
   onSmartMatchGroup?: (group: ClientGroup) => void;
   onExportGroup?: (group: ClientGroup) => void;
   onActiveGroupChange?: (group: ClientGroup | null) => void;
+  onBulkSmartMatch?: (clientIds: string[]) => void;
+  onBulkImport?: (clientIds: string[]) => void;
   /** When set, show "Tilbake til grupper" instead of "Vis alle" and call this on click (e.g. group detail on Grupper tab) */
   onBack?: () => void;
   /** Rendered in the toolbar next to Sammenlign / søk (e.g. "+ Ny klient" button) */
@@ -76,12 +79,20 @@ export function AccountsTable({
   onSmartMatchGroup,
   onExportGroup,
   onActiveGroupChange,
+  onBulkSmartMatch,
+  onBulkImport,
   onBack,
   toolbarAppend,
 }: AccountsTableProps) {
   const { fmtNum, fmtDate: fmtD } = useFormatting();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const formatBalance = fmtNum;
+
+  const clientHref = (id: string) => {
+    const companyId = searchParams.get("companyId");
+    return `/dashboard/clients/${id}/matching${companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""}`;
+  };
 
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -172,7 +183,7 @@ export function AccountsTable({
         hideable: false,
         width: "38px",
         cell: (row) => (
-          <Link href={`/dashboard/clients/${row.id}/matching`}>
+          <Link href={clientHref(row.id)}>
             <NavArrowButton />
           </Link>
         ),
@@ -184,7 +195,7 @@ export function AccountsTable({
         cell: (row) => (
           <div className="flex items-center gap-2">
             <Link
-              href={`/dashboard/clients/${row.id}/matching`}
+              href={clientHref(row.id)}
               className="font-medium hover:underline"
             >
               {row.matchGroup}
@@ -334,8 +345,42 @@ export function AccountsTable({
   // Toolbar content
   // ---------------------------------------------------------------------------
 
+  const handleToolbarSmartMatch = useCallback(() => {
+    onBulkSmartMatch?.(filteredRows.map((r) => r.id));
+  }, [onBulkSmartMatch, filteredRows]);
+
+  const handleToolbarImport = useCallback(() => {
+    onBulkImport?.(filteredRows.map((r) => r.id));
+  }, [onBulkImport, filteredRows]);
+
+  const handleSelectionSmartMatch = useCallback(() => {
+    onBulkSmartMatch?.(Array.from(selectedIds));
+  }, [onBulkSmartMatch, selectedIds]);
+
+  const handleSelectionImport = useCallback(() => {
+    onBulkImport?.(Array.from(selectedIds));
+  }, [onBulkImport, selectedIds]);
+
   const toolbarLeft = (
     <div className="flex flex-wrap items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleToolbarSmartMatch}
+        className="gap-1.5"
+      >
+        <Zap className="h-3.5 w-3.5" />
+        Smart Match
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleToolbarImport}
+        className="gap-1.5"
+      >
+        <Upload className="h-3.5 w-3.5" />
+        Importer
+      </Button>
       <Button
         variant={selectionMode ? "default" : "outline"}
         size="sm"
@@ -425,7 +470,7 @@ export function AccountsTable({
         onRowClick={
           selectionMode
             ? undefined
-            : (row) => router.push(`/dashboard/clients/${row.id}/matching`)
+            : (row) => router.push(clientHref(row.id))
         }
         selectable={selectionMode}
         selectedIds={selectedIds}
@@ -441,6 +486,8 @@ export function AccountsTable({
           onCompare={handleCompare}
           onCreateGroup={handleCreateGroup}
           onCancel={exitSelectionMode}
+          onSmartMatch={handleSelectionSmartMatch}
+          onBulkImport={handleSelectionImport}
         />
       )}
     </>
