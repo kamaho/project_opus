@@ -97,7 +97,7 @@ export default async function KalenderPage() {
         obligation: d.slug,
         description: d.description,
         frequency: d.periodicity,
-        deadlineRule: d.dueDateRule as Record<string, unknown>,
+        deadlineRule: d.dueDateRule as { day: number | null; [key: string]: unknown },
       }))}
       tasks={activeTasks.map((t) => ({
         id: t.id,
