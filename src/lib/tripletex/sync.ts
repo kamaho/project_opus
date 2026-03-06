@@ -488,29 +488,35 @@ async function insertTransactionsBatch(
 ) {
   if (rows.length === 0) return 0;
 
-  // Pre-fetch existing external IDs to avoid conflicts with partial unique index
-  const existingRows = await db
-    .select({ externalId: transactions.externalId })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.clientId, clientId),
-        sql`${transactions.externalId} IS NOT NULL`
-      )
-    );
-
-  const existingIds = new Set(existingRows.map((r) => r.externalId));
-  const newRows = rows.filter((r) => !existingIds.has(r.externalId));
-
-  if (newRows.length === 0) return 0;
-
   let inserted = 0;
-  for (let i = 0; i < newRows.length; i += BATCH_SIZE) {
-    const batch = newRows.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+
+    const batchExternalIds = batch
+      .map((r) => r.externalId)
+      .filter((id): id is string => id != null);
+
+    let existingIds = new Set<string | null>();
+    if (batchExternalIds.length > 0) {
+      const existingRows = await db
+        .select({ externalId: transactions.externalId })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.clientId, clientId),
+            inArray(transactions.externalId, batchExternalIds)
+          )
+        );
+      existingIds = new Set(existingRows.map((r) => r.externalId));
+    }
+
+    const newRows = batch.filter((r) => !r.externalId || !existingIds.has(r.externalId));
+    if (newRows.length === 0) continue;
+
     const result = await db
       .insert(transactions)
       .values(
-        batch.map((r) => ({
+        newRows.map((r) => ({
           clientId,
           setNumber: r.setNumber,
           accountNumber: r.accountNumber,

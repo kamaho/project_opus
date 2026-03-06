@@ -8,11 +8,28 @@ import { runFullSync } from "@/lib/tripletex/sync";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = 2;
+const MAX_CONFIGS_PER_RUN = 6;
+const GLOBAL_DEADLINE_MS = 240_000;
+const PER_CONFIG_TIMEOUT_MS = 90_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Timeout: ${label} exceeded ${ms}ms`)),
+      ms
+    );
+    promise.then(
+      (val) => { clearTimeout(timer); resolve(val); },
+      (err) => { clearTimeout(timer); reject(err); }
+    );
+  });
+}
 
 async function runWithConcurrency<T>(
   tasks: (() => Promise<T>)[],
-  concurrency: number
+  concurrency: number,
+  deadlineAt: number
 ): Promise<T[]> {
   const results: T[] = [];
   let idx = 0;
@@ -21,6 +38,10 @@ async function runWithConcurrency<T>(
   async function next(): Promise<void> {
     const i = idx++;
     if (i >= tasks.length) return;
+    if (Date.now() >= deadlineAt) {
+      results[i] = { status: "skipped", error: "Global deadline reached" } as T;
+      return;
+    }
     results[i] = await tasks[i]();
     await next();
   }
@@ -33,6 +54,8 @@ async function runWithConcurrency<T>(
 }
 
 export async function GET(request: Request) {
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + GLOBAL_DEADLINE_MS;
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
 
@@ -42,7 +65,6 @@ export async function GET(request: Request) {
 
   const now = new Date();
 
-  // Auto-reset configs stuck in "syncing" for >10 minutes (Vercel timeout)
   await db
     .update(tripletexSyncConfigs)
     .set({
@@ -70,50 +92,70 @@ export async function GET(request: Request) {
             tripletexSyncConfigs.lastSyncAt,
             sql`now() - (${tripletexSyncConfigs.syncIntervalMinutes} || ' minutes')::interval`
           )
+        ),
+        or(
+          sql`${tripletexSyncConfigs.syncStatus} != 'failed'`,
+          lt(
+            tripletexSyncConfigs.updatedAt,
+            sql`now() - interval '30 minutes'`
+          )
         )
       )
-    );
+    )
+    .orderBy(tripletexSyncConfigs.lastSyncAt)
+    .limit(MAX_CONFIGS_PER_RUN);
 
   type SyncOutcome = {
     configId: string;
     clientId: string;
-    status: "success" | "error";
+    status: "success" | "error" | "skipped";
     result?: unknown;
     error?: string;
+    durationMs?: number;
   };
 
   const tasks = dueConfigs.map((config) => async (): Promise<SyncOutcome> => {
+    const t0 = Date.now();
     try {
-      const result = await runFullSync(config.id);
+      const result = await withTimeout(
+        runFullSync(config.id),
+        PER_CONFIG_TIMEOUT_MS,
+        `config ${config.id}`
+      );
       return {
         configId: config.id,
         clientId: config.clientId,
         status: "success",
         result,
+        durationMs: Date.now() - t0,
       };
     } catch (error) {
       Sentry.captureException(error, {
         tags: { component: "tripletex-cron", configId: config.id, clientId: config.clientId },
       });
-      console.error(`[cron/tripletex-sync] Config ${config.id} failed:`, error);
+      console.error(`[cron/tripletex-sync] Config ${config.id} failed after ${Date.now() - t0}ms:`, error);
       return {
         configId: config.id,
         clientId: config.clientId,
         status: "error",
         error: error instanceof Error ? error.message : "Unknown error",
+        durationMs: Date.now() - t0,
       };
     }
   });
 
-  const results = await runWithConcurrency(tasks, MAX_CONCURRENT);
+  const results = await runWithConcurrency(tasks, MAX_CONCURRENT, deadlineAt);
 
   const failed = results.filter((r) => r.status === "error").length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
 
   return NextResponse.json({
     synced: results.length,
-    succeeded: results.length - failed,
+    succeeded: results.length - failed - skipped,
     failed,
+    skipped,
     results,
+    durationMs: Date.now() - startedAt,
     timestamp: now.toISOString(),
   });
 }
