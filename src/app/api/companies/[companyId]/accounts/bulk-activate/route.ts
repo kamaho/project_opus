@@ -19,6 +19,7 @@ const MAX_BULK_ACTIVATE = 20;
  *
  * Activates transaction sync for multiple accounts at once (max 20).
  * Creates clients + sync-configs and queues Worker jobs.
+ * Supports both Tripletex and Visma NXT companies.
  */
 export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   const companyId = params?.companyId;
@@ -44,15 +45,30 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     .select({
       id: companies.id,
       tripletexCompanyId: companies.tripletexCompanyId,
+      vismaNxtCompanyNo: companies.vismaNxtCompanyNo,
     })
     .from(companies)
     .where(and(eq(companies.id, companyId), eq(companies.tenantId, tenantId)))
     .limit(1);
 
-  if (!company || !company.tripletexCompanyId) {
+  if (!company) {
     return NextResponse.json(
-      { error: "Selskap ikke funnet eller ikke koblet til Tripletex" },
+      { error: "Selskap ikke funnet" },
       { status: 404 }
+    );
+  }
+
+  const integration: "tripletex" | "visma_nxt" | null =
+    company.tripletexCompanyId != null
+      ? "tripletex"
+      : company.vismaNxtCompanyNo != null
+        ? "visma_nxt"
+        : null;
+
+  if (!integration) {
+    return NextResponse.json(
+      { error: "Selskapet er ikke koblet til et regnskapssystem" },
+      { status: 400 }
     );
   }
 
@@ -90,29 +106,53 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
       const accountType = isBankAccount ? "bank" : "ledger";
       const counterType = isBankAccount ? "ledger" : "bank";
 
-      // Upgrade path: balance_only → transactions
       if (setting.clientId && setting.syncLevel === "balance_only" && syncLevel === "transactions") {
-        const configRows = await db.execute<{ id: string }>(sql`
-          INSERT INTO tripletex_sync_configs (
-            client_id, tenant_id, tripletex_company_id,
-            set1_tripletex_account_id, set1_tripletex_account_ids,
-            date_from, sync_status, is_active
-          ) VALUES (
-            ${setting.clientId}, ${tenantId}, ${company.tripletexCompanyId},
-            ${setting.tripletexAccountId},
-            ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-            ${resolvedDateFrom}, 'pending', true
-          )
-          ON CONFLICT (client_id) DO UPDATE SET
-            set1_tripletex_account_id = ${setting.tripletexAccountId},
-            set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-            date_from = ${resolvedDateFrom},
-            sync_status = 'pending',
-            is_active = true,
-            updated_at = now()
-          RETURNING id
-        `);
-        const cfgId = Array.from(configRows)[0]?.id;
+        let cfgId: string | undefined;
+
+        if (integration === "tripletex" && company.tripletexCompanyId) {
+          const configRows = await db.execute<{ id: string }>(sql`
+            INSERT INTO tripletex_sync_configs (
+              client_id, tenant_id, tripletex_company_id,
+              set1_tripletex_account_id, set1_tripletex_account_ids,
+              date_from, sync_status, is_active
+            ) VALUES (
+              ${setting.clientId}, ${tenantId}, ${company.tripletexCompanyId},
+              ${setting.tripletexAccountId},
+              ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+              ${resolvedDateFrom}, 'pending', true
+            )
+            ON CONFLICT (client_id) DO UPDATE SET
+              set1_tripletex_account_id = ${setting.tripletexAccountId},
+              set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+              date_from = ${resolvedDateFrom},
+              sync_status = 'pending',
+              is_active = true,
+              updated_at = now()
+            RETURNING id
+          `);
+          cfgId = Array.from(configRows)[0]?.id;
+        } else if (integration === "visma_nxt" && company.vismaNxtCompanyNo) {
+          const accountId = setting.vismaNxtAccountId;
+          const configRows = await db.execute<{ id: string }>(sql`
+            INSERT INTO visma_nxt_sync_configs (
+              client_id, tenant_id, visma_company_no,
+              set1_account_ids,
+              date_from, sync_status, is_active
+            ) VALUES (
+              ${setting.clientId}, ${tenantId}, ${company.vismaNxtCompanyNo},
+              ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
+              ${resolvedDateFrom}, 'pending', true
+            )
+            ON CONFLICT (client_id) DO UPDATE SET
+              set1_account_ids = ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
+              date_from = ${resolvedDateFrom},
+              sync_status = 'pending',
+              is_active = true,
+              updated_at = now()
+            RETURNING id
+          `);
+          cfgId = Array.from(configRows)[0]?.id;
+        }
 
         await db
           .update(accountSyncSettings)
@@ -123,7 +163,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
           try {
             await db.insert(webhookInbox).values({
               tenantId,
-              source: "tripletex",
+              source: integration,
               eventType: "sync.account.activated",
               externalId: cfgId,
               payload: { configId: cfgId, clientId: setting.clientId, accountNumber: setting.accountNumber },
@@ -135,13 +175,25 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         continue;
       }
 
-      // New activation
       const { clientId, configId } = await db.transaction(async (tx) => {
+        const integrationCol =
+          integration === "tripletex"
+            ? sql`, tripletex_account_id`
+            : sql`, visma_nxt_account_id`;
+        const integrationVal =
+          integration === "tripletex"
+            ? sql`, ${setting.tripletexAccountId}`
+            : sql`, ${setting.vismaNxtAccountId}`;
+        const integrationUpdate =
+          integration === "tripletex"
+            ? sql`tripletex_account_id = EXCLUDED.tripletex_account_id`
+            : sql`visma_nxt_account_id = EXCLUDED.visma_nxt_account_id`;
+
         const acct1Rows = await tx.execute<{ id: string }>(sql`
-          INSERT INTO accounts (company_id, account_number, name, account_type, tripletex_account_id)
-          VALUES (${companyId}, ${setting.accountNumber}, ${setting.accountName}, ${accountType}, ${setting.tripletexAccountId})
+          INSERT INTO accounts (company_id, account_number, name, account_type ${integrationCol})
+          VALUES (${companyId}, ${setting.accountNumber}, ${setting.accountName}, ${accountType} ${integrationVal})
           ON CONFLICT (company_id, account_number, account_type) DO UPDATE SET
-            name = EXCLUDED.name, tripletex_account_id = EXCLUDED.tripletex_account_id
+            name = EXCLUDED.name, ${integrationUpdate}
           RETURNING id
         `);
         const acct1Id = Array.from(acct1Rows)[0]?.id;
@@ -168,28 +220,51 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
 
         let cfgId: string | null = null;
 
-        if (syncLevel === "transactions" && company.tripletexCompanyId) {
-          const configRows = await tx.execute<{ id: string }>(sql`
-            INSERT INTO tripletex_sync_configs (
-              client_id, tenant_id, tripletex_company_id,
-              set1_tripletex_account_id, set1_tripletex_account_ids,
-              date_from, sync_status, is_active
-            ) VALUES (
-              ${cId}, ${tenantId}, ${company.tripletexCompanyId},
-              ${setting.tripletexAccountId},
-              ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-              ${resolvedDateFrom}, 'pending', true
-            )
-            ON CONFLICT (client_id) DO UPDATE SET
-              set1_tripletex_account_id = ${setting.tripletexAccountId},
-              set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-              date_from = ${resolvedDateFrom},
-              sync_status = 'pending',
-              is_active = true,
-              updated_at = now()
-            RETURNING id
-          `);
-          cfgId = Array.from(configRows)[0]?.id ?? null;
+        if (syncLevel === "transactions") {
+          if (integration === "tripletex" && company.tripletexCompanyId) {
+            const configRows = await tx.execute<{ id: string }>(sql`
+              INSERT INTO tripletex_sync_configs (
+                client_id, tenant_id, tripletex_company_id,
+                set1_tripletex_account_id, set1_tripletex_account_ids,
+                date_from, sync_status, is_active
+              ) VALUES (
+                ${cId}, ${tenantId}, ${company.tripletexCompanyId},
+                ${setting.tripletexAccountId},
+                ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+                ${resolvedDateFrom}, 'pending', true
+              )
+              ON CONFLICT (client_id) DO UPDATE SET
+                set1_tripletex_account_id = ${setting.tripletexAccountId},
+                set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
+                date_from = ${resolvedDateFrom},
+                sync_status = 'pending',
+                is_active = true,
+                updated_at = now()
+              RETURNING id
+            `);
+            cfgId = Array.from(configRows)[0]?.id ?? null;
+          } else if (integration === "visma_nxt" && company.vismaNxtCompanyNo) {
+            const accountId = setting.vismaNxtAccountId;
+            const configRows = await tx.execute<{ id: string }>(sql`
+              INSERT INTO visma_nxt_sync_configs (
+                client_id, tenant_id, visma_company_no,
+                set1_account_ids,
+                date_from, sync_status, is_active
+              ) VALUES (
+                ${cId}, ${tenantId}, ${company.vismaNxtCompanyNo},
+                ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
+                ${resolvedDateFrom}, 'pending', true
+              )
+              ON CONFLICT (client_id) DO UPDATE SET
+                set1_account_ids = ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
+                date_from = ${resolvedDateFrom},
+                sync_status = 'pending',
+                is_active = true,
+                updated_at = now()
+              RETURNING id
+            `);
+            cfgId = Array.from(configRows)[0]?.id ?? null;
+          }
         }
 
         await tx
@@ -216,7 +291,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
           try {
             await db.insert(webhookInbox).values({
               tenantId,
-              source: "tripletex",
+              source: integration,
               eventType: "sync.account.activated",
               externalId: configId,
               payload: { configId, clientId, accountNumber: setting.accountNumber },
