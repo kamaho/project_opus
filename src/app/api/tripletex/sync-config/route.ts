@@ -70,11 +70,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
 
   // Validate client belongs to tenant
   const [client] = await db
-    .select({
-      id: clients.id,
-      companyId: clients.companyId,
-      companyTripletexId: companies.tripletexCompanyId,
-    })
+    .select({ id: clients.id, companyId: clients.companyId })
     .from(clients)
     .innerJoin(companies, eq(clients.companyId, companies.id))
     .where(and(eq(clients.id, clientId), eq(companies.tenantId, tenantId)))
@@ -82,15 +78,6 @@ export const POST = withTenant(async (req, { tenantId }) => {
 
   if (!client) {
     return NextResponse.json({ error: "Client not found" }, { status: 404 });
-  }
-
-  // Link the Tripletex company to the client's company if not already linked
-  if (client.companyTripletexId == null) {
-    await db
-      .update(companies)
-      .set({ tripletexCompanyId, updatedAt: new Date() })
-      .where(eq(companies.id, client.companyId));
-    console.log(`[tripletex/sync-config] Linked tripletex_company_id=${tripletexCompanyId} to company=${client.companyId}`);
   }
 
   try {

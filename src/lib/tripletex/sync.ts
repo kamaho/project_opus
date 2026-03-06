@@ -73,31 +73,6 @@ export async function syncCompany(
     return existing[0].id;
   }
 
-  // 2. Merge: if a company with the same org_number exists (e.g. from Visma NXT),
-  //    link it to Tripletex instead of creating a duplicate.
-  if (mapped.orgNumber) {
-    const byOrgNumber = await db
-      .select({ id: companies.id })
-      .from(companies)
-      .where(
-        and(
-          eq(companies.tenantId, tenantId),
-          eq(companies.orgNumber, mapped.orgNumber),
-          sql`${companies.tripletexCompanyId} IS NULL`
-        )
-      )
-      .limit(1);
-
-    if (byOrgNumber.length > 0) {
-      await db
-        .update(companies)
-        .set({ tripletexCompanyId, updatedAt: new Date() })
-        .where(eq(companies.id, byOrgNumber[0].id));
-      console.log(`[sync] Linked Tripletex company ${tripletexCompanyId} to existing company ${byOrgNumber[0].id} via org_number=${mapped.orgNumber}`);
-      return byOrgNumber[0].id;
-    }
-  }
-
   const [inserted] = await db
     .insert(companies)
     .values({
@@ -773,9 +748,8 @@ export async function runFullSync(
     .where(eq(tripletexSyncConfigs.id, configId));
 
   try {
-    // Resolve the client's actual company so accounts land in the right place.
-    // syncCompany may merge with the client's company (via org_number) or create
-    // a separate one — either way, we use the client's company_id for accounts.
+    // Ensure the Tripletex company record exists, then use the client's
+    // own company_id for account sync so data lands in the right place.
     const tCompany = Date.now();
     await syncCompany(config.tripletexCompanyId, config.tenantId);
     console.log(`[sync] config=${configId} syncCompany done in ${Date.now() - tCompany}ms`);

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OrganizationSwitcher } from "@clerk/nextjs";
-import { ChevronDown, Building2, Wallet, Check } from "lucide-react";
+import { ChevronDown, Building2, Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,6 @@ import { cn } from "@/lib/utils";
 import { IntegrationBadge } from "@/components/ui/integration-badge";
 
 type Company = { id: string; name: string; type?: string; integrationSources?: string[] };
-type Client = { id: string; name: string; companyId: string };
 
 const separator = (
   <span className="text-muted-foreground/50 px-1.5 select-none" aria-hidden>
@@ -27,16 +26,9 @@ export function AppBreadcrumb() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [companies, setCompanies] = useState<Company[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [currentClientFromApi, setCurrentClientFromApi] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
 
   const companyIdFromUrl = searchParams.get("companyId");
-
-  const clientIdFromPath = pathname.match(/^\/dashboard\/clients\/([^/]+)/)?.[1] ?? null;
-  const currentClient =
-    currentClientFromApi ??
-    (clientIdFromPath ? clients.find((c) => c.id === clientIdFromPath) ?? null : null);
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -47,23 +39,6 @@ export function AppBreadcrumb() {
       }
     } catch {}
     return [];
-  }, []);
-
-  const fetchClients = useCallback(async (companyId: string | null) => {
-    try {
-      const url = companyId
-        ? `/api/clients?companyId=${encodeURIComponent(companyId)}`
-        : "/api/clients";
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setClients(data);
-      } else {
-        setClients([]);
-      }
-    } catch {
-      setClients([]);
-    }
   }, []);
 
   useEffect(() => {
@@ -86,37 +61,7 @@ export function AppBreadcrumb() {
     return () => { cancelled = true; };
   }, [fetchCompanies]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    fetchClients(companyIdFromUrl);
-  }, [companyIdFromUrl, fetchClients]);
-
-  useEffect(() => {
-    if (currentClient?.companyId && !companyIdFromUrl) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("companyId", currentClient.companyId);
-      router.replace(`${pathname}?${params.toString()}`);
-    }
-  }, [currentClient?.companyId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!clientIdFromPath) {
-      setCurrentClientFromApi(null);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/clients/${clientIdFromPath}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data) setCurrentClientFromApi(data);
-      })
-      .catch((err) => { if (!cancelled) console.error("[breadcrumb] fetch error:", err); });
-    return () => { cancelled = true; };
-  }, [clientIdFromPath]);
-
   const selectedCompany = companies.find((c) => c.id === companyIdFromUrl);
-  const clientsForCompany = companyIdFromUrl
-    ? clients.filter((c) => c.companyId === companyIdFromUrl)
-    : clients;
 
   function selectCompany(id: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -157,7 +102,7 @@ export function AppBreadcrumb() {
           disabled={loading}
         >
           <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate max-w-[140px]">
+          <span className="truncate max-w-[180px]">
             {selectedCompany?.name ?? "Velg selskap"}
           </span>
           {selectedCompany?.integrationSources && (
@@ -180,35 +125,6 @@ export function AppBreadcrumb() {
               {c.id === companyIdFromUrl && (
                 <Check className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {separator}
-
-      {/* Segment 3: Klient */}
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          className={cn(segmentButtonClass, "data-[state=open]:bg-muted/80")}
-          disabled={loading}
-        >
-          <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate max-w-[160px]">
-            {currentClient?.name ?? (clientIdFromPath ? "…" : "Velg klient")}
-          </span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-[200px] max-h-[280px] overflow-y-auto">
-          {clientsForCompany.length === 0 && !loading && (
-            <DropdownMenuItem disabled>Ingen klienter</DropdownMenuItem>
-          )}
-          {clientsForCompany.map((c) => (
-            <DropdownMenuItem
-              key={c.id}
-              onClick={() => router.push(`/dashboard/clients/${c.id}/matching?companyId=${companyIdFromUrl ?? ""}`)}
-            >
-              {c.name}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
