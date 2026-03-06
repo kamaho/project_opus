@@ -17,19 +17,20 @@ export async function getUserContext(
   userName?: string,
   orgName?: string
 ): Promise<UserContext> {
-  const [clientCountResult] = await db
-    .select({ count: count() })
-    .from(clients)
-    .innerJoin(companies, eq(clients.companyId, companies.id))
-    .where(eq(companies.tenantId, orgId));
-
-  const onboarding = await db
-    .select({ completedAt: userOnboarding.completedAt })
-    .from(userOnboarding)
-    .where(eq(userOnboarding.userId, userId))
-    .limit(1);
-
-  const orgContacts = await getOrgContacts(orgId);
+  const [clientCountResult, onboarding, orgContacts] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(clients)
+      .innerJoin(companies, eq(clients.companyId, companies.id))
+      .where(eq(companies.tenantId, orgId))
+      .then((r) => r[0]),
+    db
+      .select({ completedAt: userOnboarding.completedAt })
+      .from(userOnboarding)
+      .where(eq(userOnboarding.userId, userId))
+      .limit(1),
+    getOrgContacts(orgId),
+  ]);
 
   return {
     userId,
@@ -129,37 +130,40 @@ export async function getClientSummary(
 
   if (!client) return null;
 
-  const [txCount] = await db
-    .select({ count: count() })
-    .from(transactions)
-    .where(eq(transactions.clientId, clientId));
-
-  const [unmatchedS1] = await db
-    .select({ count: count() })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.clientId, clientId),
-        eq(transactions.setNumber, 1),
-        eq(transactions.matchStatus, "unmatched")
+  const [txCount, unmatchedS1, unmatchedS2, matchCountResult] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(transactions)
+      .where(eq(transactions.clientId, clientId))
+      .then((r) => r[0]),
+    db
+      .select({ count: count() })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.clientId, clientId),
+          eq(transactions.setNumber, 1),
+          eq(transactions.matchStatus, "unmatched")
+        )
       )
-    );
-
-  const [unmatchedS2] = await db
-    .select({ count: count() })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.clientId, clientId),
-        eq(transactions.setNumber, 2),
-        eq(transactions.matchStatus, "unmatched")
+      .then((r) => r[0]),
+    db
+      .select({ count: count() })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.clientId, clientId),
+          eq(transactions.setNumber, 2),
+          eq(transactions.matchStatus, "unmatched")
+        )
       )
-    );
-
-  const [matchCountResult] = await db
-    .select({ count: count() })
-    .from(matches)
-    .where(eq(matches.clientId, clientId));
+      .then((r) => r[0]),
+    db
+      .select({ count: count() })
+      .from(matches)
+      .where(eq(matches.clientId, clientId))
+      .then((r) => r[0]),
+  ]);
 
   return {
     name: client.name,

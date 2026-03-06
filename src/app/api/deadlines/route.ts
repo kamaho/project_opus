@@ -7,7 +7,8 @@ export const GET = withTenant(async (req, { tenantId, userId }) => {
   const from = url.searchParams.get("from") ?? undefined;
   const to = url.searchParams.get("to") ?? undefined;
   const status = url.searchParams.get("status")?.split(",").filter(Boolean) ?? undefined;
-  const companyId = url.searchParams.get("company_id") ?? undefined;
+  const rawCompanyId = url.searchParams.get("company_id");
+  const companyId = rawCompanyId && rawCompanyId !== "__none__" ? rawCompanyId : undefined;
   const assignedToParam = url.searchParams.get("assigned_to");
   const assignedTo = assignedToParam === "me" ? userId : assignedToParam ?? undefined;
 

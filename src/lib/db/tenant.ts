@@ -73,9 +73,10 @@ export async function getClientsByTenant(
     .innerJoin(companies, eq(clients.companyId, companies.id))
     .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
     .where(
-      companyId
+      companyId && companyId !== "__none__"
         ? (() => {
-            const ids = companyId.split(",").filter(Boolean);
+            const ids = companyId.split(",").filter((id) => id && id !== "__none__");
+            if (ids.length === 0) return eq(companies.tenantId, tenantId);
             return ids.length === 1
               ? and(eq(companies.tenantId, tenantId), eq(clients.companyId, ids[0]))
               : and(eq(companies.tenantId, tenantId), inArray(clients.companyId, ids));

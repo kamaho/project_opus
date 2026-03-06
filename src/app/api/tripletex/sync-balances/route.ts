@@ -76,6 +76,7 @@ export const POST = withTenant(async (req, { tenantId }) => {
 export const GET = withTenant(async (req, { tenantId }) => {
   const url = new URL(req.url);
   let companyId = url.searchParams.get("companyId");
+  if (companyId === "__none__") companyId = null;
   let txId = url.searchParams.get("tripletexCompanyId");
 
   if (!companyId || !txId) {

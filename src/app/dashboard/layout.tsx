@@ -9,10 +9,8 @@ import { TutorialModeProvider } from "@/contexts/tutorial-mode-context";
 import { TutorialOverlayGate } from "@/components/tutorial/tutorial-overlay-gate";
 import { hasCompletedOnboarding } from "@/lib/ai/onboarding";
 import { MobileLayoutSwitch } from "@/components/mobile/mobile-layout-switch";
-import { getTenantPlan, PLAN_LIMITS, type PlanTier } from "@/lib/plans";
-import { db } from "@/lib/db";
-import { clients, companies } from "@/lib/db/schema";
-import { eq, count } from "drizzle-orm";
+import { PLAN_LIMITS, type PlanTier } from "@/lib/plans";
+import { getCachedClientCount, getCachedTenantPlan } from "@/lib/cache";
 
 export default async function DashboardLayout({
   children,
@@ -26,16 +24,10 @@ export default async function DashboardLayout({
       ? hasCompletedOnboarding(userId).catch(() => true)
       : Promise.resolve(true),
     orgId
-      ? getTenantPlan(orgId).catch(() => "starter" as PlanTier)
+      ? getCachedTenantPlan(orgId).catch(() => "starter" as PlanTier)
       : Promise.resolve("starter" as PlanTier),
     orgId
-      ? db
-          .select({ value: count() })
-          .from(clients)
-          .innerJoin(companies, eq(clients.companyId, companies.id))
-          .where(eq(companies.tenantId, orgId))
-          .then((rows) => rows[0]?.value ?? 0)
-          .catch(() => 0)
+      ? getCachedClientCount(orgId).catch(() => 0)
       : Promise.resolve(0),
   ]);
 

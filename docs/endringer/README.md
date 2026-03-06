@@ -14,6 +14,7 @@ Filer her er ment som **supplement** til commit-meldinger og kan referere til ko
 
 | Fil | Beskrivelse |
 |---|---|
+| `2026-03-06-timezone-og-perceived-perf.md` | Timezone-fikser (`toISOString` → lokaltid, 11 filer), opplevd ytelse runde 4 (Suspense streaming, prefetch, server-cache) |
 | `2026-03-04-systematisk-kodegjennomgang.md` | Systematisk kodegjennomgang: 5 kritiske + 5 viktige sikkerhet/kvalitet/ytelse-fikser, 15 TS-feil fikset |
 | `2026-03-02-prod-hardening.md` | Onboarding-bugfix, full prod-skjema-migrering, GitHub Actions-pipeline, indekser, schema-drift hardening |
 | `2025-02-19-import-excel-klink-felter.md` | Excel-import og klink-felter |

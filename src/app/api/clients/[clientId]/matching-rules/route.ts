@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { matchingRules } from "@/lib/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { logAudit } from "@/lib/audit";
+import { revalidateMatchingRules } from "@/lib/revalidate";
 import { z } from "zod";
 
 const createRuleSchema = z.object({
@@ -62,6 +63,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     .returning();
 
   await logAudit({ tenantId, userId, action: "rule.created", entityType: "matching_rule", entityId: rule.id });
+  revalidateMatchingRules();
 
   return NextResponse.json(rule, { status: 201 });
 });
@@ -93,6 +95,7 @@ export const PATCH = withTenant(async (req, { tenantId, userId }, params) => {
   if (!updated) return NextResponse.json({ error: "Regel ikke funnet" }, { status: 404 });
 
   await logAudit({ tenantId, userId, action: "rule.updated", entityType: "matching_rule", entityId: ruleId });
+  revalidateMatchingRules();
 
   return NextResponse.json(updated);
 });
@@ -117,6 +120,7 @@ export const DELETE = withTenant(async (req, { tenantId, userId }, params) => {
   if (!deleted) return NextResponse.json({ error: "Regel ikke funnet" }, { status: 404 });
 
   await logAudit({ tenantId, userId, action: "rule.deleted", entityType: "matching_rule", entityId: ruleId });
+  revalidateMatchingRules();
 
   return NextResponse.json({ ok: true });
 });

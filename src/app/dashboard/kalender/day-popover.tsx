@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Plus,
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { OBLIGATION_ROUTE } from "@/lib/constants/navigation";
 import type { CalendarEventData } from "./calendar-event-dialog";
+import { toLocalDateStr } from "./calendar-client";
 
 interface TaskItem {
   id: string;
@@ -96,7 +98,7 @@ export function DayPopover({
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
-  const dateStr = date.toISOString().slice(0, 10);
+  const dateStr = toLocalDateStr(date);
   const dayLabel = `${date.getDate()}. ${MONTHS_SHORT[date.getMonth()]}`;
   const hasContent = deadlines.length > 0 || tasks.length > 0 || events.length > 0;
 
@@ -125,24 +127,25 @@ export function DayPopover({
           {/* Deadlines */}
           {deadlines.map((dl) => {
             const route = OBLIGATION_ROUTE[dl.obligation];
-            return (
-              <div
-                key={dl.id}
-                role={route ? "button" : undefined}
-                tabIndex={route ? 0 : undefined}
-                className={cn(
-                  "group flex items-center gap-2 rounded-md px-2 py-1.5 bg-amber-500/10 text-[11px] transition-colors",
-                  route && "cursor-pointer hover:bg-amber-500/20"
-                )}
-                onClick={route ? () => { router.push(route); setOpen(false); } : undefined}
-                onKeyDown={route ? (e) => { if (e.key === "Enter") { router.push(route); setOpen(false); } } : undefined}
-              >
+            const inner = (
+              <>
                 <Scale className="size-3 text-amber-600 shrink-0" />
                 <span className="truncate font-medium text-amber-700 dark:text-amber-400 flex-1">{dl.title}</span>
                 {route && (
                   <ArrowRight className="size-3 text-amber-600/60 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                 )}
-              </div>
+              </>
+            );
+            const cls = cn(
+              "group flex items-center gap-2 rounded-md px-2 py-1.5 bg-amber-500/10 text-[11px] transition-colors",
+              route && "cursor-pointer hover:bg-amber-500/20"
+            );
+            return route ? (
+              <Link key={dl.id} href={route} className={cls} onClick={() => setOpen(false)}>
+                {inner}
+              </Link>
+            ) : (
+              <div key={dl.id} className={cls}>{inner}</div>
             );
           })}
 

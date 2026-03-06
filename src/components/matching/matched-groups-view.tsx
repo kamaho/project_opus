@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useCallback } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Unlink, ChevronDown, ChevronRight, Search, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,8 @@ interface MatchedGroupsViewProps {
   dateTo?: string;
 }
 
+const ESTIMATED_ROW_HEIGHT = 56;
+
 export function MatchedGroupsView({
   groups,
   onUnmatch,
@@ -47,16 +50,17 @@ export function MatchedGroupsView({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const tableAppearance = useTableAppearance();
-  const { fmtNum, fmtAbs, fmtDate: fmtD, fmtDateTime } = useFormatting();
+  const { fmtNum, fmtAbs, fmtDate: fmtD } = useFormatting();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const toggleExpand = (matchId: string) => {
+  const toggleExpand = useCallback((matchId: string) => {
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(matchId)) next.delete(matchId);
       else next.add(matchId);
       return next;
     });
-  };
+  }, []);
 
   const filteredGroups = useMemo(() => {
     let result = groups;
@@ -88,6 +92,20 @@ export function MatchedGroupsView({
     return result;
   }, [groups, dateFrom, dateTo, searchQuery]);
 
+  const virtualizer = useVirtualizer({
+    count: filteredGroups.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => {
+      const g = filteredGroups[i];
+      if (expandedIds.has(g.matchId)) {
+        return ESTIMATED_ROW_HEIGHT + 32 + g.transactions.length * 36;
+      }
+      return ESTIMATED_ROW_HEIGHT;
+    },
+    overscan: 10,
+    getItemKey: (i) => filteredGroups[i].matchId,
+  });
+
   if (groups.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
@@ -97,8 +115,8 @@ export function MatchedGroupsView({
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-auto p-4 gap-2">
-      <div className="flex items-center gap-3 mb-2">
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex items-center gap-3 px-4 pt-4 pb-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
@@ -123,123 +141,141 @@ export function MatchedGroupsView({
         </span>
       </div>
 
-      {filteredGroups.map((group) => {
-        const expanded = expandedIds.has(group.matchId);
-        const set1Txs = group.transactions.filter((t) => t.setNumber === 1);
-        const set2Txs = group.transactions.filter((t) => t.setNumber === 2);
-        const totalSum = group.transactions.reduce((s, t) => s + t.amount, 0);
-        const roundedSum = Math.round(totalSum * 100) / 100;
+      <div ref={scrollRef} className="flex-1 overflow-auto px-4 pb-4">
+        <div
+          style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+        >
+          {virtualizer.getVirtualItems().map((vItem) => {
+            const group = filteredGroups[vItem.index];
+            const expanded = expandedIds.has(group.matchId);
+            const set1Txs = group.transactions.filter((t) => t.setNumber === 1);
+            const set2Txs = group.transactions.filter((t) => t.setNumber === 2);
+            const totalSum = group.transactions.reduce((s, t) => s + t.amount, 0);
+            const roundedSum = Math.round(totalSum * 100) / 100;
 
-        return (
-          <div
-            key={group.matchId}
-            className="rounded-lg border bg-card shadow-sm"
-          >
-            <div
-              className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
-              onClick={() => toggleExpand(group.matchId)}
-            >
-              {expanded ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-              ) : (
-                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-              )}
-              <div className="flex flex-1 items-center gap-4 min-w-0">
-                <span className="text-sm font-medium">
-                  {group.transactions.length} transaksjon{group.transactions.length !== 1 ? "er" : ""}
-                </span>
-                {set1Txs.length > 0 && set2Txs.length > 0 ? (
-                  <span className="text-xs text-muted-foreground">
-                    {set1Txs.length} {set1Label} + {set2Txs.length} {set2Label}
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Intern match</span>
-                )}
-                {roundedSum !== 0 && (
-                  <span className="text-xs text-amber-600 font-medium">
-                    Differanse: {fmtNum(roundedSum)}
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {fmtD(group.matchedAt)}
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onUnmatch(group.matchId);
+            return (
+              <div
+                key={group.matchId}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${vItem.start}px)`,
                 }}
-                disabled={unmatchingId === group.matchId}
+                className="pb-2"
               >
-                <Unlink className="h-3.5 w-3.5" />
-                {unmatchingId === group.matchId ? "Opphever\u2026" : "Opphev"}
-              </Button>
-            </div>
-
-            {expanded && (
-              <div className="border-t">
-                <table className={cn("w-full text-sm", tableAppearance.tableClass)}>
-                  <thead className={cn("bg-muted/40", tableAppearance.theadClass)}>
-                    <tr>
-                      <th className="text-left p-2 pl-4 font-medium text-xs text-muted-foreground w-24">Mengde</th>
-                      <th className="text-left p-2 font-medium text-xs text-muted-foreground w-28">Dato</th>
-                      <th className="text-right p-2 font-medium text-xs text-muted-foreground w-32">Beløp</th>
-                      <th className="text-left p-2 font-medium text-xs text-muted-foreground w-28">Bilag</th>
-                      <th className="text-left p-2 font-medium text-xs text-muted-foreground">Tekst</th>
-                      {onRemoveTransaction && (
-                        <th className="w-10 p-2" />
+                <div className="rounded-lg border bg-card shadow-sm">
+                  <div
+                    className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                    onClick={() => toggleExpand(group.matchId)}
+                  >
+                    {expanded ? (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )}
+                    <div className="flex flex-1 items-center gap-4 min-w-0">
+                      <span className="text-sm font-medium">
+                        {group.transactions.length} transaksjon{group.transactions.length !== 1 ? "er" : ""}
+                      </span>
+                      {set1Txs.length > 0 && set2Txs.length > 0 ? (
+                        <span className="text-xs text-muted-foreground">
+                          {set1Txs.length} {set1Label} + {set2Txs.length} {set2Label}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Intern match</span>
                       )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {group.transactions.map((tx, idx) => (
-                      <tr
-                        key={tx.id}
-                        className={cn(
-                          "hover:bg-muted/20 group/row",
-                          tableAppearance.rowBorderClass,
-                          idx % 2 === 1 && tableAppearance.rowAlternateClass
-                        )}
-                      >
-                        <td className="p-2 pl-4 text-xs text-muted-foreground">
-                          {tx.setNumber === 1 ? set1Label : set2Label}
-                        </td>
-                        <td className="p-2">{fmtD(tx.date)}</td>
-                        <td
-                          className={cn(
-                            "p-2 text-right font-mono",
-                            tx.amount < 0 && "text-destructive"
-                          )}
-                        >
-                          {tx.amount >= 0 ? "" : "\u2212"}
-                          {fmtAbs(tx.amount)}
-                        </td>
-                        <td className="p-2 text-muted-foreground">{tx.voucher ?? "\u2014"}</td>
-                        <td className="p-2 truncate max-w-[300px]" title={tx.text}>{tx.text}</td>
-                        {onRemoveTransaction && (
-                          <td className="p-2 pr-4">
-                            <button
-                              type="button"
-                              className="p-1 rounded-sm opacity-0 group-hover/row:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
-                              title="Fjern fra matchgruppe"
-                              onClick={() => onRemoveTransaction(tx.id)}
+                      {roundedSum !== 0 && (
+                        <span className="text-xs text-amber-600 font-medium">
+                          Differanse: {fmtNum(roundedSum)}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {fmtD(group.matchedAt)}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUnmatch(group.matchId);
+                      }}
+                      disabled={unmatchingId === group.matchId}
+                    >
+                      <Unlink className="h-3.5 w-3.5" />
+                      {unmatchingId === group.matchId ? "Opphever\u2026" : "Opphev"}
+                    </Button>
+                  </div>
+
+                  {expanded && (
+                    <div className="border-t">
+                      <table className={cn("w-full text-sm", tableAppearance.tableClass)}>
+                        <thead className={cn("bg-muted/40", tableAppearance.theadClass)}>
+                          <tr>
+                            <th className="text-left p-2 pl-4 font-medium text-xs text-muted-foreground w-24">Mengde</th>
+                            <th className="text-left p-2 font-medium text-xs text-muted-foreground w-28">Dato</th>
+                            <th className="text-right p-2 font-medium text-xs text-muted-foreground w-32">Beløp</th>
+                            <th className="text-left p-2 font-medium text-xs text-muted-foreground w-28">Bilag</th>
+                            <th className="text-left p-2 font-medium text-xs text-muted-foreground">Tekst</th>
+                            {onRemoveTransaction && (
+                              <th className="w-10 p-2" />
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {group.transactions.map((tx, idx) => (
+                            <tr
+                              key={tx.id}
+                              className={cn(
+                                "hover:bg-muted/20 group/row",
+                                tableAppearance.rowBorderClass,
+                                idx % 2 === 1 && tableAppearance.rowAlternateClass
+                              )}
                             >
-                              <XIcon className="h-3 w-3" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                              <td className="p-2 pl-4 text-xs text-muted-foreground">
+                                {tx.setNumber === 1 ? set1Label : set2Label}
+                              </td>
+                              <td className="p-2">{fmtD(tx.date)}</td>
+                              <td
+                                className={cn(
+                                  "p-2 text-right font-mono",
+                                  tx.amount < 0 && "text-destructive"
+                                )}
+                              >
+                                {tx.amount >= 0 ? "" : "\u2212"}
+                                {fmtAbs(tx.amount)}
+                              </td>
+                              <td className="p-2 text-muted-foreground">{tx.voucher ?? "\u2014"}</td>
+                              <td className="p-2 truncate max-w-[300px]" title={tx.text}>{tx.text}</td>
+                              {onRemoveTransaction && (
+                                <td className="p-2 pr-4">
+                                  <button
+                                    type="button"
+                                    className="p-1 rounded-sm opacity-0 group-hover/row:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all"
+                                    title="Fjern fra matchgruppe"
+                                    onClick={() => onRemoveTransaction(tx.id)}
+                                  >
+                                    <XIcon className="h-3 w-3" />
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

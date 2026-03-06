@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { OrganizationSwitcher } from "@clerk/nextjs";
 import { Building2, ChevronDown, Search, X } from "lucide-react";
@@ -10,6 +10,9 @@ import { cn } from "@/lib/utils";
 import { IntegrationBadge } from "@/components/ui/integration-badge";
 
 type Company = { id: string; name: string; type?: string; integrationSources?: string[] };
+
+const NONE_SENTINEL = "__none__";
+const DEBOUNCE_MS = 250;
 
 const separator = (
   <span className="text-muted-foreground/50 px-1.5 select-none" aria-hidden>
@@ -26,12 +29,21 @@ export function AppBreadcrumb() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [, startTransition] = useTransition();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const companyIdParam = searchParams.get("companyId");
-  const selectedIds = useMemo<Set<string>>(() => {
+
+  const urlSelectedIds = useMemo<Set<string>>(() => {
     if (!companyIdParam) return new Set<string>();
     return new Set(companyIdParam.split(",").filter(Boolean));
   }, [companyIdParam]);
+
+  const [localIds, setLocalIds] = useState<Set<string>>(urlSelectedIds);
+
+  useEffect(() => {
+    setLocalIds(urlSelectedIds);
+  }, [urlSelectedIds]);
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -54,39 +66,83 @@ export function AppBreadcrumb() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [fetchCompanies, pathname]);
+  }, [fetchCompanies]);
 
-  const allSelected = selectedIds.size === 0 || selectedIds.size === companies.length;
-  const selectedCompanies = allSelected ? companies : companies.filter((c) => selectedIds.has(c.id));
+  useEffect(() => {
+    const handler = () => {
+      fetchCompanies().then((fetched) => setCompanies(fetched));
+    };
+    window.addEventListener("revizo:companies-changed", handler);
+    return () => window.removeEventListener("revizo:companies-changed", handler);
+  }, [fetchCompanies]);
 
-  function updateUrl(ids: Set<string>) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (ids.size === 0 || ids.size === companies.length) {
-      params.delete("companyId");
-    } else {
-      params.set("companyId", Array.from(ids).join(","));
-    }
-    router.replace(`${pathname}?${params.toString()}`);
-  }
+  const isNone = localIds.has(NONE_SENTINEL);
+  const allSelected = !isNone && localIds.size === 0;
+  const selectedCompanies = isNone
+    ? []
+    : allSelected
+      ? companies
+      : companies.filter((c) => localIds.has(c.id));
+
+  const commitUrl = useCallback((ids: Set<string>) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (ids.has(NONE_SENTINEL)) {
+        params.set("companyId", NONE_SENTINEL);
+      } else if (ids.size === 0 || ids.size === companies.length) {
+        params.delete("companyId");
+      } else {
+        params.set("companyId", Array.from(ids).join(","));
+      }
+      startTransition(() => {
+        router.replace(`${pathname}?${params.toString()}`);
+      });
+    }, DEBOUNCE_MS);
+  }, [searchParams, companies.length, pathname, router]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   function toggleCompany(id: string) {
-    const effectiveSelected = allSelected
-      ? new Set(companies.map((c) => c.id))
-      : new Set(selectedIds);
-    if (effectiveSelected.has(id)) {
-      effectiveSelected.delete(id);
-    } else {
-      effectiveSelected.add(id);
-    }
-    updateUrl(effectiveSelected);
+    setLocalIds((prev) => {
+      let effective: Set<string>;
+      if (prev.has(NONE_SENTINEL)) {
+        effective = new Set([id]);
+      } else if (prev.size === 0) {
+        effective = new Set(companies.map((c) => c.id));
+        effective.delete(id);
+      } else {
+        effective = new Set(prev);
+        if (effective.has(id)) {
+          effective.delete(id);
+        } else {
+          effective.add(id);
+        }
+      }
+      if (effective.size === 0) {
+        effective = new Set([NONE_SENTINEL]);
+      } else if (effective.size === companies.length) {
+        effective = new Set();
+      }
+      commitUrl(effective);
+      return effective;
+    });
   }
 
   function selectAll() {
-    updateUrl(new Set(companies.map((c) => c.id)));
+    const next = new Set<string>();
+    setLocalIds(next);
+    commitUrl(next);
   }
 
   function selectNone() {
-    updateUrl(new Set());
+    const next = new Set([NONE_SENTINEL]);
+    setLocalIds(next);
+    commitUrl(next);
   }
 
   const filtered = useMemo(() => {
@@ -96,7 +152,9 @@ export function AppBreadcrumb() {
   }, [companies, search]);
 
   let triggerLabel: string;
-  if (allSelected) {
+  if (isNone) {
+    triggerLabel = "Ingen selskaper";
+  } else if (allSelected) {
     triggerLabel = "Alle selskaper";
   } else if (selectedCompanies.length === 1) {
     triggerLabel = selectedCompanies[0].name;
@@ -143,7 +201,6 @@ export function AppBreadcrumb() {
         </PopoverTrigger>
 
         <PopoverContent align="start" className="w-[280px] p-0">
-          {/* Search */}
           <div className="flex items-center gap-2 border-b px-3 py-2">
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <input
@@ -164,30 +221,42 @@ export function AppBreadcrumb() {
             )}
           </div>
 
-          {/* Select all / none */}
           <div className="flex items-center justify-between border-b px-3 py-1.5">
             <span className="text-xs text-muted-foreground">
-              {allSelected ? "Alle" : `${selectedCompanies.length} av ${companies.length}`} valgt
+              {isNone
+                ? `0 av ${companies.length}`
+                : allSelected
+                  ? "Alle"
+                  : `${selectedCompanies.length} av ${companies.length}`} valgt
             </span>
             <div className="flex gap-1">
               <button
                 type="button"
                 onClick={selectAll}
-                className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+                className={cn(
+                  "text-xs px-1.5 py-0.5 rounded transition-colors",
+                  allSelected
+                    ? "text-foreground font-medium bg-muted"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
               >
                 Alle
               </button>
               <button
                 type="button"
                 onClick={selectNone}
-                className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+                className={cn(
+                  "text-xs px-1.5 py-0.5 rounded transition-colors",
+                  isNone
+                    ? "text-foreground font-medium bg-muted"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                )}
               >
                 Ingen
               </button>
             </div>
           </div>
 
-          {/* Company list */}
           <div className="max-h-[300px] overflow-y-auto py-1">
             {filtered.length === 0 && (
               <div className="px-3 py-4 text-center text-sm text-muted-foreground">
@@ -195,7 +264,7 @@ export function AppBreadcrumb() {
               </div>
             )}
             {filtered.map((c) => {
-              const checked = allSelected || selectedIds.has(c.id);
+              const checked = !isNone && (allSelected || localIds.has(c.id));
               return (
                 <label
                   key={c.id}

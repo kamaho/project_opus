@@ -163,8 +163,10 @@ export function CreateTaskDialog({
   useEffect(() => {
     if (open && !deadlinesLoaded) {
       const now = new Date();
-      const from = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const to = new Date(now.getFullYear(), now.getMonth() + 6, 0).toISOString().slice(0, 10);
+      const fmtLocal = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const from = fmtLocal(new Date(now.getFullYear(), now.getMonth(), 1));
+      const to = fmtLocal(new Date(now.getFullYear(), now.getMonth() + 6, 0));
       fetch(`/api/deadlines?from=${from}&to=${to}`)
         .then((r) => (r.ok ? r.json() : { deadlines: [] }))
         .then((data: { deadlines: Array<{

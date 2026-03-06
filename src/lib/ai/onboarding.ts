@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { userOnboarding } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 
 export interface OnboardingStatus {
   profileCompleted: boolean;
@@ -51,14 +52,18 @@ export async function getOrCreateOnboarding(
 }
 
 /** Returns true if the user has completed the welcome onboarding (completedAt set). Does not create a row. */
-export async function hasCompletedOnboarding(userId: string): Promise<boolean> {
-  const row = await db
-    .select({ completedAt: userOnboarding.completedAt })
-    .from(userOnboarding)
-    .where(eq(userOnboarding.userId, userId))
-    .limit(1);
-  return row[0]?.completedAt != null;
-}
+export const hasCompletedOnboarding = unstable_cache(
+  async (userId: string): Promise<boolean> => {
+    const row = await db
+      .select({ completedAt: userOnboarding.completedAt })
+      .from(userOnboarding)
+      .where(eq(userOnboarding.userId, userId))
+      .limit(1);
+    return row[0]?.completedAt != null;
+  },
+  ["onboarding-completed"],
+  { revalidate: 60, tags: ["onboarding"] }
+);
 
 export interface OnboardingCompleteOptions {
   revizoEnabled?: boolean;

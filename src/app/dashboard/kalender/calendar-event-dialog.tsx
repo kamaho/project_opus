@@ -23,6 +23,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Users, Bell, Flag, Calendar, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { toLocalDateStr } from "./calendar-client";
 
 export interface CalendarEventData {
   id: string;
@@ -113,7 +114,7 @@ export function CalendarEventDialog({
       setTitle(editingEvent.title);
       setDescription(editingEvent.description ?? "");
       const start = new Date(editingEvent.startAt);
-      setDate(start.toISOString().slice(0, 10));
+      setDate(toLocalDateStr(start));
       setStartTime(start.toTimeString().slice(0, 5));
       if (editingEvent.endAt) {
         setEndTime(new Date(editingEvent.endAt).toTimeString().slice(0, 5));
@@ -126,7 +127,7 @@ export function CalendarEventDialog({
       setType(defaultType);
       setTitle("");
       setDescription("");
-      setDate(defaultDate ?? new Date().toISOString().slice(0, 10));
+      setDate(defaultDate ?? toLocalDateStr(new Date()));
       setStartTime("09:00");
       setEndTime("10:00");
       setAllDay(defaultType !== "meeting");

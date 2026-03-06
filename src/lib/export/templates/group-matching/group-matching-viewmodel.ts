@@ -22,113 +22,142 @@ export async function buildGroupMatchingViewModel(
 ): Promise<GroupMatchingExportViewModel> {
   const { groupName, clientIds } = payload;
 
-  const clientRows = await db
-    .select({
-      id: clients.id,
-      name: clients.name,
-      set1AccountId: clients.set1AccountId,
-      set2AccountId: clients.set2AccountId,
-      companyName: companies.name,
-    })
-    .from(clients)
-    .innerJoin(companies, eq(clients.companyId, companies.id))
-    .where(
-      and(
-        eq(companies.tenantId, context.tenantId),
-        inArray(clients.id, clientIds)
-      )
-    );
+  if (clientIds.length === 0) {
+    return {
+      groupName,
+      clientCount: 0,
+      sections: [],
+      totals: { totalOpenSet1: 0, totalOpenSet2: 0, totalSaldoSet1: 0, totalSaldoSet2: 0, totalMatches: 0 },
+      genererTidspunkt: new Date().toISOString(),
+      generatedBy: context.userEmail ?? undefined,
+    };
+  }
 
-  const sections: GroupMatchingClientSection[] = [];
-
-  for (const cr of clientRows) {
-    const [set1Acc, set2Acc] = await Promise.all([
-      db
-        .select({ name: accounts.name })
-        .from(accounts)
-        .where(eq(accounts.id, cr.set1AccountId))
-        .then((r) => r[0]),
-      db
-        .select({ name: accounts.name })
-        .from(accounts)
-        .where(eq(accounts.id, cr.set2AccountId))
-        .then((r) => r[0]),
-    ]);
-
-    const set1Label = set1Acc?.name ?? "Mengde 1";
-    const set2Label = set2Acc?.name ?? "Mengde 2";
-
-    const queryOpenTx = async (setNum: 1 | 2) => {
-      const rows = await db
-        .select({
-          date1: transactions.date1,
-          amount: transactions.amount,
-          bilag: transactions.bilag,
-          reference: transactions.reference,
-          description: transactions.description,
-        })
-        .from(transactions)
-        .leftJoin(imports, eq(transactions.importId, imports.id))
-        .where(
-          and(
-            eq(transactions.clientId, cr.id),
-            eq(transactions.setNumber, setNum),
-            eq(transactions.matchStatus, "unmatched"),
-            sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
-          )
+  const [clientRows, accountRows, openTxRows, saldoRows, matchCountRows] = await Promise.all([
+    db
+      .select({
+        id: clients.id,
+        name: clients.name,
+        set1AccountId: clients.set1AccountId,
+        set2AccountId: clients.set2AccountId,
+        companyName: companies.name,
+      })
+      .from(clients)
+      .innerJoin(companies, eq(clients.companyId, companies.id))
+      .where(
+        and(
+          eq(companies.tenantId, context.tenantId),
+          inArray(clients.id, clientIds)
         )
-        .orderBy(transactions.date1);
-
-      return rows.map(
-        (r): MatchingTransactionExport => ({
-          dato: String(r.date1 ?? ""),
-          bilag: r.bilag ?? r.reference ?? "",
-          beskrivelse: r.description ?? "",
-          belop: parseFloat(r.amount ?? "0"),
-        })
-      );
-    };
-
-    const querySaldo = async (setNum: 1 | 2) => {
-      const [row] = await db
-        .select({
-          total: sql<string>`COALESCE(SUM(${transactions.amount}::numeric), 0)`,
-          cnt: count(),
-        })
-        .from(transactions)
-        .leftJoin(imports, eq(transactions.importId, imports.id))
-        .where(
-          and(
-            eq(transactions.clientId, cr.id),
-            eq(transactions.setNumber, setNum),
-            sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
-          )
-        );
-      return { saldo: parseFloat(row?.total ?? "0"), poster: Number(row?.cnt ?? 0) };
-    };
-
-    const [aapneSet1, aapneSet2, saldo1, saldo2] = await Promise.all([
-      queryOpenTx(1),
-      queryOpenTx(2),
-      querySaldo(1),
-      querySaldo(2),
-    ]);
-
-    const [matchCountRow] = await db
-      .select({ cnt: count() })
+      ),
+    db
+      .select({ id: accounts.id, name: accounts.name })
+      .from(accounts)
+      .where(
+        inArray(
+          accounts.id,
+          db
+            .select({ id: clients.set1AccountId })
+            .from(clients)
+            .where(inArray(clients.id, clientIds))
+            .union(
+              db
+                .select({ id: clients.set2AccountId })
+                .from(clients)
+                .where(inArray(clients.id, clientIds))
+            )
+        )
+      ),
+    db
+      .select({
+        clientId: transactions.clientId,
+        setNumber: transactions.setNumber,
+        date1: transactions.date1,
+        amount: transactions.amount,
+        bilag: transactions.bilag,
+        reference: transactions.reference,
+        description: transactions.description,
+      })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(
+        and(
+          inArray(transactions.clientId, clientIds),
+          eq(transactions.matchStatus, "unmatched"),
+          sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
+        )
+      )
+      .orderBy(transactions.date1),
+    db
+      .select({
+        clientId: transactions.clientId,
+        setNumber: transactions.setNumber,
+        total: sql<string>`COALESCE(SUM(${transactions.amount}::numeric), 0)`,
+        cnt: count(),
+      })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(
+        and(
+          inArray(transactions.clientId, clientIds),
+          sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
+        )
+      )
+      .groupBy(transactions.clientId, transactions.setNumber),
+    db
+      .select({
+        clientId: matches.clientId,
+        cnt: count(),
+      })
       .from(matches)
-      .where(eq(matches.clientId, cr.id));
-    const matchCountVal = Number(matchCountRow?.cnt ?? 0);
+      .where(inArray(matches.clientId, clientIds))
+      .groupBy(matches.clientId),
+  ]);
 
+  const accountMap = new Map(accountRows.map((a) => [a.id, a.name]));
+
+  const openTxByClient = new Map<string, Map<number, MatchingTransactionExport[]>>();
+  for (const r of openTxRows) {
+    if (!openTxByClient.has(r.clientId)) openTxByClient.set(r.clientId, new Map());
+    const bySet = openTxByClient.get(r.clientId)!;
+    if (!bySet.has(r.setNumber)) bySet.set(r.setNumber, []);
+    bySet.get(r.setNumber)!.push({
+      dato: String(r.date1 ?? ""),
+      bilag: r.bilag ?? r.reference ?? "",
+      beskrivelse: r.description ?? "",
+      belop: parseFloat(r.amount ?? "0"),
+    });
+  }
+
+  const saldoByClient = new Map<string, Map<number, { saldo: number; poster: number }>>();
+  for (const r of saldoRows) {
+    if (!saldoByClient.has(r.clientId)) saldoByClient.set(r.clientId, new Map());
+    saldoByClient.get(r.clientId)!.set(r.setNumber, {
+      saldo: parseFloat(r.total),
+      poster: Number(r.cnt),
+    });
+  }
+
+  const matchCountByClient = new Map(matchCountRows.map((r) => [r.clientId, Number(r.cnt)]));
+
+  const sections: GroupMatchingClientSection[] = clientRows.map((cr) => {
+    const set1Label = accountMap.get(cr.set1AccountId) ?? "Mengde 1";
+    const set2Label = accountMap.get(cr.set2AccountId) ?? "Mengde 2";
+
+    const aapneSet1 = openTxByClient.get(cr.id)?.get(1) ?? [];
+    const aapneSet2 = openTxByClient.get(cr.id)?.get(2) ?? [];
+
+    const saldo1 = saldoByClient.get(cr.id)?.get(1) ?? { saldo: 0, poster: 0 };
+    const saldo2 = saldoByClient.get(cr.id)?.get(2) ?? { saldo: 0, poster: 0 };
+
+    const matchCountVal = matchCountByClient.get(cr.id) ?? 0;
     const totalPoster = saldo1.poster + saldo2.poster;
     const matchProsent =
       totalPoster > 0
-        ? Math.round(
-            ((totalPoster - aapneSet1.length - aapneSet2.length) / totalPoster) * 100
-          )
+        ? Math.round(((totalPoster - aapneSet1.length - aapneSet2.length) / totalPoster) * 100)
         : 0;
 
-    sections.push({
+    return {
       klientNavn: cr.name,
       companyName: cr.companyName ?? undefined,
       set1Label,
@@ -141,8 +170,8 @@ export async function buildGroupMatchingViewModel(
       saldoSet2: saldo2.saldo,
       matchCount: matchCountVal,
       matchProsent,
-    });
-  }
+    };
+  });
 
   return {
     groupName,

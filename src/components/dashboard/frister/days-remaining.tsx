@@ -10,7 +10,7 @@ export default function DaysRemaining({ dueDate, status }: Props) {
     return <span className="text-xs text-emerald-600 dark:text-emerald-400">Fullført</span>;
   }
 
-  const due = new Date(dueDate + "T00:00:00");
+  const due = new Date(dueDate.slice(0, 10) + "T00:00:00");
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const diffMs = due.getTime() - today.getTime();

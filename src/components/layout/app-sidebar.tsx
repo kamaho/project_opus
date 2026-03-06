@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Lock, Settings } from "lucide-react";
@@ -52,25 +52,19 @@ function isActivePath(href: string, pathname: string) {
   return pathname.startsWith(href);
 }
 
-export function AppSidebar({ plan = "starter", clientCount = 0, clientLimit }: AppSidebarProps) {
-  const CURRENT_TIER = toNavTier(plan);
+const SidebarNavLinks = memo(function SidebarNavLinks({
+  onUpgrade,
+}: {
+  onUpgrade: (feature: string, tier: NavItemTier) => void;
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [upgradeFeature, setUpgradeFeature] = useState("");
-  const [upgradeTier, setUpgradeTier] = useState<NavItemTier>("PRO");
 
   const companyIdParam = searchParams.get("companyId");
   const companyQuery = useMemo(
     () => (companyIdParam ? `?companyId=${encodeURIComponent(companyIdParam)}` : ""),
     [companyIdParam]
   );
-
-  const openUpgrade = useCallback((feature: string, tier: NavItemTier) => {
-    setUpgradeFeature(feature);
-    setUpgradeTier(tier);
-    setUpgradeOpen(true);
-  }, []);
 
   function renderItem(item: NavItem) {
     const active = isActivePath(item.href, pathname);
@@ -81,7 +75,7 @@ export function AppSidebar({ plan = "starter", clientCount = 0, clientLimit }: A
           <SidebarMenuButton
             tooltip={item.label}
             className="opacity-50 cursor-pointer"
-            onClick={() => openUpgrade(item.label, item.tier)}
+            onClick={() => onUpgrade(item.label, item.tier)}
           >
             <item.icon />
             <span>{item.label}</span>
@@ -133,48 +127,67 @@ export function AppSidebar({ plan = "starter", clientCount = 0, clientLimit }: A
 
   return (
     <>
+      {NAVIGATION.map((group, i) => (
+        <div key={group.label}>
+          {i > 0 && <SidebarSeparator />}
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[10px] text-sidebar-foreground/50 uppercase tracking-wider">
+              {group.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map(renderItem)}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </div>
+      ))}
+
+      <SidebarSeparator />
+
+      <SidebarGroup>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                isActive={isActivePath(SETTINGS_ITEM.href, pathname)}
+                tooltip={SETTINGS_ITEM.label}
+              >
+                <Link href={`${SETTINGS_ITEM.href}${companyQuery}`} data-smart-info={SETTINGS_ITEM.smartInfo}>
+                  <Settings />
+                  <span>{SETTINGS_ITEM.label}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    </>
+  );
+});
+
+export function AppSidebar({ plan = "starter", clientCount = 0, clientLimit }: AppSidebarProps) {
+  const CURRENT_TIER = toNavTier(plan);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeFeature, setUpgradeFeature] = useState("");
+  const [upgradeTier, setUpgradeTier] = useState<NavItemTier>("PRO");
+
+  const openUpgrade = useCallback((feature: string, tier: NavItemTier) => {
+    setUpgradeFeature(feature);
+    setUpgradeTier(tier);
+    setUpgradeOpen(true);
+  }, []);
+
+  return (
+    <>
       <Sidebar>
         <SidebarHeader className="border-b border-sidebar-border p-3">
           <SidebarUserBlock />
         </SidebarHeader>
 
         <SidebarContent>
-          {NAVIGATION.map((group, i) => (
-            <div key={group.label}>
-              {i > 0 && <SidebarSeparator />}
-              <SidebarGroup>
-                <SidebarGroupLabel className="text-[10px] text-sidebar-foreground/50 uppercase tracking-wider">
-                  {group.label}
-                </SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {group.items.map(renderItem)}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            </div>
-          ))}
-
-          <SidebarSeparator />
-
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActivePath(SETTINGS_ITEM.href, pathname)}
-                    tooltip={SETTINGS_ITEM.label}
-                  >
-                    <Link href={`${SETTINGS_ITEM.href}${companyQuery}`} data-smart-info={SETTINGS_ITEM.smartInfo}>
-                      <Settings />
-                      <span>{SETTINGS_ITEM.label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <SidebarNavLinks onUpgrade={openUpgrade} />
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border p-3">

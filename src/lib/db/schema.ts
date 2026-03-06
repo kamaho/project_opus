@@ -72,17 +72,21 @@ export const accounts = pgTable(
 // ---------------------------------------------------------------------------
 // Parser configurations (innlesningsskript)
 // ---------------------------------------------------------------------------
-export const parserConfigs = pgTable("parser_configs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: text("tenant_id").notNull(),
-  name: text("name").notNull(),
-  fileType: text("file_type", {
-    enum: ["csv", "excel", "camt", "xml", "fixed"],
-  }).notNull(),
-  config: jsonb("config").notNull(),
-  isSystem: boolean("is_system").default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const parserConfigs = pgTable(
+  "parser_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: text("tenant_id").notNull(),
+    name: text("name").notNull(),
+    fileType: text("file_type", {
+      enum: ["csv", "excel", "camt", "xml", "fixed"],
+    }).notNull(),
+    config: jsonb("config").notNull(),
+    isSystem: boolean("is_system").default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index("idx_parser_configs_tenant").on(t.tenantId)]
+);
 
 // ---------------------------------------------------------------------------
 // Clients (avstemmingsenhet = Set 1 + Set 2)

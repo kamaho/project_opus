@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 interface RevizoIconProps {
@@ -7,8 +8,7 @@ interface RevizoIconProps {
 
 export function RevizoIcon({ className, size = 16 }: RevizoIconProps) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <Image
       src="/logo-icon-no-bg.png"
       alt=""
       width={size}

@@ -285,7 +285,9 @@ async function buildClosedReport(
   const matcherExport: MatchingMatchGroupExport[] = matchRows.map((m) => {
     const txs = txByMatchId.get(m.id) ?? [];
     return {
-      matchDato: m.matchedAt?.toISOString().slice(0, 10) ?? "",
+      matchDato: m.matchedAt
+        ? `${m.matchedAt.getFullYear()}-${String(m.matchedAt.getMonth() + 1).padStart(2, "0")}-${String(m.matchedAt.getDate()).padStart(2, "0")}`
+        : "",
       type: m.matchType,
       differanse: parseFloat(m.difference ?? "0"),
       transaksjonerSet1: txs

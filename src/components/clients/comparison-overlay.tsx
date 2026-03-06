@@ -135,7 +135,9 @@ export function ComparisonOverlay({
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `saldosammenligning-${new Date().toISOString().slice(0, 10)}.${format}`;
+        const d = new Date();
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        a.download = `saldosammenligning-${dateStr}.${format}`;
         a.click();
         URL.revokeObjectURL(url);
       }

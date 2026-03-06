@@ -1,8 +1,21 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { Loader2 } from "lucide-react";
 import { ControlList } from "@/components/controls/control-list";
-import { ControlRunnerDialog } from "@/components/controls/control-runner-dialog";
+import dynamic from "next/dynamic";
+
+const ControlRunnerDialog = dynamic(
+  () => import("@/components/controls/control-runner-dialog").then((m) => m.ControlRunnerDialog),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </div>
+    ),
+  }
+);
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Company {

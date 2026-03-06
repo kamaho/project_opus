@@ -46,6 +46,15 @@ export interface CellContextAction {
 type SortKey = "date" | "amount" | "voucher" | "notat" | "status" | "text";
 type SortDir = "asc" | "desc";
 
+const RESIZE_SAMPLE_LIMIT = 100;
+
+const SortIcon = memo(function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey | null; sortDir: SortDir }) {
+  if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="h-3 w-3 text-primary" />
+    : <ArrowDown className="h-3 w-3 text-primary" />;
+});
+
 interface TransactionPanelProps {
   title?: string;
   transactions: TransactionRow[];
@@ -554,7 +563,10 @@ export const TransactionPanel = memo(function TransactionPanel({
     (col: ColumnKey) => {
       const headerLabel = columnLabels[col];
       let maxW = measureText(headerLabel, col === "amount");
-      for (const tx of filteredAndSorted) {
+      const sample = filteredAndSorted.length > RESIZE_SAMPLE_LIMIT
+        ? filteredAndSorted.slice(0, RESIZE_SAMPLE_LIMIT)
+        : filteredAndSorted;
+      for (const tx of sample) {
         const s =
           col === "date"
             ? fmtD(tx.date)
@@ -670,12 +682,7 @@ export const TransactionPanel = memo(function TransactionPanel({
 
   const tableMinWidth = 32 + ATTACH_COL_WIDTH + colOrder.reduce((sum, col) => sum + colWidths[col], 0);
 
-  const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return <ArrowUpDown className="h-3 w-3 text-muted-foreground/50" />;
-    return sortDir === "asc"
-      ? <ArrowUp className="h-3 w-3 text-primary" />
-      : <ArrowDown className="h-3 w-3 text-primary" />;
-  };
+  // SortIcon is extracted as a top-level memoized component
 
   return (
     <div
@@ -886,7 +893,7 @@ export const TransactionPanel = memo(function TransactionPanel({
                       <div className="flex items-center h-full px-2 py-1.5 pr-3">
                         <span className={cn("flex items-center gap-1 flex-1 min-w-0 truncate", col === "amount" && "justify-end")}>
                           {columnLabels[col]}
-                          <SortIcon col={col} />
+                          <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
                           {columnFilters[col]?.trim() && (
                             <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                           )}

@@ -31,6 +31,13 @@ interface TimeGroup {
   deadlines: DeadlineInstanceRow[];
 }
 
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getTimeGroups(deadlines: DeadlineInstanceRow[]): TimeGroup[] {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -49,7 +56,7 @@ function getTimeGroups(deadlines: DeadlineInstanceRow[]): TimeGroup[] {
 
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const fmt = toLocalDateStr;
 
   const restOfMonthStart = new Date(nextWeekEnd);
   restOfMonthStart.setDate(restOfMonthStart.getDate() + 1);
@@ -61,7 +68,7 @@ function getTimeGroups(deadlines: DeadlineInstanceRow[]): TimeGroup[] {
   ];
 
   for (const dl of deadlines) {
-    const d = dl.dueDate;
+    const d = dl.dueDate.slice(0, 10);
     if (d >= groups[0].from && d <= groups[0].to) groups[0].deadlines.push(dl);
     else if (d >= groups[1].from && d <= groups[1].to) groups[1].deadlines.push(dl);
     else if (d > groups[1].to && d <= groups[2].to) groups[2].deadlines.push(dl);
@@ -88,7 +95,8 @@ function GroupSection({ group }: { group: TimeGroup }) {
       <div className="space-y-0.5">
         {group.deadlines.slice(0, 5).map((dl) => {
           const colors = STATUS_COLORS[dl.status] ?? STATUS_COLORS.not_started;
-          const dueDate = new Date(dl.dueDate + "T00:00:00");
+          const dueDateStr = dl.dueDate.slice(0, 10);
+          const dueDate = new Date(dueDateStr + "T00:00:00");
           const formattedDate = dueDate.toLocaleDateString("nb-NO", {
             day: "numeric",
             month: "short",

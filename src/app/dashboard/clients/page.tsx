@@ -1,128 +1,62 @@
+import { Suspense } from "react";
 import { auth } from "@clerk/nextjs/server";
-import { db } from "@/lib/db";
-import { clients, companies, accounts, transactions, clientGroups, clientGroupMembers, tripletexSyncConfigs, vismaNxtSyncConfigs, accountSyncSettings } from "@/lib/db/schema";
-import { eq, and, sql, inArray, asc, desc } from "drizzle-orm";
 import { ClientsPageClient } from "./clients-page-client";
 import { CreateReconciliationDialog } from "@/components/setup/create-reconciliation-dialog";
 import { SyncInProgressView } from "./sync-in-progress-view";
+import { Skeleton } from "@/components/ui/skeleton";
+import { fetchClientsPageData } from "./clients-data";
 
-export default async function ClientsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ companyId?: string }>;
-}) {
-  const { orgId } = await auth();
-  if (!orgId) {
-    return (
-      <div>
-        <h1 className="text-2xl font-semibold">Klient avstemming</h1>
-        <p className="text-muted-foreground">
-          Velg en organisasjon for å se klienter.
-        </p>
+function ClientsTableSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-9 w-36 rounded-md" />
       </div>
-    );
-  }
+      <div className="flex gap-2">
+        <Skeleton className="h-9 w-64 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
+      <div className="rounded-lg border">
+        <div className="border-b px-4 py-3">
+          <div className="flex gap-6">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-4 w-24" />
+            ))}
+          </div>
+        </div>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-6 border-b px-4 py-3 last:border-0">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-4 w-16" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
-  const { companyId: companyIdParam } = await searchParams;
+async function ClientsContent({
+  orgId,
+  companyIdParam,
+}: {
+  orgId: string;
+  companyIdParam?: string;
+}) {
   const selectedCompanyIds = companyIdParam
     ? companyIdParam.split(",").filter(Boolean)
     : [];
 
-  const companyFilter = selectedCompanyIds.length > 0
-    ? and(eq(companies.tenantId, orgId), inArray(companies.id, selectedCompanyIds))
-    : eq(companies.tenantId, orgId);
+  const result = await fetchClientsPageData(orgId, selectedCompanyIds);
 
-  const [list, companyRows] = await Promise.all([
-    db
-      .select({
-        id: clients.id,
-        status: clients.status,
-        companyName: companies.name,
-        set1AccountNumber: accounts.accountNumber,
-        assignedUserId: clients.assignedUserId,
-        txSyncActive: tripletexSyncConfigs.isActive,
-        syncStatus: tripletexSyncConfigs.syncStatus,
-        syncError: tripletexSyncConfigs.syncError,
-        vismaSyncActive: vismaNxtSyncConfigs.isActive,
-        vismaSyncStatus: vismaNxtSyncConfigs.syncStatus,
-      })
-      .from(clients)
-      .innerJoin(companies, eq(clients.companyId, companies.id))
-      .innerJoin(accounts, eq(clients.set1AccountId, accounts.id))
-      .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
-      .leftJoin(vismaNxtSyncConfigs, eq(vismaNxtSyncConfigs.clientId, clients.id))
-      .where(companyFilter),
-    db
-      .select({ id: companies.id })
-      .from(companies)
-      .where(companyFilter),
-  ]);
-
-  const clientIds = list.map((c) => c.id);
-  const companyIds = companyRows.map((c) => c.id);
-
-  // Fetch account_sync_settings (depends on companyIds)
-  let accountSyncRows: {
-    id: string;
-    accountNumber: string;
-    accountName: string;
-    accountType: "ledger" | "bank";
-    syncLevel: "balance_only" | "transactions";
-    balanceIn: string | null;
-    balanceOut: string | null;
-    balanceYear: number | null;
-    clientId: string | null;
-    txCount: number;
-    lastTxSyncAt: string | null;
-    companyId: string;
-  }[] = [];
-
-  if (companyIds.length > 0) {
-    const rawAcctRows = await db
-      .select()
-      .from(accountSyncSettings)
-      .where(
-        and(
-          eq(accountSyncSettings.tenantId, orgId),
-          inArray(accountSyncSettings.companyId, companyIds)
-        )
-      )
-      .orderBy(
-        desc(accountSyncSettings.syncLevel),
-        asc(accountSyncSettings.accountNumber)
-      );
-
-    accountSyncRows = rawAcctRows.map((r) => ({
-      id: r.id,
-      accountNumber: r.accountNumber,
-      accountName: r.accountName,
-      accountType: r.accountType as "ledger" | "bank",
-      syncLevel: r.syncLevel as "balance_only" | "transactions",
-      balanceIn: r.balanceIn,
-      balanceOut: r.balanceOut,
-      balanceYear: r.balanceYear,
-      clientId: r.clientId,
-      txCount: r.txCount ?? 0,
-      lastTxSyncAt: r.lastTxSyncAt?.toISOString() ?? null,
-      companyId: r.companyId,
-    }));
+  if (result.type === "sync-in-progress") {
+    return <SyncInProgressView />;
   }
 
-  if (clientIds.length === 0 && accountSyncRows.length === 0) {
-    // Only show the Tripletex sync-in-progress view when the selected
-    // company actually has a Tripletex integration linked.
-    if (selectedCompanyIds.length === 1) {
-      const [selectedCo] = await db
-        .select({ tripletexCompanyId: companies.tripletexCompanyId })
-        .from(companies)
-        .where(and(eq(companies.id, selectedCompanyIds[0]), eq(companies.tenantId, orgId)))
-        .limit(1);
-
-      if (selectedCo?.tripletexCompanyId != null) {
-        return <SyncInProgressView />;
-      }
-    }
-
+  if (result.type === "empty") {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -158,153 +92,35 @@ export default async function ClientsPage({
     );
   }
 
-  // Run all independent aggregation queries in parallel
-  const [unmatchedCounts, totalBalances, groupRows] = await Promise.all([
-    clientIds.length > 0
-      ? db
-          .select({
-            clientId: transactions.clientId,
-            setNumber: transactions.setNumber,
-            count: sql<number>`count(*)::int`,
-            sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
-          })
-          .from(transactions)
-          .where(
-            and(
-              inArray(transactions.clientId, clientIds),
-              eq(transactions.matchStatus, "unmatched")
-            )
-          )
-          .groupBy(transactions.clientId, transactions.setNumber)
-      : Promise.resolve([]),
-    clientIds.length > 0
-      ? db
-          .select({
-            clientId: transactions.clientId,
-            setNumber: transactions.setNumber,
-            sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
-          })
-          .from(transactions)
-          .where(inArray(transactions.clientId, clientIds))
-          .groupBy(transactions.clientId, transactions.setNumber)
-      : Promise.resolve([]),
-    db
-      .select({
-        id: clientGroups.id,
-        name: clientGroups.name,
-        color: clientGroups.color,
-        icon: clientGroups.icon,
-        assignedUserId: clientGroups.assignedUserId,
-      })
-      .from(clientGroups)
-      .where(eq(clientGroups.tenantId, orgId))
-      .orderBy(clientGroups.name),
-  ]);
+  return <ClientsPageClient rows={result.rows} groups={result.groups} />;
+}
 
-  const ibByAccount = new Map<string, number>();
-  for (const r of accountSyncRows) {
-    if (r.balanceIn) {
-      ibByAccount.set(r.accountNumber, parseFloat(r.balanceIn));
-    }
+export default async function ClientsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ companyId?: string }>;
+}) {
+  const { orgId } = await auth();
+  if (!orgId) {
+    return (
+      <div>
+        <h1 className="text-2xl font-semibold">Klient avstemming</h1>
+        <p className="text-muted-foreground">
+          Velg en organisasjon for å se klienter.
+        </p>
+      </div>
+    );
   }
 
-  const byClient = new Map<
-    string,
-    { openSet1: number; openSet2: number; leftBalance: number; rightBalance: number }
-  >();
-  for (const c of list) {
-    const ib = ibByAccount.get(c.set1AccountNumber ?? "") ?? 0;
-    byClient.set(c.id, { openSet1: 0, openSet2: 0, leftBalance: ib, rightBalance: 0 });
-  }
-  for (const r of unmatchedCounts) {
-    const cur = byClient.get(r.clientId);
-    if (!cur) continue;
-    if (r.setNumber === 1) {
-      cur.openSet1 = Number(r.count) ?? 0;
-    } else {
-      cur.openSet2 = Number(r.count) ?? 0;
-    }
-  }
-  for (const r of totalBalances) {
-    const cur = byClient.get(r.clientId);
-    if (!cur) continue;
-    const sum = parseFloat(r.sum ?? "0");
-    if (r.setNumber === 1) {
-      cur.leftBalance += sum;
-    } else {
-      cur.rightBalance += sum;
-    }
-  }
+  const { companyId: companyIdParam } = await searchParams;
 
-  const rows = list.map((c) => {
-    const agg = byClient.get(c.id)!;
-    return {
-      id: c.id,
-      matchGroup: c.set1AccountNumber ?? "—",
-      company: c.companyName,
-      ledgerAccountGroup: c.set1AccountNumber
-        ? c.set1AccountNumber.slice(0, 2) + "xx"
-        : "—",
-      openItems: agg.openSet1 + agg.openSet2,
-      leftBalance: agg.leftBalance,
-      rightBalance: agg.rightBalance,
-      hasDoc: false,
-      lastRecon: null as string | null,
-      assignedUserId: c.assignedUserId,
-      integrationSource: c.txSyncActive ? "tripletex" as const : c.vismaSyncActive ? "visma_nxt" as const : null,
-      syncStatus: c.syncStatus as string | null,
-      syncError: c.syncError as string | null,
-    };
-  });
-
-  let groups: {
-    id: string;
-    name: string;
-    color: string | null;
-    icon: string | null;
-    assignedUserId: string | null;
-    members: { clientId: string; clientName: string; companyName: string }[];
-  }[] = [];
-
-  if (groupRows.length > 0) {
-    const groupIds = groupRows.map((g) => g.id);
-    const memberRows = await db
-      .select({
-        groupId: clientGroupMembers.groupId,
-        clientId: clientGroupMembers.clientId,
-        clientName: clients.name,
-        companyName: companies.name,
-      })
-      .from(clientGroupMembers)
-      .innerJoin(clients, eq(clientGroupMembers.clientId, clients.id))
-      .innerJoin(companies, eq(clients.companyId, companies.id))
-      .where(inArray(clientGroupMembers.groupId, groupIds));
-
-    const membersByGroup = new Map<string, typeof memberRows>();
-    for (const m of memberRows) {
-      const arr = membersByGroup.get(m.groupId) ?? [];
-      arr.push(m);
-      membersByGroup.set(m.groupId, arr);
-    }
-
-    groups = groupRows.map((g) => ({
-      id: g.id,
-      name: g.name,
-      color: g.color,
-      icon: g.icon,
-      assignedUserId: g.assignedUserId,
-      members: (membersByGroup.get(g.id) ?? []).map((m) => ({
-        clientId: m.clientId,
-        clientName: m.clientName,
-        companyName: m.companyName,
-      })),
-    }));
+  if (companyIdParam === "__none__") {
+    return <ClientsPageClient rows={[]} groups={[]} />;
   }
 
   return (
-    <ClientsPageClient
-      rows={rows}
-      groups={groups}
-    />
+    <Suspense fallback={<ClientsTableSkeleton />}>
+      <ClientsContent orgId={orgId} companyIdParam={companyIdParam} />
+    </Suspense>
   );
 }

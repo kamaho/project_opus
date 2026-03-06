@@ -57,8 +57,8 @@ export const GET = withTenant(async (req, { tenantId, userId }) => {
     conditions.push(eq(tasks.assigneeId, assigneeId));
   }
   if (clientId) conditions.push(eq(tasks.clientId, clientId));
-  if (companyId) {
-    const ids = companyId.split(",").filter(Boolean);
+  if (companyId && companyId !== "__none__") {
+    const ids = companyId.split(",").filter((id) => id && id !== "__none__");
     if (ids.length === 1) conditions.push(eq(tasks.companyId, ids[0]));
     else if (ids.length > 1) conditions.push(inArray(tasks.companyId, ids));
   }

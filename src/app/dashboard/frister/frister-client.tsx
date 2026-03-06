@@ -195,7 +195,7 @@ export default function FristerClient() {
 const MONTH_LABELS = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
 
 function getMonthKey(dueDate: string): string {
-  const d = new Date(dueDate + "T00:00:00");
+  const d = new Date(dueDate.slice(0, 10) + "T00:00:00");
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
@@ -420,12 +420,19 @@ function SummaryCard({
   );
 }
 
+function fmtLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getDefaultFrom(): string {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  return fmtLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
 }
 
 function getDefaultTo(): string {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() + 3, 0).toISOString().slice(0, 10);
+  return fmtLocalDate(new Date(now.getFullYear(), now.getMonth() + 3, 0));
 }

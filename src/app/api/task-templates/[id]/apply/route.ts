@@ -58,7 +58,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     const taskDueDate = new Date(deadlineDueDate);
     taskDueDate.setDate(taskDueDate.getDate() + item.offsetDays);
 
-    const dueDateStr = taskDueDate.toISOString().slice(0, 10);
+    const dueDateStr = `${taskDueDate.getFullYear()}-${String(taskDueDate.getMonth() + 1).padStart(2, "0")}-${String(taskDueDate.getDate()).padStart(2, "0")}`;
 
     const description = [item.description, item.routine]
       .filter(Boolean)

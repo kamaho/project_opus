@@ -198,7 +198,7 @@ export async function getDeadlineById(
     status: r.status,
     priority: r.priority,
     assigneeId: r.assignee_id ?? null,
-    dueDate: r.due_date ?? null,
+    dueDate: r.due_date != null ? toDateStr(r.due_date) : null,
     completedAt: r.completed_at != null ? String(r.completed_at) : null,
     createdAt: String(r.created_at),
   }));
@@ -282,13 +282,23 @@ interface SummaryRow {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function toDateStr(v: unknown): string {
+  if (v instanceof Date) {
+    const y = v.getUTCFullYear();
+    const m = String(v.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(v.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return String(v).slice(0, 10);
+}
+
 function mapRowToDeadlineWithSummary(row: RawDeadlineRow): DeadlineWithSummary {
   return {
     id: row.id,
     tenantId: row.tenant_id,
     templateId: row.template_id,
     companyId: row.company_id,
-    dueDate: row.due_date,
+    dueDate: toDateStr(row.due_date),
     periodLabel: row.period_label,
     status: row.status as DeadlineWithSummary["status"],
     assigneeId: row.assignee_id ?? null,

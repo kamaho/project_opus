@@ -340,7 +340,7 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
   const existingFingerprints = new Set(
     existingTx.map((t) =>
       txFingerprint({
-        date1: typeof t.date1 === "string" ? t.date1 : (t.date1 as Date)?.toISOString().slice(0, 10) ?? "",
+        date1: t.date1 ?? "",
         amount: t.amount ?? "0",
         description: t.description,
         reference: t.reference,

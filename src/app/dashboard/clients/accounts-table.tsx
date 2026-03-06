@@ -472,6 +472,11 @@ export function AccountsTable({
             ? undefined
             : (row) => router.push(clientHref(row.id))
         }
+        onRowHover={
+          selectionMode
+            ? undefined
+            : (row) => router.prefetch(clientHref(row.id))
+        }
         selectable={selectionMode}
         selectedIds={selectedIds}
         onSelectionChange={setSelectedIds}

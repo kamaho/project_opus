@@ -3,10 +3,12 @@
 import {
   useState,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   type ReactNode,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import {
   ArrowUp,
@@ -55,6 +57,7 @@ export interface DataTableProps<T> {
   getRowId: (row: T) => string;
 
   onRowClick?: (row: T) => void;
+  onRowHover?: (row: T) => void;
 
   selectable?: boolean;
   selectedIds?: Set<string>;
@@ -82,6 +85,7 @@ export function DataTable<T>({
   data,
   getRowId,
   onRowClick,
+  onRowHover,
   selectable = false,
   selectedIds,
   onSelectionChange,
@@ -104,6 +108,12 @@ export function DataTable<T>({
     setSearchInput(value);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     searchTimer.current = setTimeout(() => setGlobalSearch(value), 150);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
   }, []);
 
   // Column filters
@@ -351,252 +361,372 @@ export function DataTable<T>({
       </div>
 
       {/* Table */}
-      <div className="rounded-md border overflow-x-auto">
-        <table className={cn("w-full text-sm", tableAppearance.tableClass)}>
-          <thead
+      <DataTableInner
+        filteredAndSorted={filteredAndSorted}
+        visibleColumns={visibleColumns}
+        selectable={selectable}
+        allSelected={allSelected}
+        toggleSelectAll={toggleSelectAll}
+        selectedIds={selectedIds}
+        toggleSelect={toggleSelect}
+        sortKey={sortKey}
+        sortDir={sortDir}
+        setSortExplicit={setSortExplicit}
+        columnFilters={columnFilters}
+        setColumnFilter={setColumnFilter}
+        inlineSearchCol={inlineSearchCol}
+        setInlineSearchCol={setInlineSearchCol}
+        inlineSearchRef={inlineSearchRef}
+        handleInlineSearchClose={handleInlineSearchClose}
+        toggleHideColumn={toggleHideColumn}
+        stickyHeader={stickyHeader}
+        hasActiveFilters={hasActiveFilters}
+        emptyMessage={emptyMessage}
+        onRowClick={onRowClick}
+        onRowHover={onRowHover}
+        rowClassName={rowClassName}
+        getRowId={getRowId}
+        tableAppearance={tableAppearance}
+      />
+    </div>
+  );
+}
+
+const VIRTUAL_THRESHOLD = 100;
+const ROW_HEIGHT_ESTIMATE = 41;
+
+function DataTableInner<T>({
+  filteredAndSorted,
+  visibleColumns,
+  selectable,
+  allSelected,
+  toggleSelectAll,
+  selectedIds,
+  toggleSelect,
+  sortKey,
+  sortDir,
+  setSortExplicit,
+  columnFilters,
+  setColumnFilter,
+  inlineSearchCol,
+  setInlineSearchCol,
+  inlineSearchRef,
+  handleInlineSearchClose,
+  toggleHideColumn,
+  stickyHeader,
+  hasActiveFilters,
+  emptyMessage,
+  onRowClick,
+  onRowHover,
+  rowClassName,
+  getRowId,
+  tableAppearance,
+}: {
+  filteredAndSorted: T[];
+  visibleColumns: ColumnDef<T>[];
+  selectable: boolean;
+  allSelected: boolean;
+  toggleSelectAll: () => void;
+  selectedIds?: Set<string>;
+  toggleSelect: (id: string) => void;
+  sortKey: string | null;
+  sortDir: SortDir;
+  setSortExplicit: (colId: string, dir: SortDir) => void;
+  columnFilters: Record<string, string>;
+  setColumnFilter: (colId: string, value: string) => void;
+  inlineSearchCol: string | null;
+  setInlineSearchCol: (col: string | null) => void;
+  inlineSearchRef: React.RefObject<HTMLInputElement | null>;
+  handleInlineSearchClose: (colId: string) => void;
+  toggleHideColumn: (colId: string) => void;
+  stickyHeader: boolean;
+  hasActiveFilters: boolean;
+  emptyMessage: string;
+  onRowClick?: (row: T) => void;
+  onRowHover?: (row: T) => void;
+  rowClassName?: (row: T) => string | undefined;
+  getRowId: (row: T) => string;
+  tableAppearance: ReturnType<typeof useTableAppearance>;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const useVirtual = filteredAndSorted.length > VIRTUAL_THRESHOLD;
+
+  const virtualizer = useVirtualizer({
+    count: useVirtual ? filteredAndSorted.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT_ESTIMATE,
+    overscan: 20,
+    enabled: useVirtual,
+  });
+
+  const virtualItems = useVirtual ? virtualizer.getVirtualItems() : [];
+  const totalSize = useVirtual ? virtualizer.getTotalSize() : 0;
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+
+  const renderRow = (row: T, idx: number) => {
+    const id = getRowId(row);
+    const isSelected = selectedIds?.has(id);
+    return (
+      <tr
+        key={id}
+        className={cn(
+          "border-b hover:bg-sky-50 dark:hover:bg-sky-950/30 transition-colors",
+          tableAppearance.rowBorderClass,
+          idx % 2 === 1 && tableAppearance.rowAlternateClass,
+          selectable && isSelected && "bg-accent/40",
+          onRowClick && "cursor-pointer",
+          rowClassName?.(row)
+        )}
+        onClick={
+          selectable
+            ? () => toggleSelect(id)
+            : onRowClick
+              ? () => onRowClick(row)
+              : undefined
+        }
+        onMouseEnter={onRowHover ? () => onRowHover(row) : undefined}
+      >
+        {selectable && (
+          <td
+            className="p-2 text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => toggleSelect(id)}
+            />
+          </td>
+        )}
+        {visibleColumns.map((col) => (
+          <td
+            key={col.id}
             className={cn(
-              tableAppearance.theadClass,
-              stickyHeader && "sticky top-0 z-10 bg-background"
+              "p-2",
+              col.align === "right" && "text-right",
+              col.align === "center" && "text-center",
+              col.mono && "font-mono tabular-nums",
+              col.className
             )}
           >
-            <tr className="border-b bg-muted/50">
-              {selectable && (
-                <th className="w-10 p-2 text-center">
-                  <Checkbox
-                    checked={allSelected}
-                    onCheckedChange={toggleSelectAll}
-                  />
-                </th>
-              )}
-              {visibleColumns.map((col) => {
-                const isSortedAsc = sortKey === col.id && sortDir === "asc";
-                const isSortedDesc = sortKey === col.id && sortDir === "desc";
-                const isSearching = inlineSearchCol === col.id;
-                const canSort = col.sortable !== false;
-                const canFilter = col.filterable !== false;
-                const canHide = col.hideable !== false;
-                const hasActions = canSort || canFilter || canHide;
-                const hasFilter = !!columnFilters[col.id]?.trim();
+            {col.cell
+              ? col.cell(row)
+              : String(col.accessorFn(row) ?? "—")}
+          </td>
+        ))}
+      </tr>
+    );
+  };
 
-                return (
-                  <th
-                    key={col.id}
-                    className={cn(
-                      "font-medium select-none",
-                      isSearching ? "p-0" : "p-2",
-                      col.align === "right" && "text-right",
-                      col.align === "center" && "text-center",
-                      col.align !== "right" &&
-                        col.align !== "center" &&
-                        "text-left",
-                      col.headerClassName
-                    )}
-                    style={col.width ? { width: col.width } : undefined}
-                  >
-                    {isSearching ? (
-                      <div className="flex items-center h-full">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                          <input
-                            ref={inlineSearchRef}
-                            type="text"
-                            value={columnFilters[col.id] ?? ""}
-                            onChange={(e) =>
-                              setColumnFilter(col.id, e.target.value)
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape")
-                                handleInlineSearchClose(col.id);
-                            }}
-                            onBlur={(e) => {
-                              const th = (
-                                e.target as HTMLElement
-                              ).closest("th");
-                              if (th?.contains(e.relatedTarget as Node))
-                                return;
-                              setInlineSearchCol(null);
-                            }}
-                            placeholder={`Søk ${col.header.toLowerCase()}…`}
-                            className="w-full h-10 pl-7 pr-7 text-xs bg-background border-0 outline-none ring-1 ring-inset ring-primary/40 focus:ring-primary/70 rounded-none"
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-sm hover:bg-muted text-muted-foreground"
-                            onClick={() => handleInlineSearchClose(col.id)}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : hasActions ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            className={cn(
-                              "group/hdr flex items-center gap-1 min-w-0 w-full cursor-pointer rounded -m-1 p-1 hover:bg-muted transition-colors",
-                              col.align === "right" && "justify-end"
-                            )}
-                          >
-                            {col.header}
-                            {isSortedAsc && (
-                              <ArrowUp className="h-3 w-3 text-primary shrink-0" />
-                            )}
-                            {isSortedDesc && (
-                              <ArrowDown className="h-3 w-3 text-primary shrink-0" />
-                            )}
-                            {hasFilter && (
-                              <Search className="h-3 w-3 text-primary shrink-0" />
-                            )}
-                            <ChevronDown className="h-3 w-3 text-muted-foreground/0 group-hover/hdr:text-muted-foreground transition-colors shrink-0 ml-auto" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align={col.align === "right" ? "end" : "start"}
-                          className="w-48"
+  const colSpan = visibleColumns.length + (selectable ? 1 : 0);
+
+  return (
+    <div ref={scrollRef} className="rounded-md border overflow-auto max-h-[70vh]">
+      <table className={cn("w-full text-sm", tableAppearance.tableClass)}>
+        <thead
+          className={cn(
+            tableAppearance.theadClass,
+            stickyHeader && "sticky top-0 z-10 bg-background"
+          )}
+        >
+          <tr className="border-b bg-muted/50">
+            {selectable && (
+              <th className="w-10 p-2 text-center">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleSelectAll}
+                />
+              </th>
+            )}
+            {visibleColumns.map((col) => {
+              const isSortedAsc = sortKey === col.id && sortDir === "asc";
+              const isSortedDesc = sortKey === col.id && sortDir === "desc";
+              const isSearching = inlineSearchCol === col.id;
+              const canSort = col.sortable !== false;
+              const canFilter = col.filterable !== false;
+              const canHide = col.hideable !== false;
+              const hasActions = canSort || canFilter || canHide;
+              const hasFilter = !!columnFilters[col.id]?.trim();
+
+              return (
+                <th
+                  key={col.id}
+                  className={cn(
+                    "font-medium select-none",
+                    isSearching ? "p-0" : "p-2",
+                    col.align === "right" && "text-right",
+                    col.align === "center" && "text-center",
+                    col.align !== "right" &&
+                      col.align !== "center" &&
+                      "text-left",
+                    col.headerClassName
+                  )}
+                  style={col.width ? { width: col.width } : undefined}
+                >
+                  {isSearching ? (
+                    <div className="flex items-center h-full">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                        <input
+                          ref={inlineSearchRef}
+                          type="text"
+                          value={columnFilters[col.id] ?? ""}
+                          onChange={(e) =>
+                            setColumnFilter(col.id, e.target.value)
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape")
+                              handleInlineSearchClose(col.id);
+                          }}
+                          onBlur={(e) => {
+                            const th = (
+                              e.target as HTMLElement
+                            ).closest("th");
+                            if (th?.contains(e.relatedTarget as Node))
+                              return;
+                            setInlineSearchCol(null);
+                          }}
+                          placeholder={`Søk ${col.header.toLowerCase()}…`}
+                          className="w-full h-10 pl-7 pr-7 text-xs bg-background border-0 outline-none ring-1 ring-inset ring-primary/40 focus:ring-primary/70 rounded-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-sm hover:bg-muted text-muted-foreground"
+                          onClick={() => handleInlineSearchClose(col.id)}
                         >
-                          {canFilter && (
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : hasActions ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          className={cn(
+                            "group/hdr flex items-center gap-1 min-w-0 w-full cursor-pointer rounded -m-1 p-1 hover:bg-muted transition-colors",
+                            col.align === "right" && "justify-end"
+                          )}
+                        >
+                          {col.header}
+                          {isSortedAsc && (
+                            <ArrowUp className="h-3 w-3 text-primary shrink-0" />
+                          )}
+                          {isSortedDesc && (
+                            <ArrowDown className="h-3 w-3 text-primary shrink-0" />
+                          )}
+                          {hasFilter && (
+                            <Search className="h-3 w-3 text-primary shrink-0" />
+                          )}
+                          <ChevronDown className="h-3 w-3 text-muted-foreground/0 group-hover/hdr:text-muted-foreground transition-colors shrink-0 ml-auto" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align={col.align === "right" ? "end" : "start"}
+                        className="w-48"
+                      >
+                        {canFilter && (
+                          <DropdownMenuItem
+                            className="gap-2 text-xs"
+                            onClick={() => {
+                              setInlineSearchCol(col.id);
+                              requestAnimationFrame(() =>
+                                inlineSearchRef.current?.focus()
+                              );
+                            }}
+                          >
+                            <Search className="h-3.5 w-3.5" />
+                            Søk
+                          </DropdownMenuItem>
+                        )}
+                        {canFilter && canSort && <DropdownMenuSeparator />}
+                        {canSort && (
+                          <>
                             <DropdownMenuItem
                               className="gap-2 text-xs"
-                              onClick={() => {
-                                setInlineSearchCol(col.id);
-                                requestAnimationFrame(() =>
-                                  inlineSearchRef.current?.focus()
-                                );
-                              }}
+                              onClick={() =>
+                                setSortExplicit(col.id, "asc")
+                              }
                             >
-                              <Search className="h-3.5 w-3.5" />
-                              Søk
+                              <ArrowUp className="h-3.5 w-3.5" />
+                              Sorter stigende
+                              {isSortedAsc && (
+                                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
+                              )}
                             </DropdownMenuItem>
-                          )}
-                          {canFilter && canSort && <DropdownMenuSeparator />}
-                          {canSort && (
-                            <>
-                              <DropdownMenuItem
-                                className="gap-2 text-xs"
-                                onClick={() =>
-                                  setSortExplicit(col.id, "asc")
-                                }
-                              >
-                                <ArrowUp className="h-3.5 w-3.5" />
-                                Sorter stigende
-                                {isSortedAsc && (
-                                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
-                                )}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="gap-2 text-xs"
-                                onClick={() =>
-                                  setSortExplicit(col.id, "desc")
-                                }
-                              >
-                                <ArrowDown className="h-3.5 w-3.5" />
-                                Sorter synkende
-                                {isSortedDesc && (
-                                  <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
-                                )}
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                          {canHide && (
-                            <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="gap-2 text-xs"
-                                onClick={() => toggleHideColumn(col.id)}
-                              >
-                                <EyeOff className="h-3.5 w-3.5" />
-                                Skjul kolonne
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : (
-                      <span
-                        className={cn(
-                          "flex items-center gap-1 min-w-0",
-                          col.align === "right" && "justify-end"
+                            <DropdownMenuItem
+                              className="gap-2 text-xs"
+                              onClick={() =>
+                                setSortExplicit(col.id, "desc")
+                              }
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                              Sorter synkende
+                              {isSortedDesc && (
+                                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
+                              )}
+                            </DropdownMenuItem>
+                          </>
                         )}
-                      >
-                        {col.header}
-                      </span>
-                    )}
-                  </th>
-                );
-              })}
+                        {canHide && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="gap-2 text-xs"
+                              onClick={() => toggleHideColumn(col.id)}
+                            >
+                              <EyeOff className="h-3.5 w-3.5" />
+                              Skjul kolonne
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 min-w-0",
+                        col.align === "right" && "justify-end"
+                      )}
+                    >
+                      {col.header}
+                    </span>
+                  )}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {filteredAndSorted.length === 0 ? (
+            <tr>
+              <td
+                colSpan={colSpan}
+                className="py-12 text-center text-muted-foreground"
+              >
+                {hasActiveFilters
+                  ? "Ingen treff på filteret"
+                  : emptyMessage}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {filteredAndSorted.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={visibleColumns.length + (selectable ? 1 : 0)}
-                  className="py-12 text-center text-muted-foreground"
-                >
-                  {hasActiveFilters
-                    ? "Ingen treff på filteret"
-                    : emptyMessage}
-                </td>
-              </tr>
-            ) : (
-              filteredAndSorted.map((row, idx) => {
-                const id = getRowId(row);
-                const isSelected = selectedIds?.has(id);
-                return (
-                  <tr
-                    key={id}
-                    className={cn(
-                      "border-b hover:bg-sky-50 dark:hover:bg-sky-950/30 transition-colors",
-                      tableAppearance.rowBorderClass,
-                      idx % 2 === 1 && tableAppearance.rowAlternateClass,
-                      selectable && isSelected && "bg-accent/40",
-                      onRowClick && "cursor-pointer",
-                      rowClassName?.(row)
-                    )}
-                    onClick={
-                      selectable
-                        ? () => toggleSelect(id)
-                        : onRowClick
-                          ? () => onRowClick(row)
-                          : undefined
-                    }
-                  >
-                    {selectable && (
-                      <td
-                        className="p-2 text-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={() => toggleSelect(id)}
-                        />
-                      </td>
-                    )}
-                    {visibleColumns.map((col) => (
-                      <td
-                        key={col.id}
-                        className={cn(
-                          "p-2",
-                          col.align === "right" && "text-right",
-                          col.align === "center" && "text-center",
-                          col.mono && "font-mono tabular-nums",
-                          col.className
-                        )}
-                      >
-                        {col.cell
-                          ? col.cell(row)
-                          : String(col.accessorFn(row) ?? "—")}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+          ) : useVirtual ? (
+            <>
+              {paddingTop > 0 && (
+                <tr><td colSpan={colSpan} style={{ height: paddingTop, padding: 0, border: "none" }} /></tr>
+              )}
+              {virtualItems.map((vItem) =>
+                renderRow(filteredAndSorted[vItem.index], vItem.index)
+              )}
+              {paddingBottom > 0 && (
+                <tr><td colSpan={colSpan} style={{ height: paddingBottom, padding: 0, border: "none" }} /></tr>
+              )}
+            </>
+          ) : (
+            filteredAndSorted.map((row, idx) => renderRow(row, idx))
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

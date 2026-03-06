@@ -25,8 +25,8 @@ export const GET = withTenant(async (req: NextRequest, ctx) => {
   const companyId = url.searchParams.get("companyId");
 
   const conditions = [eq(controlConfigs.tenantId, ctx.tenantId)];
-  if (companyId) {
-    const ids = companyId.split(",").filter(Boolean);
+  if (companyId && companyId !== "__none__") {
+    const ids = companyId.split(",").filter((id) => id && id !== "__none__");
     if (ids.length === 1) conditions.push(eq(controlConfigs.companyId, ids[0]));
     else if (ids.length > 1) conditions.push(inArray(controlConfigs.companyId, ids));
   }

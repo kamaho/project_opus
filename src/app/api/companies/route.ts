@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
-import { getCompaniesByTenant } from "@/lib/db/tenant";
+import { getCachedCompanies } from "@/lib/cache";
 import { revalidateCompanies } from "@/lib/revalidate";
 import { z } from "zod";
 
@@ -18,7 +18,7 @@ const createCompanySchema = z.object({
 
 /** GET: Liste selskap for nåværende organisasjon (tenant). */
 export const GET = withTenant(async (_req, { tenantId }) => {
-  const list = await getCompaniesByTenant(tenantId);
+  const list = await getCachedCompanies(tenantId);
   return NextResponse.json(list);
 });
 

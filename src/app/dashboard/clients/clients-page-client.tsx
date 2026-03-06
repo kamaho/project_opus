@@ -3,7 +3,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import { Plus, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,15 +16,46 @@ import {
 } from "@/components/ui/dialog";
 import { AccountsTable, type AccountRow, type ClientGroup } from "./accounts-table";
 import { GroupCards } from "./group-cards";
-import {
-  CreateClientDialog,
-  type CreateClientDialogRef,
-} from "@/components/setup/create-client-dialog";
-import { ComparisonOverlay } from "@/components/clients/comparison-overlay";
-import { ClientGroupDialog, type ClientOption } from "@/components/clients/client-group-dialog";
-import { GroupAutoMatchDialog } from "@/components/clients/group-auto-match-dialog";
-import { BulkAutoMatchDialog } from "@/components/clients/bulk-auto-match-dialog";
-import { BulkImportDialog } from "@/components/clients/bulk-import-dialog";
+import dynamic from "next/dynamic";
+import type { CreateClientDialogRef } from "@/components/setup/create-client-dialog";
+import type { ClientOption } from "@/components/clients/client-group-dialog";
+
+function DialogSpinner() {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <Loader2 className="h-6 w-6 animate-spin text-white" />
+    </div>
+  );
+}
+
+const importCreateClient = () => import("@/components/setup/create-client-dialog");
+const importBulkAutoMatch = () => import("@/components/clients/bulk-auto-match-dialog");
+const importBulkImport = () => import("@/components/clients/bulk-import-dialog");
+
+const CreateClientDialog = dynamic(
+  () => importCreateClient().then((m) => m.CreateClientDialog),
+  { ssr: false, loading: DialogSpinner }
+);
+const ComparisonOverlay = dynamic(
+  () => import("@/components/clients/comparison-overlay").then((m) => m.ComparisonOverlay),
+  { ssr: false }
+);
+const ClientGroupDialog = dynamic(
+  () => import("@/components/clients/client-group-dialog").then((m) => m.ClientGroupDialog),
+  { ssr: false, loading: DialogSpinner }
+);
+const GroupAutoMatchDialog = dynamic(
+  () => import("@/components/clients/group-auto-match-dialog").then((m) => m.GroupAutoMatchDialog),
+  { ssr: false, loading: DialogSpinner }
+);
+const BulkAutoMatchDialog = dynamic(
+  () => importBulkAutoMatch().then((m) => m.BulkAutoMatchDialog),
+  { ssr: false, loading: DialogSpinner }
+);
+const BulkImportDialog = dynamic(
+  () => importBulkImport().then((m) => m.BulkImportDialog),
+  { ssr: false, loading: DialogSpinner }
+);
 
 interface ClientsPageClientProps {
   rows: AccountRow[];
@@ -45,6 +77,15 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
   const [initialActiveGroupId, setInitialActiveGroupId] = useState<string | null>(null);
   /** When set, Grupper tab shows this group's table instead of the card grid */
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = requestIdleCallback(() => {
+      importCreateClient();
+      importBulkAutoMatch();
+      importBulkImport();
+    });
+    return () => cancelIdleCallback(id);
+  }, []);
 
   const hasSyncing = rows.some(
     (r) => r.syncStatus === "pending" || r.syncStatus === "syncing"
@@ -98,6 +139,7 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
       size="sm"
       className="gap-1.5"
       onClick={() => createDialogRef.current?.open()}
+      onMouseEnter={() => importCreateClient()}
       data-smart-info="Ny klient — opprett en ny klient manuelt eller importer fra Excel."
     >
       <Plus className="h-3.5 w-3.5" />
@@ -262,13 +304,8 @@ export function ClientsPageClient({ rows, groups }: ClientsPageClientProps) {
                   {filterParam === "unmatched" ? "Klienter med åpne poster" : "Avstemte klienter"}
                 </span>
               </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs"
-                onClick={() => router.push("/dashboard/clients")}
-              >
-                Vis alle
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" asChild>
+                <Link href="/dashboard/clients">Vis alle</Link>
               </Button>
             </div>
           )}

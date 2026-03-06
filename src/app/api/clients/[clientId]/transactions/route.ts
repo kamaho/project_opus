@@ -2,9 +2,76 @@ import { withTenant } from "@/lib/auth";
 import { verifyClientOwnership } from "@/lib/db/verify-ownership";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { transactions } from "@/lib/db/schema";
+import { transactions, imports, transactionAttachments } from "@/lib/db/schema";
 import { logAudit } from "@/lib/audit";
+import { eq, and, sql, exists } from "drizzle-orm";
 import { z } from "zod";
+
+export const GET = withTenant(async (req, { tenantId }, params) => {
+  const clientId = params!.clientId;
+  await verifyClientOwnership(clientId, tenantId);
+
+  const url = new URL(req.url);
+  const setParam = url.searchParams.get("set");
+  const statusParam = url.searchParams.get("status") ?? "unmatched";
+
+  if (!setParam || !["1", "2"].includes(setParam)) {
+    return NextResponse.json({ error: "Ugyldig set-parameter (1 eller 2)" }, { status: 400 });
+  }
+  if (!["unmatched", "matched"].includes(statusParam)) {
+    return NextResponse.json({ error: "Ugyldig status-parameter" }, { status: 400 });
+  }
+
+  const setNum = parseInt(setParam, 10) as 1 | 2;
+
+  const hasAttachment = exists(
+    db
+      .select({ one: sql`1` })
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, transactions.id))
+  );
+
+  const rows = await db
+    .select({
+      id: transactions.id,
+      importId: transactions.importId,
+      date1: transactions.date1,
+      amount: transactions.amount,
+      reference: transactions.reference,
+      bilag: transactions.bilag,
+      description: transactions.description,
+      notat: transactions.notat,
+      notatAuthor: transactions.notatAuthor,
+      mentionedUserId: transactions.mentionedUserId,
+      hasAttachment: hasAttachment,
+    })
+    .from(transactions)
+    .leftJoin(imports, eq(transactions.importId, imports.id))
+    .where(
+      and(
+        eq(transactions.clientId, clientId),
+        eq(transactions.setNumber, setNum),
+        sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`,
+        eq(transactions.matchStatus, statusParam as "unmatched" | "matched")
+      )
+    )
+    .orderBy(transactions.date1);
+
+  const mapped = rows.map((t) => ({
+    id: t.id,
+    date: String(t.date1 ?? ""),
+    amount: parseFloat(t.amount ?? "0"),
+    voucher: t.bilag ?? t.reference ?? undefined,
+    text: t.description ?? "",
+    notat: t.notat ?? null,
+    notatAuthor: t.notatAuthor ?? null,
+    mentionedUserId: t.mentionedUserId ?? null,
+    hasAttachment: t.hasAttachment === true,
+    isManual: t.importId === null,
+  }));
+
+  return NextResponse.json(mapped);
+});
 
 const createSchema = z.object({
   setNumber: z.union([z.literal(1), z.literal(2)]),

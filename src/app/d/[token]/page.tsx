@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useParams } from "next/navigation";
 import { Upload, CheckCircle2, AlertCircle, FileIcon, X, Loader2 } from "lucide-react";
 
@@ -112,7 +113,7 @@ export default function DocumentUploadPage() {
         {/* Header */}
         <div className="mb-8 text-center">
           <div className="inline-flex items-center gap-2 mb-6">
-            <img
+            <Image
               src="/logo-icon-no-bg.png"
               alt="Revizo"
               width={24}

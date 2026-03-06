@@ -1,6 +1,7 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { markOnboardingComplete } from "@/lib/ai/onboarding";
+import { revalidateOnboarding } from "@/lib/revalidate";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,8 @@ export const POST = withTenant(async (req, { tenantId, userId }) => {
     userType: options.userType,
     responsibilities: options.responsibilities,
   });
+
+  revalidateOnboarding();
 
   return NextResponse.json({ ok: true });
 });

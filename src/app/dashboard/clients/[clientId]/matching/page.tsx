@@ -3,12 +3,15 @@ import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { transactions, imports, matches, clients, transactionAttachments, tripletexSyncConfigs } from "@/lib/db/schema";
-import { eq, and, sql, exists } from "drizzle-orm";
+import { eq, and, sql, exists, count } from "drizzle-orm";
 import { MatchingViewClient } from "@/components/matching/matching-view-client";
 import type { TransactionRow } from "@/components/matching/transaction-panel";
 import type { MatchGroup, MatchGroupTransaction } from "@/components/matching/matched-groups-view";
 import { validateClientTenant } from "@/lib/db/tenant";
 import { getCachedAccount } from "@/lib/cache";
+
+const UNMATCHED_LIMIT = 2000;
+const MATCHED_LIMIT = 5000;
 
 export default async function MatchingPage({
   params,
@@ -54,9 +57,25 @@ export default async function MatchingPage({
           eq(transactions.matchStatus, "unmatched")
         )
       )
-      .orderBy(transactions.date1);
+      .orderBy(transactions.date1)
+      .limit(UNMATCHED_LIMIT);
 
-  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows, syncConfig] = await Promise.all([
+  const unmatchedCountQuery = (setNum: 1 | 2) =>
+    db
+      .select({ value: count() })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(
+        and(
+          eq(transactions.clientId, clientId),
+          eq(transactions.setNumber, setNum),
+          sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`,
+          eq(transactions.matchStatus, "unmatched")
+        )
+      )
+      .then((r) => r[0]?.value ?? 0);
+
+  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows, syncConfig, totalUnmatched1, totalUnmatched2, balanceSums, totalMatchedCount] = await Promise.all([
     getCachedAccount(clientRow.set1AccountId, orgId),
     getCachedAccount(clientRow.set2AccountId, orgId),
     db
@@ -89,7 +108,8 @@ export default async function MatchingPage({
           eq(transactions.matchStatus, "matched"),
           sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
         )
-      ),
+      )
+      .limit(MATCHED_LIMIT),
     db
       .select({
         id: matches.id,
@@ -99,7 +119,8 @@ export default async function MatchingPage({
       })
       .from(matches)
       .where(eq(matches.clientId, clientId))
-      .orderBy(sql`${matches.matchedAt} DESC`),
+      .orderBy(sql`${matches.matchedAt} DESC`)
+      .limit(MATCHED_LIMIT),
     db
       .select({
         isActive: tripletexSyncConfigs.isActive,
@@ -110,6 +131,34 @@ export default async function MatchingPage({
       .where(eq(tripletexSyncConfigs.clientId, clientId))
       .limit(1)
       .then((rows) => rows[0] ?? null),
+    unmatchedCountQuery(1),
+    unmatchedCountQuery(2),
+    db
+      .select({
+        setNumber: transactions.setNumber,
+        sum: sql<string>`coalesce(sum(${transactions.amount})::text, '0')`,
+      })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(
+        and(
+          eq(transactions.clientId, clientId),
+          sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
+        )
+      )
+      .groupBy(transactions.setNumber),
+    db
+      .select({ value: count() })
+      .from(transactions)
+      .leftJoin(imports, eq(transactions.importId, imports.id))
+      .where(
+        and(
+          eq(transactions.clientId, clientId),
+          eq(transactions.matchStatus, "matched"),
+          sql`(${imports.deletedAt} IS NULL OR ${transactions.importId} IS NULL)`
+        )
+      )
+      .then((r) => r[0]?.value ?? 0),
   ]);
 
   const set1Label = set1Account?.accountNumber || set1Account?.name || "Mengde 1";
@@ -136,7 +185,11 @@ export default async function MatchingPage({
     }
   ): TransactionRow => ({
     id: t.id,
-    date: typeof t.date1 === "string" ? t.date1 : t.date1?.toISOString().slice(0, 10) ?? "",
+    date: typeof t.date1 === "string"
+      ? t.date1
+      : t.date1 instanceof Date
+        ? `${t.date1.getFullYear()}-${String(t.date1.getMonth() + 1).padStart(2, "0")}-${String(t.date1.getDate()).padStart(2, "0")}`
+        : "",
     amount: parseFloat(t.amount ?? "0"),
     voucher: t.bilag ?? t.reference ?? undefined,
     text: t.description ?? "",
@@ -150,18 +203,9 @@ export default async function MatchingPage({
   const rows1: TransactionRow[] = txSet1.map(toRow);
   const rows2: TransactionRow[] = txSet2.map(toRow);
 
-  const unmatchedBalance1 = rows1.reduce((s, r) => s + r.amount, 0);
-  const unmatchedBalance2 = rows2.reduce((s, r) => s + r.amount, 0);
-
-  const matchedBalance1 = matchedTxRows
-    .filter((t) => t.setNumber === 1)
-    .reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0);
-  const matchedBalance2 = matchedTxRows
-    .filter((t) => t.setNumber === 2)
-    .reduce((s, t) => s + parseFloat(t.amount ?? "0"), 0);
-
-  const balance1 = unmatchedBalance1 + matchedBalance1;
-  const balance2 = unmatchedBalance2 + matchedBalance2;
+  const balanceBySet = new Map(balanceSums.map((r) => [r.setNumber, parseFloat(r.sum)]));
+  const balance1 = balanceBySet.get(1) ?? 0;
+  const balance2 = balanceBySet.get(2) ?? 0;
 
   // Build matched groups
   const txByMatchId = new Map<string, MatchGroupTransaction[]>();
@@ -211,6 +255,9 @@ export default async function MatchingPage({
         openingBalanceDate={clientData?.openingBalanceDate ?? null}
         set1Source={set1Source}
         set2Source={set2Source}
+        totalUnmatched1={totalUnmatched1}
+        totalUnmatched2={totalUnmatched2}
+        totalMatched={totalMatchedCount}
       />
     </Suspense>
   );

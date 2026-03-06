@@ -12,11 +12,15 @@ function getCell(row: unknown[], col: number): unknown {
   return row[col];
 }
 
+function dateToLocalStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function cellToString(val: unknown): string {
   if (val == null) return "";
   if (typeof val === "string") return val.trim();
   if (typeof val === "number") return String(val);
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (val instanceof Date) return dateToLocalStr(val);
   return String(val);
 }
 
@@ -284,7 +288,7 @@ function rowToStrArray(row: unknown[], maxCol: number): string[] {
   const out: string[] = [];
   for (let c = 0; c <= maxCol; c++) {
     const v = getCell(row, c);
-    if (v instanceof Date) out.push(v.toISOString().slice(0, 10));
+    if (v instanceof Date) out.push(dateToLocalStr(v));
     else if (v != null && v !== "") out.push(String(v).trim());
     else out.push("");
   }

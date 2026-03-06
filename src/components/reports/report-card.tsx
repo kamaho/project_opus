@@ -120,6 +120,7 @@ export function ReportCard({
         hasWorkspace && "cursor-pointer",
       )}
       onClick={handleCardClick}
+      onMouseEnter={hasWorkspace ? () => router.prefetch(`/dashboard/rapporter/${id}`) : undefined}
     >
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">

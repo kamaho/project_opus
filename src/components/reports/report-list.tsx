@@ -9,7 +9,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ReportCard } from "./report-card";
-import { ReportGeneratorDialog } from "./report-generator-dialog";
+import dynamic from "next/dynamic";
+
+const ReportGeneratorDialog = dynamic(
+  () => import("./report-generator-dialog").then((m) => m.ReportGeneratorDialog),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </div>
+    ),
+  }
+);
 import { reportTypes } from "@/lib/reports/report-registry";
 import type { ReportSummary } from "@/lib/reports/types";
 import { FileText, Loader2 } from "lucide-react";

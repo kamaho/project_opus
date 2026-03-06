@@ -28,6 +28,21 @@ import { DayPopover } from "./day-popover";
 import { CalendarEventDialog, type CalendarEventData } from "./calendar-event-dialog";
 import { CreateTaskDialog } from "@/app/dashboard/oppgaver/create-task-dialog";
 
+/** Format a Date as "YYYY-MM-DD" using local timezone (avoids toISOString UTC shift). */
+export function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Parse "YYYY-MM-DD" into components without going through Date (timezone-safe). */
+function parseDateParts(str: string): { y: number; m: number; d: number } | null {
+  const parts = str.split("-");
+  if (parts.length < 3) return null;
+  return { y: parseInt(parts[0], 10), m: parseInt(parts[1], 10) - 1, d: parseInt(parts[2], 10) };
+}
+
 interface DeadlineRule {
   type?: "fixed_annual" | "offset_after_period";
   day: number | null;
@@ -367,13 +382,15 @@ export function CalendarClient({
 
       const dayTasks = tasks.filter((t) => {
         if (!t.dueDate) return false;
-        const td = new Date(t.dueDate);
-        return td.getFullYear() === year && td.getMonth() === month && td.getDate() === d;
+        const p = parseDateParts(t.dueDate);
+        if (!p) return false;
+        return p.y === year && p.m === month && p.d === d;
       });
 
       const dayEvents = events.filter((e) => {
-        const ed = new Date(e.startAt);
-        return ed.getFullYear() === year && ed.getMonth() === month && ed.getDate() === d;
+        const p = parseDateParts(toLocalDateStr(new Date(e.startAt)));
+        if (!p) return false;
+        return p.y === year && p.m === month && p.d === d;
       });
 
       days.push({ date, deadlines: dayDeadlines, tasks: dayTasks, events: dayEvents });
@@ -406,11 +423,10 @@ export function CalendarClient({
     return upcoming.slice(0, 8);
   }, [deadlines, year, month, today]);
 
+  const todayStr = toLocalDateStr(today);
   const overdueTasks = tasks.filter((t) => {
     if (!t.dueDate) return false;
-    const d = new Date(t.dueDate);
-    const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    return d < todayDate;
+    return t.dueDate < todayStr;
   });
 
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
@@ -725,7 +741,7 @@ export function CalendarClient({
                             <p className="text-[10px] text-muted-foreground py-1">Ingen tildelte oppgaver.</p>
                           ) : (
                             memberTasks.map((t) => {
-                              const isTaskOverdue = t.dueDate && new Date(t.dueDate) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                              const isTaskOverdue = t.dueDate && t.dueDate < todayStr;
                               const statusIcon = t.status === "in_progress"
                                 ? <Timer className="size-2.5 text-amber-500 shrink-0" />
                                 : t.status === "waiting"
@@ -748,7 +764,7 @@ export function CalendarClient({
                                         "tabular-nums",
                                         isTaskOverdue ? "text-red-500" : "text-muted-foreground"
                                       )}>
-                                        {new Date(t.dueDate).getDate()}. {MONTHS_NO[new Date(t.dueDate).getMonth()].slice(0, 3).toLowerCase()}
+                                        {parseDateParts(t.dueDate)?.d ?? ""}. {MONTHS_NO[parseDateParts(t.dueDate)?.m ?? 0].slice(0, 3).toLowerCase()}
                                       </span>
                                     )}
                                   </div>

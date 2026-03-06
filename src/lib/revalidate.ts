@@ -35,12 +35,30 @@ export function revalidateMatchingRules() {
   }
 }
 
+export function revalidateOnboarding() {
+  try {
+    revalidateTag("onboarding", REVALIDATE_PROFILE);
+  } catch {
+    // revalidation is best-effort; do not fail the request
+  }
+}
+
+export function revalidatePlans() {
+  try {
+    revalidateTag("plans", REVALIDATE_PROFILE);
+  } catch {
+    // revalidation is best-effort; do not fail the request
+  }
+}
+
 export function revalidateAll() {
   try {
     revalidateTag("companies", REVALIDATE_PROFILE);
     revalidateTag("clients", REVALIDATE_PROFILE);
     revalidateTag("accounts", REVALIDATE_PROFILE);
     revalidateTag("matching-rules", REVALIDATE_PROFILE);
+    revalidateTag("onboarding", REVALIDATE_PROFILE);
+    revalidateTag("plans", REVALIDATE_PROFILE);
   } catch {
     // revalidation is best-effort
   }

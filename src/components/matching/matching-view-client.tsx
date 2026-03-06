@@ -67,7 +67,9 @@ function cellToString(val: unknown): string {
   if (val == null) return "";
   if (typeof val === "string") return val.trim();
   if (typeof val === "number") return String(val);
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (val instanceof Date) {
+    return `${val.getFullYear()}-${String(val.getMonth() + 1).padStart(2, "0")}-${String(val.getDate()).padStart(2, "0")}`;
+  }
   return String(val);
 }
 
@@ -203,6 +205,9 @@ export interface MatchingViewClientProps {
   openingBalanceDate: string | null;
   set1Source?: string | null;
   set2Source?: string | null;
+  totalUnmatched1?: number;
+  totalUnmatched2?: number;
+  totalMatched?: number;
 }
 
 function IntegrationSourceBadge({ source }: { source?: string | null }) {
@@ -334,9 +339,61 @@ export function MatchingViewClient({
   openingBalanceDate,
   set1Source,
   set2Source,
+  totalUnmatched1,
+  totalUnmatched2,
+  totalMatched,
 }: MatchingViewClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  const [allRows1, setAllRows1] = useState(rows1);
+  const [allRows2, setAllRows2] = useState(rows2);
+  const [allMatchedGroups, setAllMatchedGroups] = useState(matchedGroups);
+  const [truncated1, setTruncated1] = useState(totalUnmatched1 != null && totalUnmatched1 > rows1.length);
+  const [truncated2, setTruncated2] = useState(totalUnmatched2 != null && totalUnmatched2 > rows2.length);
+  const [truncatedMatched, setTruncatedMatched] = useState(
+    totalMatched != null && totalMatched > matchedGroups.reduce((s, g) => s + g.transactions.length, 0)
+  );
+  const [loadingMore1, setLoadingMore1] = useState(false);
+  const [loadingMore2, setLoadingMore2] = useState(false);
+  const [loadingMoreMatched, setLoadingMoreMatched] = useState(false);
+
+  useEffect(() => { setAllRows1(rows1); }, [rows1]);
+  useEffect(() => { setAllRows2(rows2); }, [rows2]);
+  useEffect(() => { setAllMatchedGroups(matchedGroups); }, [matchedGroups]);
+  useEffect(() => { setTruncated1(totalUnmatched1 != null && totalUnmatched1 > rows1.length); }, [totalUnmatched1, rows1.length]);
+  useEffect(() => { setTruncated2(totalUnmatched2 != null && totalUnmatched2 > rows2.length); }, [totalUnmatched2, rows2.length]);
+
+  const loadAllUnmatched = useCallback(async (setNum: 1 | 2) => {
+    const setLoading = setNum === 1 ? setLoadingMore1 : setLoadingMore2;
+    const setRows = setNum === 1 ? setAllRows1 : setAllRows2;
+    const setTrunc = setNum === 1 ? setTruncated1 : setTruncated2;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/transactions?set=${setNum}&status=unmatched`);
+      if (res.ok) {
+        const data: TransactionRow[] = await res.json();
+        setRows(data);
+        setTrunc(false);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [clientId]);
+
+  const loadAllMatchedGroups = useCallback(async () => {
+    setLoadingMoreMatched(true);
+    try {
+      const res = await fetch(`/api/clients/${clientId}/matched-groups`);
+      if (res.ok) {
+        const data: MatchGroup[] = await res.json();
+        setAllMatchedGroups(data);
+        setTruncatedMatched(false);
+      }
+    } finally {
+      setLoadingMoreMatched(false);
+    }
+  }, [clientId]);
 
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const refreshData = useCallback(() => {
@@ -433,8 +490,8 @@ export function MatchingViewClient({
 
     setHighlightTxId(id);
 
-    const inSet1 = rows1.some((r) => r.id === id);
-    const inSet2 = rows2.some((r) => r.id === id);
+    const inSet1 = allRows1.some((r) => r.id === id);
+    const inSet2 = allRows2.some((r) => r.id === id);
     if (inSet1) setSelectedSet1(new Set([id]));
     else if (inSet2) setSelectedSet2(new Set([id]));
 
@@ -444,7 +501,7 @@ export function MatchingViewClient({
 
     const timer = setTimeout(() => setHighlightTxId(null), 4000);
     return () => clearTimeout(timer);
-  }, [searchParams, rows1, rows2, router]);
+  }, [searchParams, allRows1, allRows2, router]);
 
   // --- View mode ---
   const [viewMode, setViewMode] = useState<ViewMode>("open");
@@ -690,12 +747,12 @@ export function MatchingViewClient({
   // already excludes matched rows — it simply returns the same array.
   const [locallyMatchedIds, setLocallyMatchedIds] = useState<Set<string>>(new Set());
   const visibleRows1 = useMemo(() =>
-    locallyMatchedIds.size === 0 ? rows1 : rows1.filter((r) => !locallyMatchedIds.has(r.id)),
-    [rows1, locallyMatchedIds]
+    locallyMatchedIds.size === 0 ? allRows1 : allRows1.filter((r) => !locallyMatchedIds.has(r.id)),
+    [allRows1, locallyMatchedIds]
   );
   const visibleRows2 = useMemo(() =>
-    locallyMatchedIds.size === 0 ? rows2 : rows2.filter((r) => !locallyMatchedIds.has(r.id)),
-    [rows2, locallyMatchedIds]
+    locallyMatchedIds.size === 0 ? allRows2 : allRows2.filter((r) => !locallyMatchedIds.has(r.id)),
+    [allRows2, locallyMatchedIds]
   );
 
   const toggleSelect = useCallback((setNumber: 1 | 2, id: string) => {
@@ -1066,8 +1123,8 @@ export function MatchingViewClient({
       if (selectedCount > 1) {
         setBulkNoteOpen(true);
       } else {
-        const allRows = [...rows1, ...rows2];
-        const tx = allRows.find((r) => r.id === txId);
+        const combined = [...allRows1, ...allRows2];
+        const tx = combined.find((r) => r.id === txId);
         const currentNote = localNotes.has(txId) ? localNotes.get(txId) : tx?.notat;
         setNoteTarget({
           txId,
@@ -1096,8 +1153,8 @@ export function MatchingViewClient({
     } else if (action === "delete") {
       setDeleteTxTarget(txId);
     } else if (action === "task") {
-      const allRows = [...rows1, ...rows2];
-      const tx = allRows.find((r) => r.id === txId);
+      const combined = [...allRows1, ...allRows2];
+      const tx = combined.find((r) => r.id === txId);
       if (tx) {
         setTaskFromTx({
           txId,
@@ -1107,7 +1164,7 @@ export function MatchingViewClient({
         });
       }
     }
-  }, [selectedCount, rows1, rows2, localNotes, patchedRows1, patchedRows2]);
+  }, [selectedCount, allRows1, allRows2, localNotes, patchedRows1, patchedRows2]);
 
   // --- Task from transaction ---
   const [taskFromTx, setTaskFromTx] = useState<{
@@ -1503,7 +1560,8 @@ export function MatchingViewClient({
 
   const openManualTxDialog = useCallback((setNumber: 1 | 2) => {
     setEditTxTarget(null);
-    setManualTxDate(new Date().toISOString().slice(0, 10));
+    const d = new Date();
+    setManualTxDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
     setManualTxAmount("");
     setManualTxText("");
     setManualTxVoucher("");
@@ -2480,7 +2538,7 @@ export function MatchingViewClient({
               smartMatchLoading={autoMatchLoading}
               onUnmatchAll={handleUnmatchAll}
               unmatchAllLoading={unmatchAllLoading}
-              hasMatches={matchedGroups.length > 0}
+              hasMatches={allMatchedGroups.length > 0}
               onAgentSettings={() => setAgentSettingsOpen(true)}
             />
           </div>
@@ -2542,6 +2600,19 @@ export function MatchingViewClient({
                   <Pencil className="h-3 w-3" />
                 </button>
               </div>
+              {truncated1 && (
+                <div className="border-b bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400 shrink-0 flex items-center gap-2">
+                  <span>Viser {allRows1.length.toLocaleString("nb-NO")} av {(totalUnmatched1 ?? 0).toLocaleString("nb-NO")} umatchede poster.</span>
+                  <button
+                    type="button"
+                    className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200 disabled:opacity-50"
+                    disabled={loadingMore1}
+                    onClick={() => loadAllUnmatched(1)}
+                  >
+                    {loadingMore1 ? "Laster…" : "Last inn alle"}
+                  </button>
+                </div>
+              )}
               {patchedRows1.length > 0 ? (
                 <TransactionPanel
                   transactions={patchedRows1}
@@ -2616,6 +2687,19 @@ export function MatchingViewClient({
                   />
                 </div>
               </div>
+              {truncated2 && (
+                <div className="border-b bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400 shrink-0 flex items-center gap-2">
+                  <span>Viser {allRows2.length.toLocaleString("nb-NO")} av {(totalUnmatched2 ?? 0).toLocaleString("nb-NO")} umatchede poster.</span>
+                  <button
+                    type="button"
+                    className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200 disabled:opacity-50"
+                    disabled={loadingMore2}
+                    onClick={() => loadAllUnmatched(2)}
+                  >
+                    {loadingMore2 ? "Laster…" : "Last inn alle"}
+                  </button>
+                </div>
+              )}
               {patchedRows2.length > 0 ? (
                 <TransactionPanel
                   transactions={patchedRows2}
@@ -2746,9 +2830,9 @@ export function MatchingViewClient({
                 <div className="flex items-center gap-2 ml-auto shrink-0">
                   {(visibleRows1.length > 0 || visibleRows2.length > 0) && (
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      {matchedGroups.length > 0 && (
+                      {allMatchedGroups.length > 0 && (
                         <span>
-                          <span className="font-medium text-foreground">{matchedGroups.length}</span> matchgrupper
+                          <span className="font-medium text-foreground">{allMatchedGroups.length}</span> matchgrupper
                         </span>
                       )}
                       <span>
@@ -2764,8 +2848,21 @@ export function MatchingViewClient({
           </>
         ) : (
           <>
+            {truncatedMatched && (
+              <div className="border-b bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400 shrink-0 flex items-center gap-2">
+                <span>Viser de siste {allMatchedGroups.length.toLocaleString("nb-NO")} matchgrupper. Det finnes flere lukkede poster.</span>
+                <button
+                  type="button"
+                  className="font-medium underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200 disabled:opacity-50"
+                  disabled={loadingMoreMatched}
+                  onClick={loadAllMatchedGroups}
+                >
+                  {loadingMoreMatched ? "Laster…" : "Last inn alle"}
+                </button>
+              </div>
+            )}
             <MatchedGroupsView
-              groups={matchedGroups}
+              groups={allMatchedGroups}
               onUnmatch={handleUnmatch}
               onRemoveTransaction={handleRemoveTransaction}
               unmatchingId={unmatchingId}
@@ -2817,7 +2914,7 @@ export function MatchingViewClient({
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Er du sikker? Alle {matchedGroups.length} matchgrupper vil bli opphevet og transaksjonene flyttes tilbake til &laquo;Åpne&raquo;.
+            Er du sikker? Alle {allMatchedGroups.length} matchgrupper vil bli opphevet og transaksjonene flyttes tilbake til &laquo;Åpne&raquo;.
           </p>
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={() => setUnmatchAllConfirmOpen(false)}>
@@ -2835,7 +2932,7 @@ export function MatchingViewClient({
         <ExportIntroOverlay
           viewMode={viewMode}
           openCount={visibleRows1.length + visibleRows2.length}
-          matchedCount={matchedGroups.length}
+          matchedCount={allMatchedGroups.length}
           mode="generating"
           onComplete={() => setExportGenerating(false)}
           onSkip={() => setExportGenerating(false)}
