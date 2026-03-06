@@ -1,9 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Home, Users, Calendar, Bell, Sparkles, Monitor } from "lucide-react";
-import { UserButton } from "@clerk/nextjs";
+import { Home, Users, Calendar, Bell, Sparkles, Monitor, LogOut, Palette, UserCog } from "lucide-react";
+import { useUser, useClerk } from "@clerk/nextjs";
 import { RevizoLogo } from "@/components/ui/revizo-logo";
+import { AVATAR_SEEDS, avatarUrl, getAvatarForUser } from "@/lib/avatars";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { MobileOverviewTab } from "./mobile-overview-tab";
 import { MobileReconciliationTab } from "./mobile-reconciliation-tab";
@@ -27,6 +41,14 @@ interface MobileShellProps {
 export function MobileShell({ onRequestDesktop }: MobileShellProps) {
   const [activeTab, setActiveTab] = useState<Tab>("oversikt");
   const [showAi, setShowAi] = useState(false);
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const { user } = useUser();
+  const { openUserProfile, signOut } = useClerk();
+
+  const meta = user?.unsafeMetadata as Record<string, unknown> | undefined;
+  const avatarSrc = user ? getAvatarForUser(user.id, meta) : avatarUrl("default");
+  const currentSeed = typeof meta?.avatarSeed === "string" ? meta.avatarSeed : null;
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -49,10 +71,47 @@ export function MobileShell({ onRequestDesktop }: MobileShellProps) {
             <Monitor className="h-3.5 w-3.5" />
             <span className="hidden min-[400px]:inline">Desktop</span>
           </button>
-          <UserButton
-            afterSignOutUrl="/sign-in"
-            appearance={{ elements: { avatarBox: "h-7 w-7" } }}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+              >
+                <img
+                  src={avatarSrc}
+                  alt="Profilbilde"
+                  width={28}
+                  height={28}
+                  className="rounded-full bg-muted"
+                />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" side="bottom" className="w-52">
+              <DropdownMenuItem
+                className="gap-2 cursor-pointer"
+                onClick={() => setAvatarPickerOpen(true)}
+              >
+                <Palette className="h-4 w-4" />
+                Bytt profilbilde
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 cursor-pointer"
+                onClick={() => openUserProfile()}
+              >
+                <UserCog className="h-4 w-4" />
+                Administrer konto
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="gap-2 cursor-pointer"
+                variant="destructive"
+                onClick={() => signOut({ redirectUrl: "/sign-in" })}
+              >
+                <LogOut className="h-4 w-4" />
+                Logg ut
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -97,6 +156,55 @@ export function MobileShell({ onRequestDesktop }: MobileShellProps) {
 
       {/* AI overlay */}
       {showAi && <MobileAiOverlay onClose={() => setShowAi(false)} />}
+
+      <Dialog open={avatarPickerOpen} onOpenChange={setAvatarPickerOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Velg profilbilde</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-5 gap-3 py-4">
+            {AVATAR_SEEDS.map((seed) => {
+              const src = avatarUrl(seed);
+              const active = currentSeed === seed;
+              return (
+                <button
+                  key={seed}
+                  type="button"
+                  disabled={saving}
+                  onClick={async () => {
+                    if (!user || saving) return;
+                    setSaving(true);
+                    try {
+                      await user.update({
+                        unsafeMetadata: { ...user.unsafeMetadata, avatarSeed: seed },
+                      });
+                    } catch (err) {
+                      console.error("[avatar] Failed to save avatar:", err);
+                    } finally {
+                      setSaving(false);
+                      setAvatarPickerOpen(false);
+                    }
+                  }}
+                  className={cn(
+                    "relative rounded-full p-0.5 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    active
+                      ? "ring-2 ring-primary"
+                      : "ring-1 ring-transparent hover:ring-border"
+                  )}
+                >
+                  <img
+                    src={src}
+                    alt={seed}
+                    width={56}
+                    height={56}
+                    className="rounded-full bg-muted"
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
