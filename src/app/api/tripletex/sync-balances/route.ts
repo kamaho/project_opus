@@ -1,7 +1,7 @@
 import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { companies, webhookInbox } from "@/lib/db/schema";
+import { companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
 import { zodError } from "@/lib/api/zod-error";
@@ -12,8 +12,8 @@ export const maxDuration = 120;
 /**
  * POST /api/tripletex/sync-balances
  *
- * Phase 1 (accounts) runs inline (~2-3s).
- * Phase 2 (balances) queued via webhook_inbox for Railway Worker.
+ * Phase 1 (accounts) + Phase 2 (balances) both run inline.
+ * Total time: ~4-5s (account fetch + upsert + balance fetch + update).
  */
 const syncBalancesSchema = z.object({
   companyId: z.string().uuid("Må være en gyldig UUID"),
@@ -37,30 +37,26 @@ export const POST = withTenant(async (req, { tenantId }) => {
   }
 
   try {
-    const { syncAccountList } = await import("@/lib/tripletex/sync");
+    const { syncAccountList, syncBalancesForAccounts } = await import("@/lib/tripletex/sync");
+
     const phase1 = await syncAccountList(tripletexCompanyId, companyId, tenantId);
     console.log(`[tripletex/sync-balances] Phase 1 done: ${phase1.accountCount} accounts in ${phase1.duration}ms`);
 
-    try {
-      await db.insert(webhookInbox).values({
-        tenantId,
-        source: "tripletex",
-        eventType: "sync.balances.requested",
-        externalId: `balances-${companyId}-${Date.now()}`,
-        payload: { companyId, tenantId },
-      });
-      console.log(`[tripletex/sync-balances] Queued Phase 2 balance sync for Worker`);
-    } catch (err) {
-      console.error("[tripletex/sync-balances] Failed to queue Phase 2:", err);
+    let balancesUpdated = 0;
+    if (phase1.accountCount > 0) {
+      const phase2 = await syncBalancesForAccounts(companyId, tenantId);
+      balancesUpdated = phase2.balancesUpdated;
+      console.log(`[tripletex/sync-balances] Phase 2 done: ${phase2.balancesUpdated} balances in ${phase2.duration}ms`);
     }
 
     return NextResponse.json({
       status: "ok",
       accountCount: phase1.accountCount,
-      message: `${phase1.accountCount} kontoer lagret. Saldoer hentes av Worker i bakgrunnen.`,
+      balancesUpdated,
+      message: `${phase1.accountCount} kontoer og ${balancesUpdated} saldoer oppdatert.`,
     });
   } catch (err) {
-    console.error("[tripletex/sync-balances] Phase 1 failed:", err);
+    console.error("[tripletex/sync-balances] Sync failed:", err);
     return NextResponse.json(
       { error: "Sync feilet", message: err instanceof Error ? err.message : String(err) },
       { status: 500 }
