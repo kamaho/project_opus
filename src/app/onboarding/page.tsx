@@ -20,11 +20,7 @@ import { StepConfigureERP, type ERPSetupResult } from "@/components/onboarding/s
 import { StepConfigureVismaNxt } from "@/components/onboarding/step-configure-visma-nxt";
 import { StepConnectBank } from "@/components/onboarding/step-connect-bank";
 import { StepInviteTeam } from "@/components/onboarding/step-invite-team";
-import {
-  StepUserProfile,
-  type UserType,
-  type Responsibility,
-} from "@/components/onboarding/step-user-profile";
+import { StepSelectAccounts } from "@/components/onboarding/step-select-accounts";
 
 // ---------------------------------------------------------------------------
 // Step definitions per path
@@ -50,16 +46,15 @@ function getSteps(path: OnboardingPath, showTeamStep: boolean): StepDef[] {
     steps.push(
       { id: "select-erp", label: "System" },
       { id: "configure-erp", label: "Tilkobling" },
-      { id: "connect-bank", label: "Bank" }
+      { id: "connect-bank", label: "Bank" },
+      { id: "select-accounts", label: "Kontoer" },
     );
   } else if (path === "manual") {
-    steps.push({ id: "manual-setup", label: "Manuelt" });
+    steps.push(
+      { id: "manual-setup", label: "Manuelt" },
+      { id: "ready", label: "Klar" },
+    );
   }
-
-  steps.push(
-    { id: "user-profile", label: "Profil" },
-    { id: "ready", label: "Klar" }
-  );
 
   return steps;
 }
@@ -74,8 +69,6 @@ interface PersistedState {
   step: number;
   path: OnboardingPath;
   selectedErpId: string | null;
-  userType?: string | null;
-  responsibilities?: string[];
 }
 
 function loadPersistedState(): Partial<PersistedState> {
@@ -107,12 +100,6 @@ export default function OnboardingPage() {
   const [direction, setDirection] = useState<"forward" | "back">("forward");
   const [path, setPath] = useState<OnboardingPath>(() => loadPersistedState().path ?? null);
   const [selectedErpId, setSelectedErpId] = useState<string | null>(() => loadPersistedState().selectedErpId ?? null);
-  const [userType, setUserType] = useState<UserType | null>(
-    () => (loadPersistedState().userType as UserType) ?? null
-  );
-  const [responsibilities, setResponsibilities] = useState<Responsibility[]>(
-    () => (loadPersistedState().responsibilities as Responsibility[]) ?? []
-  );
 
   const [, setSetupResult] = useState<SetupResult | null>(null);
   const [erpResult, setErpResult] = useState<ERPSetupResult | null>(null);
@@ -128,8 +115,8 @@ export default function OnboardingPage() {
   const currentStepId = steps[step]?.id ?? "welcome";
 
   useEffect(() => {
-    persistState({ step, path, selectedErpId, userType, responsibilities });
-  }, [step, path, selectedErpId, userType, responsibilities]);
+    persistState({ step, path, selectedErpId });
+  }, [step, path, selectedErpId]);
 
   function goTo(nextStep: number) {
     setDirection(nextStep > step ? "forward" : "back");
@@ -178,8 +165,6 @@ export default function OnboardingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           erpConnected: (erpResult?.companies?.length ?? 0) > 0,
-          userType,
-          responsibilities,
         }),
       });
       if (!res.ok) {
@@ -210,7 +195,7 @@ export default function OnboardingPage() {
 
   const firstName = user?.firstName || "der";
 
-  const wideSteps = ["configure-erp", "select-erp", "connect-bank", "invite-team", "user-profile"];
+  const wideSteps = ["configure-erp", "select-erp", "connect-bank", "invite-team", "select-accounts"];
   const maxWidth = wideSteps.includes(currentStepId) ? "max-w-3xl" : "max-w-xl";
 
   return (
@@ -295,7 +280,7 @@ export default function OnboardingPage() {
 
         {currentStepId === "connect-bank" && (
           <StepConnectBank
-            onContinue={() => goToStepId("user-profile")}
+            onContinue={() => goToStepId("select-accounts")}
           />
         )}
 
@@ -321,12 +306,12 @@ export default function OnboardingPage() {
                   hideProgress
                   onComplete={(result) => {
                     setSetupResult(result);
-                    goToStepId("user-profile");
+                    goToStepId("ready");
                   }}
                 />
                 <div className="text-center">
                   <button
-                    onClick={() => goToStepId("user-profile")}
+                    onClick={() => goToStepId("ready")}
                     className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                   >
                     Hopp over — jeg setter opp avstemming senere
@@ -337,19 +322,16 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* User profile */}
-        {currentStepId === "user-profile" && (
-          <StepUserProfile
-            initialUserType={userType}
-            initialResponsibilities={responsibilities}
-            onComplete={(data) => {
-              setUserType(data.userType);
-              setResponsibilities(data.responsibilities);
-              goToStepId("ready");
+        {/* Account selection (integration path) */}
+        {currentStepId === "select-accounts" && (
+          <StepSelectAccounts
+            onComplete={() => {
+              clearPersistedState();
             }}
           />
         )}
 
+        {/* Manual path finish */}
         {currentStepId === "ready" && (
           <StepReady onFinish={handleFinish} canFinish={!!organization} finishing={finishing} />
         )}

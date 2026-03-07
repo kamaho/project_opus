@@ -409,16 +409,26 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     }
   }
 
-  // ── 5. Queue ONE webhook event for all new configs ──────────────────
+  // ── 5. Queue webhook events for sync ────────────────────────────────
   if (allConfigIds.length > 0 && integration === "tripletex") {
+    const ts = Date.now();
     try {
-      await db.insert(webhookInbox).values({
-        tenantId,
-        source: integration,
-        eventType: "sync.bulk.activated",
-        externalId: `${companyId}-${Date.now()}`,
-        payload: { configIds: allConfigIds, companyId, tenantId },
-      });
+      await db.insert(webhookInbox).values([
+        {
+          tenantId,
+          source: integration,
+          eventType: "sync.bulk.activated",
+          externalId: `${companyId}-${ts}`,
+          payload: { configIds: allConfigIds, companyId, tenantId },
+        },
+        {
+          tenantId,
+          source: integration,
+          eventType: "sync.balances.requested",
+          externalId: `balance-${companyId}-${ts}`,
+          payload: { companyId, tenantId },
+        },
+      ]);
     } catch {
       /* sync poller fallback */
     }
