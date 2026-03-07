@@ -7,6 +7,14 @@ export const dynamic = "force-dynamic";
 const MAX_PAYLOAD_SIZE = 1024 * 1024; // 1 MB
 
 /**
+ * GET /api/webhooks/tripletex
+ * Health-check for webhook endpoint reachability (used by Tripletex during subscription verification).
+ */
+export async function GET() {
+  return NextResponse.json({ status: "ok", timestamp: new Date().toISOString() });
+}
+
+/**
  * POST /api/webhooks/tripletex?tenant={tenantId}
  *
  * Receives webhook events from Tripletex.
@@ -18,6 +26,11 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const tenantId = url.searchParams.get("tenant");
 
+  console.log(
+    `[webhook/tripletex] Incoming request: tenant=${tenantId ?? "missing"} ` +
+      `method=${request.method} content-type=${request.headers.get("content-type")}`
+  );
+
   if (!tenantId) {
     console.warn("[webhook/tripletex] Missing tenant query parameter");
     return NextResponse.json({ error: "Missing tenant" }, { status: 400 });
@@ -28,6 +41,7 @@ export async function POST(request: Request) {
     const arrayBuffer = await request.arrayBuffer();
     rawBody = Buffer.from(arrayBuffer);
   } catch {
+    console.warn("[webhook/tripletex] Failed to read request body");
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
@@ -35,6 +49,11 @@ export async function POST(request: Request) {
     console.warn(`[webhook/tripletex] Payload too large: ${rawBody.length} bytes`);
     return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   }
+
+  console.log(
+    `[webhook/tripletex] tenant=${tenantId} body=${rawBody.length}b ` +
+      `auth=${request.headers.has("Authorization") ? "present" : "missing"}`
+  );
 
   const secret = await getTripletexWebhookSecret(tenantId);
   if (!secret) {
@@ -50,6 +69,11 @@ export async function POST(request: Request) {
 
   try {
     const events = tripletexAdapter.normalizeEvents(rawBody);
+
+    console.log(
+      `[webhook/tripletex] tenant=${tenantId} events=${events.length} ` +
+        `types=[${events.map((e) => e.eventType).join(",")}]`
+    );
 
     const enriched = events.map((e) => ({ ...e, tenantId }));
     const result = await receiveWebhookBatch(enriched);

@@ -402,7 +402,6 @@ async function processTripletexGroup(
     }
 
     case "transaction": {
-      // Only sync transactions for configs with activated accounts (sync_level = "transactions")
       const configs = await db
         .select()
         .from(tripletexSyncConfigs)
@@ -418,11 +417,31 @@ async function processTripletexGroup(
         return;
       }
 
+      log(`Running incremental sync for ${configs.length} configs (tenant=${tenantId})`);
       const { syncTransactionsForAccount } = await import("../src/lib/tripletex/sync");
-      for (const config of configs) {
-        log(`Running incremental sync for config=${config.id}`);
-        await syncTransactionsForAccount(config.id);
+
+      const WEBHOOK_SYNC_CONCURRENCY = 5;
+      let cIdx = 0;
+      async function nextConfig(): Promise<void> {
+        while (cIdx < configs.length) {
+          const config = configs[cIdx++];
+          try {
+            await syncTransactionsForAccount(config.id);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log(`Incremental sync failed for config=${config.id}: ${msg.slice(0, 200)}`);
+          }
+        }
       }
+
+      await Promise.all(
+        Array.from(
+          { length: Math.min(WEBHOOK_SYNC_CONCURRENCY, configs.length) },
+          () => nextConfig()
+        )
+      );
+
+      log(`Incremental sync completed for ${configs.length} configs (tenant=${tenantId})`);
       break;
     }
 
