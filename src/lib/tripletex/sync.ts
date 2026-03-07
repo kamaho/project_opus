@@ -840,57 +840,43 @@ export async function syncBulkTransactionsForConfigs(
 ): Promise<BulkSyncResult> {
   if (configIds.length === 0) return { postings: 0, bankTx: 0, configs: 0, errors: 0 };
 
+  const CONCURRENCY = 5;
   const t0 = Date.now();
-  console.log(`[sync-bulk] Starting bulk sync for ${configIds.length} configs`);
+  console.log(`[sync-bulk] Starting bulk sync for ${configIds.length} configs (concurrency=${CONCURRENCY})`);
 
-  const configs = await db
-    .select()
-    .from(tripletexSyncConfigs)
-    .where(inArray(tripletexSyncConfigs.id, configIds));
-
-  if (configs.length === 0) {
-    console.log("[sync-bulk] No configs found");
-    return { postings: 0, bankTx: 0, configs: 0, errors: 0 };
-  }
-
-  // Mark all as syncing
-  await db
-    .update(tripletexSyncConfigs)
-    .set({ syncStatus: "syncing", syncError: null, updatedAt: new Date() })
-    .where(inArray(tripletexSyncConfigs.id, configIds));
-
-  // Group by tripletexCompanyId for multi-company safety
-  const byCompany = new Map<number, typeof configs>();
-  for (const c of configs) {
-    const list = byCompany.get(c.tripletexCompanyId) ?? [];
-    list.push(c);
-    byCompany.set(c.tripletexCompanyId, list);
-  }
-
+  let completed = 0;
+  let errors = 0;
   let totalPostings = 0;
   let totalBankTx = 0;
-  let totalErrors = 0;
+  let idx = 0;
 
-  for (const [companyId, companyConfigs] of byCompany) {
-    try {
-      const result = await syncBulkForCompany(companyId, companyConfigs);
-      totalPostings += result.postings;
-      totalBankTx += result.bankTx;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[sync-bulk] Company ${companyId} FAILED: ${msg.slice(0, 200)}`);
-      totalErrors += companyConfigs.length;
-      // Mark this company's configs as failed
-      const failedIds = companyConfigs.map((c) => c.id);
-      await db
-        .update(tripletexSyncConfigs)
-        .set({ syncStatus: "failed", syncError: msg.slice(0, 2000), updatedAt: new Date() })
-        .where(inArray(tripletexSyncConfigs.id, failedIds));
+  async function worker(): Promise<void> {
+    while (idx < configIds.length) {
+      const configId = configIds[idx++];
+      try {
+        const result = await syncTransactionsForAccount(configId);
+        totalPostings += result.postings.inserted;
+        totalBankTx += result.bankTransactions.inserted;
+        completed++;
+        if (completed % 10 === 0 || completed === configIds.length) {
+          console.log(`[sync-bulk] Progress: ${completed}/${configIds.length} configs done (${errors} errors) — ${Date.now() - t0}ms elapsed`);
+        }
+      } catch (err) {
+        errors++;
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[sync-bulk] config=${configId.slice(0, 8)} FAILED: ${msg.slice(0, 200)}`);
+      }
     }
   }
 
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, configIds.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+
   console.log(
-    `[sync-bulk] Done in ${Date.now() - t0}ms: ${totalPostings} postings, ${totalBankTx} bankTx, ${configs.length - totalErrors}/${configs.length} configs OK`
+    `[sync-bulk] Done in ${Date.now() - t0}ms: ${totalPostings} postings, ${totalBankTx} bankTx, ${completed}/${configIds.length} configs OK, ${errors} errors`
   );
 
   refreshClientStats().catch(() => {});
@@ -898,157 +884,7 @@ export async function syncBulkTransactionsForConfigs(
   return {
     postings: totalPostings,
     bankTx: totalBankTx,
-    configs: configs.length - totalErrors,
-    errors: totalErrors,
+    configs: completed,
+    errors,
   };
-}
-
-async function syncBulkForCompany(
-  tripletexCompanyId: number,
-  configs: (typeof tripletexSyncConfigs.$inferSelect)[]
-): Promise<{ postings: number; bankTx: number }> {
-  const t0 = Date.now();
-  const tenantId = configs[0].tenantId;
-  console.log(`[sync-bulk] Company ${tripletexCompanyId}: ${configs.length} configs, tenant=${tenantId}`);
-
-  // Build lookup: tripletexAccountId -> { clientId, configId }
-  const set1Lookup = new Map<number, { clientId: string; configId: string }>();
-  const set2Configs: (typeof tripletexSyncConfigs.$inferSelect)[] = [];
-
-  for (const c of configs) {
-    const set1Ids: number[] = c.set1TripletexAccountIds?.length
-      ? c.set1TripletexAccountIds
-      : c.set1TripletexAccountId ? [c.set1TripletexAccountId] : [];
-    for (const aid of set1Ids) {
-      set1Lookup.set(aid, { clientId: c.clientId, configId: c.id });
-    }
-
-    const set2Ids: number[] = c.set2TripletexAccountIds?.length
-      ? c.set2TripletexAccountIds
-      : c.set2TripletexAccountId ? [c.set2TripletexAccountId] : [];
-    if (set2Ids.length > 0) {
-      set2Configs.push(c);
-    }
-  }
-
-  // Determine date range from all configs
-  const dateFrom = configs.reduce(
-    (min, c) => (c.dateFrom < min ? c.dateFrom : min),
-    configs[0].dateFrom
-  );
-  const dateTo = new Date();
-  dateTo.setDate(dateTo.getDate() + 30);
-  const dateToStr = dateTo.toISOString().split("T")[0];
-
-  // ----- POSTINGS: Bulk fetch ALL for the company (paginated via fetchAllPages) -----
-  let totalPostings = 0;
-
-  if (set1Lookup.size > 0) {
-    const tPost = Date.now();
-    const allPostings = await fetchAllPages<TxPosting>("/ledger/posting", {
-      dateFrom,
-      dateTo: dateToStr,
-      fields: "*,account(*),voucher(*),currency(*)",
-    }, tenantId);
-
-    console.log(`[sync-bulk] Company ${tripletexCompanyId}: fetched ${allPostings.length} postings in ${Date.now() - tPost}ms`);
-
-    // Group by clientId using the lookup
-    const byClient = new Map<string, TxPosting[]>();
-    for (const p of allPostings) {
-      const accountId = p.account?.id;
-      if (accountId == null) continue;
-      const match = set1Lookup.get(accountId);
-      if (!match) continue;
-      const list = byClient.get(match.clientId) ?? [];
-      list.push(p);
-      byClient.set(match.clientId, list);
-    }
-
-    // Insert per client
-    const tInsert = Date.now();
-    for (const [clientId, postings] of byClient) {
-      const mapped = postings.map((p) => mapPosting(p, null));
-      const inserted = await insertTransactionsBatch(clientId, mapped);
-      totalPostings += inserted;
-    }
-    console.log(`[sync-bulk] Company ${tripletexCompanyId}: inserted ${totalPostings} postings in ${Date.now() - tInsert}ms`);
-
-    // Track max posting ID per config for incremental sync
-    const maxIdByConfig = new Map<string, number>();
-    for (const p of allPostings) {
-      const accountId = p.account?.id;
-      if (accountId == null) continue;
-      const match = set1Lookup.get(accountId);
-      if (!match) continue;
-      const cur = maxIdByConfig.get(match.configId) ?? 0;
-      if (p.id > cur) maxIdByConfig.set(match.configId, p.id);
-    }
-    for (const [cfgId, maxId] of maxIdByConfig) {
-      await db
-        .update(tripletexSyncConfigs)
-        .set({ lastSyncPostingId: maxId, lastSyncAt: new Date(), updatedAt: new Date() })
-        .where(eq(tripletexSyncConfigs.id, cfgId));
-    }
-  }
-
-  // ----- BANK TX: Per-account with concurrency (API requires accountId) -----
-  let totalBankTx = 0;
-
-  if (set2Configs.length > 0) {
-    const BANK_CONCURRENCY = 5;
-    let idx = 0;
-    async function nextBankSync(): Promise<void> {
-      while (idx < set2Configs.length) {
-        const config = set2Configs[idx++];
-        try {
-          const result = await syncBankTransactions(config);
-          totalBankTx += result.inserted;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`[sync-bulk] Bank tx for config=${config.id.slice(0, 8)} failed: ${msg.slice(0, 200)}`);
-        }
-      }
-    }
-    const workers = Array.from(
-      { length: Math.min(BANK_CONCURRENCY, set2Configs.length) },
-      () => nextBankSync()
-    );
-    await Promise.all(workers);
-  }
-
-  // ----- Update all configs to completed + accountSyncSettings -----
-  const now = new Date();
-  const successIds = configs.map((c) => c.id);
-
-  await db
-    .update(tripletexSyncConfigs)
-    .set({ syncStatus: "completed", syncError: null, updatedAt: now })
-    .where(
-      and(
-        inArray(tripletexSyncConfigs.id, successIds),
-        eq(tripletexSyncConfigs.syncStatus, "syncing")
-      )
-    );
-
-  // Update accountSyncSettings with tx counts
-  const allAccountIds = configs.flatMap((c) => [
-    ...(c.set1TripletexAccountIds ?? []),
-    ...(c.set2TripletexAccountIds ?? []),
-  ]).filter((id): id is number => id != null);
-
-  if (allAccountIds.length > 0) {
-    await db
-      .update(accountSyncSettings)
-      .set({ lastTxSyncAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(accountSyncSettings.tenantId, tenantId),
-          inArray(accountSyncSettings.tripletexAccountId, allAccountIds)
-        )
-      );
-  }
-
-  console.log(`[sync-bulk] Company ${tripletexCompanyId}: done in ${Date.now() - t0}ms`);
-  return { postings: totalPostings, bankTx: totalBankTx };
 }

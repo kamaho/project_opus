@@ -22,8 +22,11 @@ export async function fetchAllPages<T>(
   const all: T[] = [];
   let from = 0;
 
+  let page = 0;
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
+    page++;
     const res = await tripletexGet<TripletexListResponse<T>>(path, {
       ...params,
       from,
@@ -31,6 +34,10 @@ export async function fetchAllPages<T>(
     }, tenantId);
 
     all.push(...res.values);
+
+    if (page > 1) {
+      console.log(`[tripletex] fetchAllPages ${path}: page ${page}, ${all.length}/${res.fullResultSize} items`);
+    }
 
     if (all.length >= res.fullResultSize || res.values.length < PAGE_SIZE) {
       break;

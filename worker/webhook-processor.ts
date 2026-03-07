@@ -274,6 +274,7 @@ async function processTripletexGroup(
       }
 
       // Handle bulk activation events (single event with all configIds)
+      const BULK_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
       const bulkEvents = evtRows.filter((e) => e.eventType === "sync.bulk.activated");
       for (const { payload } of bulkEvents) {
         const configIds = payload?.configIds as string[] | undefined;
@@ -281,7 +282,14 @@ async function processTripletexGroup(
           const { syncBulkTransactionsForConfigs } = await import("../src/lib/tripletex/sync");
           log(`Running bulk transaction sync for ${configIds.length} configs`);
           const t0 = Date.now();
-          const result = await syncBulkTransactionsForConfigs(configIds);
+
+          const result = await Promise.race([
+            syncBulkTransactionsForConfigs(configIds),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`Bulk sync timed out after ${BULK_TIMEOUT_MS / 1000}s`)), BULK_TIMEOUT_MS)
+            ),
+          ]);
+
           log(`Bulk sync done in ${Date.now() - t0}ms: ${result.postings} postings, ${result.bankTx} bankTx, ${result.configs}/${configIds.length} OK`);
 
           await db.insert(notifications).values({
