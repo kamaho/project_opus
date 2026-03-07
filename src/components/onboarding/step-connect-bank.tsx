@@ -109,7 +109,7 @@ export function StepConnectBank({ onContinue }: StepConnectBankProps) {
 
       <div className="flex justify-center pt-2">
         <Button size="lg" onClick={onContinue} className="gap-2">
-          Fortsett uten bank-tilkobling
+          Start Revizo
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>

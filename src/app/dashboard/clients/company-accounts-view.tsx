@@ -248,7 +248,7 @@ export function CompanyAccountsView({
           );
         }
         toast.success(
-          `Import startet for konto ${accountNumber}. Du får beskjed når dataen er klar.`
+          `Konto ${accountNumber} importert med saldo og transaksjoner.`
         );
         router.refresh();
       } catch (e) {
@@ -291,7 +291,7 @@ export function CompanyAccountsView({
           const errors = items.filter((r) => r.status === "error").length;
           if (activated > 0) {
             toast.success(
-              `${activated} ${activated === 1 ? "konto" : "kontoer"} importert. Transaksjoner hentes i bakgrunnen.`,
+              `${activated} ${activated === 1 ? "konto" : "kontoer"} importert med saldo og transaksjoner.`,
             );
           }
           if (errors > 0) {

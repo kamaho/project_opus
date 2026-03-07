@@ -9,13 +9,13 @@ import {
   matchingRules,
   tripletexSyncConfigs,
   vismaNxtSyncConfigs,
-  webhookInbox,
 } from "@/lib/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { zodError } from "@/lib/api/zod-error";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 const MAX_BULK_ACTIVATE = 100;
 
@@ -86,7 +86,17 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     );
   }
 
-  // ── 1. Fetch all relevant settings in ONE query ──────────────────────
+  // ── 0. Refresh balances from Tripletex inline (ensures IB/UB are current) ─
+  if (integration === "tripletex" && company.tripletexCompanyId) {
+    try {
+      const { syncBalancesForAccounts } = await import("@/lib/tripletex/sync");
+      await syncBalancesForAccounts(companyId, tenantId);
+    } catch (err) {
+      console.warn("[bulk-activate] Balance pre-sync failed (non-fatal):", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ── 1. Fetch all relevant settings in ONE query (now with fresh balances) ─
   const allSettings = await db
     .select()
     .from(accountSyncSettings)
@@ -399,6 +409,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         });
       }
     } catch (err) {
+      console.error("[bulk-activate] Client creation failed:", err instanceof Error ? err.message : err);
       for (const s of toCreate) {
         results.push({
           accountNumber: s.accountNumber,
@@ -409,28 +420,27 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     }
   }
 
-  // ── 5. Queue webhook events for sync ────────────────────────────────
+  // ── 5. Synchronous transaction import ───────────────────────────────
   if (allConfigIds.length > 0 && integration === "tripletex") {
-    const ts = Date.now();
+    const SYNC_TIMEOUT_MS = 120_000;
     try {
-      await db.insert(webhookInbox).values([
-        {
-          tenantId,
-          source: integration,
-          eventType: "sync.bulk.activated",
-          externalId: `${companyId}-${ts}`,
-          payload: { configIds: allConfigIds, companyId, tenantId },
-        },
-        {
-          tenantId,
-          source: integration,
-          eventType: "sync.balances.requested",
-          externalId: `balance-${companyId}-${ts}`,
-          payload: { companyId, tenantId },
-        },
+      const { syncBulkTransactionsForConfigs } = await import("@/lib/tripletex/sync");
+      console.log(`[bulk-activate] Starting synchronous transaction import for ${allConfigIds.length} configs`);
+      const t0 = Date.now();
+
+      await Promise.race([
+        syncBulkTransactionsForConfigs(allConfigIds),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Sync timed out after ${SYNC_TIMEOUT_MS / 1000}s`)), SYNC_TIMEOUT_MS),
+        ),
       ]);
-    } catch {
-      /* sync poller fallback */
+
+      console.log(`[bulk-activate] Transaction import completed in ${Date.now() - t0}ms`);
+    } catch (err) {
+      console.warn(
+        "[bulk-activate] Transaction import failed/timed out (periodic sync will retry):",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

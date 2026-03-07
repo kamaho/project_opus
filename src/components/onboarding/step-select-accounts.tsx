@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
@@ -52,7 +51,6 @@ interface StepSelectAccountsProps {
 type ImportPhase = "idle" | "activating" | "completing" | "done";
 
 export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [companyGroups, setCompanyGroups] = useState<CompanyGroup[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -139,7 +137,7 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
 
   const handleImport = useCallback(async () => {
     if (totalSelected === 0) {
-      handleSkip();
+      onComplete();
       return;
     }
 
@@ -147,8 +145,7 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
 
     try {
       for (const group of companyGroups) {
-        const groupAccountIds = new Set(group.accounts.map((a) => a.id));
-        const selectedAccounts = group.accounts.filter((a) => groupAccountIds.has(a.id) && selected.has(a.id));
+        const selectedAccounts = group.accounts.filter((a) => selected.has(a.id));
         if (selectedAccounts.length === 0) continue;
 
         const accountNumbers = selectedAccounts.map((a) => a.accountNumber);
@@ -166,57 +163,28 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
           },
         );
 
+        const data = await res.json().catch(() => null);
         if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          console.error("[onboarding] bulk-activate failed:", data);
+          console.error("[onboarding] bulk-activate HTTP error:", data);
+        } else if (data?.results) {
+          const errors = (data.results as Array<{ status: string; error?: string }>).filter(
+            (r) => r.status === "error",
+          );
+          if (errors.length > 0) {
+            console.error("[onboarding] bulk-activate errors:", errors);
+            toast.error(`${errors.length} kontoer kunne ikke importeres: ${errors[0]?.error ?? "ukjent feil"}`);
+          }
         }
       }
 
-      setImportPhase("completing");
-
-      const completeRes = await fetch("/api/onboarding/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ erpConnected: true }),
-      });
-
-      if (!completeRes.ok) {
-        toast.error("Kunne ikke fullføre onboarding. Prøv igjen.");
-        setImportPhase("idle");
-        return;
-      }
-
       setImportPhase("done");
-      toast.success(`${totalSelected} kontoer importert. Velkommen til Revizo!`);
+      toast.success(`${totalSelected} kontoer importert med saldo og transaksjoner.`);
       onComplete();
-      router.push("/dashboard");
     } catch {
       toast.error("Noe gikk galt under importen. Prøv igjen.");
       setImportPhase("idle");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyGroups, selected, totalSelected, router]);
-
-  const handleSkip = useCallback(async () => {
-    setImportPhase("completing");
-    try {
-      const res = await fetch("/api/onboarding/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ erpConnected: true }),
-      });
-      if (!res.ok) {
-        toast.error("Kunne ikke fullføre onboarding.");
-        setImportPhase("idle");
-        return;
-      }
-      onComplete();
-      router.push("/dashboard");
-    } catch {
-      toast.error("Nettverksfeil. Prøv igjen.");
-      setImportPhase("idle");
-    }
-  }, [onComplete, router]);
+  }, [companyGroups, selected, totalSelected, onComplete]);
 
   if (loading) {
     return (
@@ -241,9 +209,9 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
           Kontolisten fra regnskapssystemet er ikke klar ennå. Du kan importere
           kontoer fra Kontoplan-siden etter onboarding.
         </p>
-        <Button size="lg" onClick={handleSkip} className="gap-2">
-          {importPhase === "completing" ? "Fullfører..." : "Fortsett til Revizo"}
-          {importPhase !== "completing" && <ArrowRight className="h-4 w-4" />}
+        <Button size="lg" onClick={() => onComplete()} className="gap-2">
+          Fortsett
+          <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
     );
@@ -258,8 +226,8 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
           Velg kontoer for import
         </h2>
         <p className="text-muted-foreground max-w-lg mx-auto">
-          Velg hvilke kontoer som skal importeres til Revizo. Anbefalte kontoer
-          er forhåndsvalgt.
+          Valgte kontoer importeres med transaksjoner for avstemming.
+          Alle andre kontoer får kun saldo. Du kan endre dette senere.
         </p>
       </div>
 
@@ -370,33 +338,17 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
 
       {/* Import progress */}
       {isImporting && (
-        <div className="rounded-lg border bg-muted/20 px-4 py-3 space-y-2">
+        <div className="rounded-lg border bg-muted/20 px-4 py-3">
           <div className="flex items-center gap-3">
-            <Loader2 className="h-4 w-4 animate-spin" />
+            {importPhase === "done" ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
             <span className="text-sm font-medium">
-              {importPhase === "activating" && "Importerer kontoer..."}
-              {importPhase === "completing" && "Fullfører oppsett..."}
-              {importPhase === "done" && "Ferdig!"}
-            </span>
-          </div>
-          <div className="flex gap-4 text-xs text-muted-foreground pl-7">
-            <span className="flex items-center gap-1">
-              {importPhase === "activating" ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Check className="h-3 w-3" />
-              )}
-              Oppretter klienter
-            </span>
-            <span className="flex items-center gap-1">
-              {importPhase === "completing" ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : importPhase === "done" ? (
-                <Check className="h-3 w-3" />
-              ) : (
-                <span className="h-3 w-3" />
-              )}
-              Fullfører
+            {importPhase === "activating" && "Oppretter klienter og henter transaksjoner fra Tripletex..."}
+            {importPhase === "completing" && "Fullfører import..."}
+            {importPhase === "done" && `${totalSelected} kontoer importert med transaksjoner`}
             </span>
           </div>
         </div>
@@ -417,20 +369,20 @@ export function StepSelectAccounts({ onComplete }: StepSelectAccountsProps) {
             </>
           ) : totalSelected > 0 ? (
             <>
-              Importer {totalSelected} kontoer og start Revizo
+              Importer {totalSelected} kontoer
               <ArrowRight className="h-4 w-4" />
             </>
           ) : (
             <>
-              Start Revizo uten import
+              Fortsett uten import
               <ArrowRight className="h-4 w-4" />
             </>
           )}
         </Button>
 
-        {!isImporting && (
+        {!isImporting && totalSelected > 0 && (
           <button
-            onClick={handleSkip}
+            onClick={() => onComplete()}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             Hopp over — jeg importerer kontoer senere

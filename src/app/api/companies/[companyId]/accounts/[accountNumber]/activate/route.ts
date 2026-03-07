@@ -4,11 +4,11 @@ import { db } from "@/lib/db";
 import {
   accountSyncSettings,
   companies,
-  webhookInbox,
 } from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /**
  * POST /api/companies/[companyId]/accounts/[accountNumber]/activate
@@ -153,16 +153,13 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
       .set({ syncLevel: "transactions", updatedAt: new Date() })
       .where(eq(accountSyncSettings.id, acctSetting.id));
 
-    if (configId) {
+    if (configId && integration === "tripletex") {
       try {
-        await db.insert(webhookInbox).values({
-          tenantId,
-          source: integration,
-          eventType: "sync.account.activated",
-          externalId: configId,
-          payload: { configId, clientId: acctSetting.clientId, accountNumber },
-        });
-      } catch { /* cron fallback */ }
+        const { syncTransactionsForAccount } = await import("@/lib/tripletex/sync");
+        await syncTransactionsForAccount(configId);
+      } catch (err) {
+        console.warn("[activate] Sync failed (periodic sync will retry):", err instanceof Error ? err.message : err);
+      }
     }
 
     return NextResponse.json(
@@ -293,24 +290,14 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
       await seedStandardRules(result.clientId, tenantId);
     } catch { /* non-fatal */ }
 
-    if (result.configId && integration) {
+    if (result.configId && integration === "tripletex") {
       try {
-        await db.insert(webhookInbox).values({
-          tenantId,
-          source: integration,
-          eventType: "sync.account.activated",
-          externalId: result.configId,
-          payload: {
-            configId: result.configId,
-            clientId: result.clientId,
-            accountNumber,
-          },
-        });
+        const { syncTransactionsForAccount } = await import("@/lib/tripletex/sync");
+        console.log(`[activate] Starting synchronous transaction import for config=${result.configId}`);
+        await syncTransactionsForAccount(result.configId);
+        console.log(`[activate] Transaction import completed for config=${result.configId}`);
       } catch (err) {
-        console.error(
-          `[activate] Failed to queue sync job for config=${result.configId}:`,
-          err
-        );
+        console.warn("[activate] Sync failed (periodic sync will retry):", err instanceof Error ? err.message : err);
       }
     }
   }

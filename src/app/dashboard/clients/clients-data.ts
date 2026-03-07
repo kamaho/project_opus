@@ -1,4 +1,3 @@
-import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db";
 import {
   clients,
@@ -42,8 +41,6 @@ type ClientsPageResult =
   | { type: "data"; rows: ClientRow[]; groups: GroupData[] }
   | { type: "empty" }
   | { type: "sync-in-progress" };
-
-const CACHE_TTL = 30;
 
 async function fetchClientsPageDataInner(
   orgId: string,
@@ -100,6 +97,8 @@ async function fetchClientsPageDataInner(
   ]);
 
   const clientIds = list.map((c) => c.id);
+
+  
 
   if (clientIds.length === 0 && rawAcctRows.length === 0) {
     if (selectedCompanyIds.length === 1) {
@@ -235,8 +234,4 @@ async function fetchClientsPageDataInner(
   return { type: "data", rows, groups };
 }
 
-export const fetchClientsPageData = unstable_cache(
-  fetchClientsPageDataInner,
-  ["clients-page-data"],
-  { revalidate: CACHE_TTL, tags: ["clients", "companies"] }
-);
+export const fetchClientsPageData = fetchClientsPageDataInner;

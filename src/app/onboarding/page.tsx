@@ -46,8 +46,8 @@ function getSteps(path: OnboardingPath, showTeamStep: boolean): StepDef[] {
     steps.push(
       { id: "select-erp", label: "System" },
       { id: "configure-erp", label: "Tilkobling" },
-      { id: "connect-bank", label: "Bank" },
       { id: "select-accounts", label: "Kontoer" },
+      { id: "connect-bank", label: "Bank" },
     );
   } else if (path === "manual") {
     steps.push(
@@ -264,7 +264,7 @@ export default function OnboardingPage() {
           selectedErpId === "visma-nxt" ? (
             <StepConfigureVismaNxt
               onComplete={() => {
-                goToStepId("connect-bank");
+                goToStepId("select-accounts");
               }}
             />
           ) : (
@@ -272,7 +272,7 @@ export default function OnboardingPage() {
               erpId={selectedErpId}
               onComplete={(result) => {
                 setErpResult(result);
-                goToStepId("connect-bank");
+                goToStepId("select-accounts");
               }}
             />
           )
@@ -280,7 +280,7 @@ export default function OnboardingPage() {
 
         {currentStepId === "connect-bank" && (
           <StepConnectBank
-            onContinue={() => goToStepId("select-accounts")}
+            onContinue={handleFinish}
           />
         )}
 
@@ -326,7 +326,7 @@ export default function OnboardingPage() {
         {currentStepId === "select-accounts" && (
           <StepSelectAccounts
             onComplete={() => {
-              clearPersistedState();
+              goToStepId("connect-bank");
             }}
           />
         )}
