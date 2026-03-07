@@ -2,8 +2,13 @@ import { withTenant } from "@/lib/auth";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
+  accounts,
   accountSyncSettings,
+  clients,
   companies,
+  matchingRules,
+  tripletexSyncConfigs,
+  vismaNxtSyncConfigs,
   webhookInbox,
 } from "@/lib/db/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
@@ -14,12 +19,24 @@ export const dynamic = "force-dynamic";
 
 const MAX_BULK_ACTIVATE = 100;
 
+const STANDARD_RULES = [
+  { name: "1:1 med lik dato", priority: 1, ruleType: "one_to_one" as const, isInternal: false, dateMustMatch: true, dateToleranceDays: 0 },
+  { name: "1:1 uten datokrav", priority: 2, ruleType: "one_to_one" as const, isInternal: false, dateMustMatch: false, dateToleranceDays: 0 },
+  { name: "Intern 1:1 med lik dato", priority: 3, ruleType: "one_to_one" as const, isInternal: true, dateMustMatch: true, dateToleranceDays: 0 },
+  { name: "Intern 1:1 uten datokrav", priority: 4, ruleType: "one_to_one" as const, isInternal: true, dateMustMatch: false, dateToleranceDays: 0 },
+  { name: "Mange:1 med lik dato", priority: 5, ruleType: "many_to_one" as const, isInternal: false, dateMustMatch: true, dateToleranceDays: 0 },
+  { name: "Mange:1 uten datokrav", priority: 6, ruleType: "many_to_one" as const, isInternal: false, dateMustMatch: false, dateToleranceDays: 0 },
+  { name: "Intern Mange:1 med lik dato", priority: 7, ruleType: "many_to_one" as const, isInternal: true, dateMustMatch: true, dateToleranceDays: 0 },
+  { name: "Intern Mange:1 uten datokrav", priority: 8, ruleType: "many_to_one" as const, isInternal: true, dateMustMatch: false, dateToleranceDays: 0 },
+  { name: "Mange:Mange med lik dato", priority: 9, ruleType: "many_to_many" as const, isInternal: false, dateMustMatch: true, dateToleranceDays: 0 },
+  { name: "Mange:Mange uten datokrav", priority: 10, ruleType: "many_to_many" as const, isInternal: false, dateMustMatch: false, dateToleranceDays: 0 },
+];
+
 /**
  * POST /api/companies/[companyId]/accounts/bulk-activate
  *
- * Activates transaction sync for multiple accounts at once (max 20).
- * Creates clients + sync-configs and queues Worker jobs.
- * Supports both Tripletex and Visma NXT companies.
+ * Activates sync for up to 100 accounts using bulk SQL (8 statements
+ * instead of N×8 sequential ones). Supports Tripletex and Visma NXT.
  */
 export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   const companyId = params?.companyId;
@@ -33,7 +50,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
       .min(1, "Minst ett kontonummer er påkrevd")
       .max(MAX_BULK_ACTIVATE, `Maks ${MAX_BULK_ACTIVATE} kontoer per gang`),
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Må være YYYY-MM-DD").optional(),
-    syncLevel: z.enum(["balance_only", "transactions"], { message: "Må være 'balance_only' eller 'transactions'" }).default("balance_only"),
+    syncLevel: z.enum(["balance_only", "transactions"]).default("balance_only"),
   });
 
   const parsed = bulkSchema.safeParse(await req.json().catch(() => ({})));
@@ -52,10 +69,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     .limit(1);
 
   if (!company) {
-    return NextResponse.json(
-      { error: "Selskap ikke funnet" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Selskap ikke funnet" }, { status: 404 });
   }
 
   const integration: "tripletex" | "visma_nxt" | null =
@@ -68,19 +82,20 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
   if (!integration) {
     return NextResponse.json(
       { error: "Selskapet er ikke koblet til et regnskapssystem" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  const settings = await db
+  // ── 1. Fetch all relevant settings in ONE query ──────────────────────
+  const allSettings = await db
     .select()
     .from(accountSyncSettings)
     .where(
       and(
         eq(accountSyncSettings.companyId, companyId),
         eq(accountSyncSettings.tenantId, tenantId),
-        inArray(accountSyncSettings.accountNumber, accountNumbers)
-      )
+        inArray(accountSyncSettings.accountNumber, accountNumbers),
+      ),
     );
 
   const resolvedDateFrom = dateFrom ?? `${new Date().getFullYear()}-01-01`;
@@ -92,224 +107,326 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     error?: string;
   }> = [];
 
-  for (const setting of settings) {
-    if (setting.clientId && (setting.syncLevel === syncLevel || setting.syncLevel === "transactions")) {
-      results.push({
-        accountNumber: setting.accountNumber,
-        status: "already_active",
-        clientId: setting.clientId,
-      });
-      continue;
-    }
+  // ── 2. Classify into three groups ────────────────────────────────────
+  type Setting = (typeof allSettings)[number];
+  const alreadyActive: Setting[] = [];
+  const toUpgrade: Setting[] = [];
+  const toCreate: Setting[] = [];
 
-    try {
-      const isBankAccount = setting.accountType === "bank";
-      const accountType = isBankAccount ? "bank" : "ledger";
-      const counterType = isBankAccount ? "ledger" : "bank";
-
-      if (setting.clientId && setting.syncLevel === "balance_only" && syncLevel === "transactions") {
-        let cfgId: string | undefined;
-
-        if (integration === "tripletex" && company.tripletexCompanyId) {
-          const configRows = await db.execute<{ id: string }>(sql`
-            INSERT INTO tripletex_sync_configs (
-              client_id, tenant_id, tripletex_company_id,
-              set1_tripletex_account_id, set1_tripletex_account_ids,
-              date_from, sync_status, is_active
-            ) VALUES (
-              ${setting.clientId}, ${tenantId}, ${company.tripletexCompanyId},
-              ${setting.tripletexAccountId},
-              ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-              ${resolvedDateFrom}, 'pending', true
-            )
-            ON CONFLICT (client_id) DO UPDATE SET
-              set1_tripletex_account_id = ${setting.tripletexAccountId},
-              set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-              date_from = ${resolvedDateFrom},
-              sync_status = 'pending',
-              is_active = true,
-              updated_at = now()
-            RETURNING id
-          `);
-          cfgId = Array.from(configRows)[0]?.id;
-        } else if (integration === "visma_nxt" && company.vismaNxtCompanyNo) {
-          const accountId = setting.vismaNxtAccountId;
-          const configRows = await db.execute<{ id: string }>(sql`
-            INSERT INTO visma_nxt_sync_configs (
-              client_id, tenant_id, visma_company_no,
-              set1_account_ids,
-              date_from, sync_status, is_active
-            ) VALUES (
-              ${setting.clientId}, ${tenantId}, ${company.vismaNxtCompanyNo},
-              ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
-              ${resolvedDateFrom}, 'pending', true
-            )
-            ON CONFLICT (client_id) DO UPDATE SET
-              set1_account_ids = ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
-              date_from = ${resolvedDateFrom},
-              sync_status = 'pending',
-              is_active = true,
-              updated_at = now()
-            RETURNING id
-          `);
-          cfgId = Array.from(configRows)[0]?.id;
-        }
-
-        await db
-          .update(accountSyncSettings)
-          .set({ syncLevel: "transactions", updatedAt: new Date() })
-          .where(eq(accountSyncSettings.id, setting.id));
-
-        if (cfgId) allConfigIds.push(cfgId);
-
-        results.push({ accountNumber: setting.accountNumber, status: "activated", clientId: setting.clientId });
-        continue;
-      }
-
-      const { clientId, configId } = await db.transaction(async (tx) => {
-        const integrationCol =
-          integration === "tripletex"
-            ? sql`, tripletex_account_id`
-            : sql`, visma_nxt_account_id`;
-        const integrationVal =
-          integration === "tripletex"
-            ? sql`, ${setting.tripletexAccountId}`
-            : sql`, ${setting.vismaNxtAccountId}`;
-        const integrationUpdate =
-          integration === "tripletex"
-            ? sql`tripletex_account_id = EXCLUDED.tripletex_account_id`
-            : sql`visma_nxt_account_id = EXCLUDED.visma_nxt_account_id`;
-
-        const acct1Rows = await tx.execute<{ id: string }>(sql`
-          INSERT INTO accounts (company_id, account_number, name, account_type ${integrationCol})
-          VALUES (${companyId}, ${setting.accountNumber}, ${setting.accountName}, ${accountType} ${integrationVal})
-          ON CONFLICT (company_id, account_number, account_type) DO UPDATE SET
-            name = EXCLUDED.name, ${integrationUpdate}
-          RETURNING id
-        `);
-        const acct1Id = Array.from(acct1Rows)[0]?.id;
-
-        const acct2Rows = await tx.execute<{ id: string }>(sql`
-          INSERT INTO accounts (company_id, account_number, name, account_type)
-          VALUES (${companyId}, ${setting.accountNumber}, ${`${setting.accountName} (motkonto)`}, ${counterType})
-          ON CONFLICT (company_id, account_number, account_type) DO UPDATE SET
-            name = EXCLUDED.name
-          RETURNING id
-        `);
-        const acct2Id = Array.from(acct2Rows)[0]?.id;
-
-        if (!acct1Id || !acct2Id) throw new Error("Failed to create accounts");
-
-        const clientName = `${setting.accountNumber} ${setting.accountName}`;
-        const clientRows = await tx.execute<{ id: string }>(sql`
-          INSERT INTO clients (company_id, name, set1_account_id, set2_account_id, opening_balance_set1, opening_balance_date)
-          VALUES (${companyId}, ${clientName}, ${acct1Id}, ${acct2Id}, ${setting.balanceIn ?? "0"}, ${resolvedDateFrom})
-          RETURNING id
-        `);
-        const cId = Array.from(clientRows)[0]?.id;
-        if (!cId) throw new Error("Failed to create client");
-
-        let cfgId: string | null = null;
-
-        if (syncLevel === "transactions") {
-          if (integration === "tripletex" && company.tripletexCompanyId) {
-            const configRows = await tx.execute<{ id: string }>(sql`
-              INSERT INTO tripletex_sync_configs (
-                client_id, tenant_id, tripletex_company_id,
-                set1_tripletex_account_id, set1_tripletex_account_ids,
-                date_from, sync_status, is_active
-              ) VALUES (
-                ${cId}, ${tenantId}, ${company.tripletexCompanyId},
-                ${setting.tripletexAccountId},
-                ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-                ${resolvedDateFrom}, 'pending', true
-              )
-              ON CONFLICT (client_id) DO UPDATE SET
-                set1_tripletex_account_id = ${setting.tripletexAccountId},
-                set1_tripletex_account_ids = ${JSON.stringify([setting.tripletexAccountId])}::jsonb,
-                date_from = ${resolvedDateFrom},
-                sync_status = 'pending',
-                is_active = true,
-                updated_at = now()
-              RETURNING id
-            `);
-            cfgId = Array.from(configRows)[0]?.id ?? null;
-          } else if (integration === "visma_nxt" && company.vismaNxtCompanyNo) {
-            const accountId = setting.vismaNxtAccountId;
-            const configRows = await tx.execute<{ id: string }>(sql`
-              INSERT INTO visma_nxt_sync_configs (
-                client_id, tenant_id, visma_company_no,
-                set1_account_ids,
-                date_from, sync_status, is_active
-              ) VALUES (
-                ${cId}, ${tenantId}, ${company.vismaNxtCompanyNo},
-                ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
-                ${resolvedDateFrom}, 'pending', true
-              )
-              ON CONFLICT (client_id) DO UPDATE SET
-                set1_account_ids = ${JSON.stringify(accountId != null ? [accountId] : [])}::jsonb,
-                date_from = ${resolvedDateFrom},
-                sync_status = 'pending',
-                is_active = true,
-                updated_at = now()
-              RETURNING id
-            `);
-            cfgId = Array.from(configRows)[0]?.id ?? null;
-          }
-        }
-
-        await tx
-          .update(accountSyncSettings)
-          .set({
-            syncLevel,
-            clientId: cId,
-            activatedAt: new Date(),
-            activatedBy: userId,
-            updatedAt: new Date(),
-          })
-          .where(eq(accountSyncSettings.id, setting.id));
-
-        return { clientId: cId, configId: cfgId };
-      });
-
-      if (syncLevel === "transactions") {
-        try {
-          const { seedStandardRules } = await import("@/lib/matching/seed-rules");
-          await seedStandardRules(clientId, tenantId);
-        } catch { /* non-fatal */ }
-
-        if (configId) allConfigIds.push(configId);
-      }
-
-      results.push({
-        accountNumber: setting.accountNumber,
-        status: "activated",
-        clientId,
-      });
-    } catch (err) {
-      results.push({
-        accountNumber: setting.accountNumber,
-        status: "error",
-        error: err instanceof Error ? err.message : "Ukjent feil",
-      });
+  for (const s of allSettings) {
+    if (s.clientId && (s.syncLevel === syncLevel || s.syncLevel === "transactions")) {
+      alreadyActive.push(s);
+    } else if (s.clientId && s.syncLevel === "balance_only" && syncLevel === "transactions") {
+      toUpgrade.push(s);
+    } else {
+      toCreate.push(s);
     }
   }
 
-  // Queue a single bulk sync event instead of N individual events
+  for (const s of alreadyActive) {
+    results.push({ accountNumber: s.accountNumber, status: "already_active", clientId: s.clientId! });
+  }
+
+  // ── 3. Bulk UPGRADE: existing client, balance_only → transactions ───
+  if (toUpgrade.length > 0 && syncLevel === "transactions") {
+    try {
+      if (integration === "tripletex" && company.tripletexCompanyId) {
+        const cfgValues = toUpgrade.map((s) => ({
+          clientId: s.clientId!,
+          tenantId,
+          tripletexCompanyId: company.tripletexCompanyId!,
+          set1TripletexAccountId: s.tripletexAccountId,
+          set1TripletexAccountIds: s.tripletexAccountId ? [s.tripletexAccountId] : [],
+          dateFrom: resolvedDateFrom,
+          syncStatus: "pending" as const,
+          isActive: true,
+        }));
+        const cfgRows = await db
+          .insert(tripletexSyncConfigs)
+          .values(cfgValues)
+          .onConflictDoUpdate({
+            target: [tripletexSyncConfigs.clientId],
+            set: {
+              set1TripletexAccountId: sql`excluded.set1_tripletex_account_id`,
+              set1TripletexAccountIds: sql`excluded.set1_tripletex_account_ids`,
+              dateFrom: sql`excluded.date_from`,
+              syncStatus: sql`'pending'`,
+              isActive: sql`true`,
+              updatedAt: sql`now()`,
+            },
+          })
+          .returning({ id: tripletexSyncConfigs.id });
+        for (const r of cfgRows) allConfigIds.push(r.id);
+      } else if (integration === "visma_nxt" && company.vismaNxtCompanyNo) {
+        const cfgValues = toUpgrade.map((s) => ({
+          clientId: s.clientId!,
+          tenantId,
+          vismaCompanyNo: company.vismaNxtCompanyNo!,
+          set1AccountIds: s.vismaNxtAccountId != null ? [s.vismaNxtAccountId] : [],
+          dateFrom: resolvedDateFrom,
+          syncStatus: "pending" as const,
+          isActive: true,
+        }));
+        const cfgRows = await db
+          .insert(vismaNxtSyncConfigs)
+          .values(cfgValues)
+          .onConflictDoUpdate({
+            target: [vismaNxtSyncConfigs.clientId],
+            set: {
+              set1AccountIds: sql`excluded.set1_account_ids`,
+              dateFrom: sql`excluded.date_from`,
+              syncStatus: sql`'pending'`,
+              isActive: sql`true`,
+              updatedAt: sql`now()`,
+            },
+          })
+          .returning({ id: vismaNxtSyncConfigs.id });
+        for (const r of cfgRows) allConfigIds.push(r.id);
+      }
+
+      await db
+        .update(accountSyncSettings)
+        .set({ syncLevel: "transactions", updatedAt: new Date() })
+        .where(inArray(accountSyncSettings.id, toUpgrade.map((s) => s.id)));
+
+      for (const s of toUpgrade) {
+        results.push({ accountNumber: s.accountNumber, status: "activated", clientId: s.clientId! });
+      }
+    } catch (err) {
+      for (const s of toUpgrade) {
+        results.push({
+          accountNumber: s.accountNumber,
+          status: "error",
+          error: err instanceof Error ? err.message : "Upgrade feilet",
+        });
+      }
+    }
+  }
+
+  // ── 4. Bulk CREATE: new accounts + clients + configs in one tx ───────
+  if (toCreate.length > 0) {
+    try {
+      const clientMap = await db.transaction(async (tx) => {
+        // 4a. Bulk INSERT M1 accounts (one statement, N rows)
+        const m1Values = toCreate.map((s) => ({
+          companyId,
+          accountNumber: s.accountNumber,
+          name: s.accountName,
+          accountType: (s.accountType === "bank" ? "bank" : "ledger") as typeof accounts.$inferInsert.accountType,
+          ...(integration === "tripletex"
+            ? { tripletexAccountId: s.tripletexAccountId }
+            : { vismaNxtAccountId: s.vismaNxtAccountId }),
+        }));
+
+        const m1Rows = await tx
+          .insert(accounts)
+          .values(m1Values)
+          .onConflictDoUpdate({
+            target: [accounts.companyId, accounts.accountNumber, accounts.accountType],
+            set: {
+              name: sql`excluded.name`,
+              ...(integration === "tripletex"
+                ? { tripletexAccountId: sql`excluded.tripletex_account_id` }
+                : { vismaNxtAccountId: sql`excluded.visma_nxt_account_id` }),
+            },
+          })
+          .returning({ id: accounts.id, accountNumber: accounts.accountNumber });
+
+        const m1Map = new Map(m1Rows.map((r) => [r.accountNumber, r.id]));
+
+        // 4b. Bulk INSERT M2 accounts (counter-type, one statement)
+        const m2Values = toCreate.map((s) => ({
+          companyId,
+          accountNumber: s.accountNumber,
+          name: `${s.accountName} (motkonto)`,
+          accountType: (s.accountType === "bank" ? "ledger" : "bank") as typeof accounts.$inferInsert.accountType,
+        }));
+
+        const m2Rows = await tx
+          .insert(accounts)
+          .values(m2Values)
+          .onConflictDoUpdate({
+            target: [accounts.companyId, accounts.accountNumber, accounts.accountType],
+            set: { name: sql`excluded.name` },
+          })
+          .returning({ id: accounts.id, accountNumber: accounts.accountNumber });
+
+        const m2Map = new Map(m2Rows.map((r) => [r.accountNumber, r.id]));
+
+        // 4c. Bulk INSERT clients using Map-lookup on accountNumber
+        const clientValues = toCreate.map((s) => ({
+          companyId,
+          name: `${s.accountNumber} ${s.accountName}`,
+          set1AccountId: m1Map.get(s.accountNumber)!,
+          set2AccountId: m2Map.get(s.accountNumber)!,
+          openingBalanceSet1: s.balanceIn ?? "0",
+          openingBalanceDate: resolvedDateFrom,
+        }));
+
+        const clientRows = await tx
+          .insert(clients)
+          .values(clientValues)
+          .returning({ id: clients.id, set1AccountId: clients.set1AccountId });
+
+        // Map back via set1AccountId → m1Map reverse → accountNumber
+        const m1Reverse = new Map(Array.from(m1Map.entries()).map(([an, id]) => [id, an]));
+        const cMap = new Map<string, string>();
+        for (const r of clientRows) {
+          const acctNum = m1Reverse.get(r.set1AccountId);
+          if (acctNum) cMap.set(acctNum, r.id);
+        }
+
+        // 4d. Bulk INSERT sync configs (if transactions level)
+        if (syncLevel === "transactions") {
+          if (integration === "tripletex" && company.tripletexCompanyId) {
+            const cfgValues = toCreate
+              .filter((s) => cMap.has(s.accountNumber))
+              .map((s) => ({
+                clientId: cMap.get(s.accountNumber)!,
+                tenantId,
+                tripletexCompanyId: company.tripletexCompanyId!,
+                set1TripletexAccountId: s.tripletexAccountId,
+                set1TripletexAccountIds: s.tripletexAccountId ? [s.tripletexAccountId] : [],
+                dateFrom: resolvedDateFrom,
+                syncStatus: "pending" as const,
+                isActive: true,
+              }));
+
+            if (cfgValues.length > 0) {
+              const cfgRows = await tx
+                .insert(tripletexSyncConfigs)
+                .values(cfgValues)
+                .onConflictDoUpdate({
+                  target: [tripletexSyncConfigs.clientId],
+                  set: {
+                    set1TripletexAccountId: sql`excluded.set1_tripletex_account_id`,
+                    set1TripletexAccountIds: sql`excluded.set1_tripletex_account_ids`,
+                    dateFrom: sql`excluded.date_from`,
+                    syncStatus: sql`'pending'`,
+                    isActive: sql`true`,
+                    updatedAt: sql`now()`,
+                  },
+                })
+                .returning({ id: tripletexSyncConfigs.id });
+              for (const r of cfgRows) allConfigIds.push(r.id);
+            }
+          } else if (integration === "visma_nxt" && company.vismaNxtCompanyNo) {
+            const cfgValues = toCreate
+              .filter((s) => cMap.has(s.accountNumber))
+              .map((s) => ({
+                clientId: cMap.get(s.accountNumber)!,
+                tenantId,
+                vismaCompanyNo: company.vismaNxtCompanyNo!,
+                set1AccountIds: s.vismaNxtAccountId != null ? [s.vismaNxtAccountId] : [],
+                dateFrom: resolvedDateFrom,
+                syncStatus: "pending" as const,
+                isActive: true,
+              }));
+
+            if (cfgValues.length > 0) {
+              const cfgRows = await tx
+                .insert(vismaNxtSyncConfigs)
+                .values(cfgValues)
+                .onConflictDoUpdate({
+                  target: [vismaNxtSyncConfigs.clientId],
+                  set: {
+                    set1AccountIds: sql`excluded.set1_account_ids`,
+                    dateFrom: sql`excluded.date_from`,
+                    syncStatus: sql`'pending'`,
+                    isActive: sql`true`,
+                    updatedAt: sql`now()`,
+                  },
+                })
+                .returning({ id: vismaNxtSyncConfigs.id });
+              for (const r of cfgRows) allConfigIds.push(r.id);
+            }
+          }
+        }
+
+        // 4e. Bulk UPDATE accountSyncSettings with per-row clientId
+        const updateTuples = toCreate
+          .filter((s) => cMap.has(s.accountNumber))
+          .map((s) =>
+            sql`(${s.id}::uuid, ${syncLevel}::text, ${cMap.get(s.accountNumber)!}::uuid, ${userId ?? "system"}::text)`,
+          );
+
+        if (updateTuples.length > 0) {
+          await tx.execute(sql`
+            UPDATE account_sync_settings AS ass
+            SET
+              sync_level = v.sl,
+              client_id = v.cid,
+              activated_at = now(),
+              activated_by = v.aby,
+              updated_at = now()
+            FROM (VALUES ${sql.join(updateTuples, sql`, `)}) AS v(id, sl, cid, aby)
+            WHERE ass.id = v.id
+          `);
+        }
+
+        return cMap;
+      });
+
+      // 4f. Bulk INSERT matching rules (outside tx — non-fatal)
+      if (syncLevel === "transactions" && clientMap.size > 0) {
+        try {
+          const ruleValues = Array.from(clientMap.values()).flatMap((cId) =>
+            STANDARD_RULES.map((r) => ({
+              clientId: cId,
+              tenantId,
+              ...r,
+              compareCurrency: "local" as const,
+              allowTolerance: false,
+              toleranceAmount: "0",
+              conditions: [],
+              isActive: !r.isInternal,
+            })),
+          );
+          if (ruleValues.length > 0) {
+            await db.insert(matchingRules).values(ruleValues);
+          }
+        } catch {
+          /* non-fatal — rules can be seeded later */
+        }
+      }
+
+      for (const s of toCreate) {
+        results.push({
+          accountNumber: s.accountNumber,
+          status: clientMap.has(s.accountNumber) ? "activated" : "error",
+          clientId: clientMap.get(s.accountNumber),
+          error: clientMap.has(s.accountNumber) ? undefined : "Opprettelse feilet",
+        });
+      }
+    } catch (err) {
+      for (const s of toCreate) {
+        results.push({
+          accountNumber: s.accountNumber,
+          status: "error",
+          error: err instanceof Error ? err.message : "Ukjent feil",
+        });
+      }
+    }
+  }
+
+  // ── 5. Queue ONE webhook event for all new configs ──────────────────
   if (allConfigIds.length > 0 && integration === "tripletex") {
     try {
       await db.insert(webhookInbox).values({
         tenantId,
         source: integration,
         eventType: "sync.bulk.activated",
-        externalId: companyId,
+        externalId: `${companyId}-${Date.now()}`,
         payload: { configIds: allConfigIds, companyId, tenantId },
       });
-    } catch { /* sync poller fallback */ }
+    } catch {
+      /* sync poller fallback */
+    }
   }
 
+  // ── 6. Report accounts not found in settings ────────────────────────
   const notFound = accountNumbers.filter(
-    (n) => !settings.some((s) => s.accountNumber === n)
+    (n) => !allSettings.some((s) => s.accountNumber === n),
   );
   for (const n of notFound) {
     results.push({ accountNumber: n, status: "error", error: "Konto ikke funnet" });

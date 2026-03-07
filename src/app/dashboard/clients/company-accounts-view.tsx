@@ -268,57 +268,48 @@ export function CompanyAccountsView({
 
   const handleBulkActivate = useCallback(
     async (accountNumbers: string[]) => {
-      for (const n of accountNumbers) {
-        setActivating((prev) => new Set(prev).add(n));
-      }
-
-      const BATCH_SIZE = 20;
-      let totalActivated = 0;
-      let totalErrors = 0;
+      setActivating(new Set(accountNumbers));
 
       try {
-        for (let i = 0; i < accountNumbers.length; i += BATCH_SIZE) {
-          const batch = accountNumbers.slice(i, i + BATCH_SIZE);
-          const res = await fetch(
-            `/api/companies/${companyId}/accounts/bulk-activate`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                accountNumbers: batch,
-                dateFrom: `${new Date().getFullYear()}-01-01`,
-                syncLevel: "transactions",
-              }),
-            }
-          );
-          if (!res.ok) {
-            totalErrors += batch.length;
-            continue;
-          }
-          const data = await res.json();
-          const results = data.results as Array<{ status: string }>;
-          totalActivated += results.filter((r) => r.status === "activated").length;
-          totalErrors += results.filter((r) => r.status === "error").length;
-        }
-
-        if (totalActivated > 0) {
-          toast.success(
-            `Import startet for ${totalActivated} ${totalActivated === 1 ? "konto" : "kontoer"}. Du får beskjed når dataen er klar.`
-          );
-        }
-        if (totalErrors > 0) {
-          toast.error(`${totalErrors} ${totalErrors === 1 ? "konto" : "kontoer"} kunne ikke aktiveres.`);
-        }
-        router.refresh();
-      } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Kunne ikke aktivere kontoer"
+        const res = await fetch(
+          `/api/companies/${companyId}/accounts/bulk-activate`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              accountNumbers,
+              dateFrom: `${new Date().getFullYear()}-01-01`,
+              syncLevel: "transactions",
+            }),
+          },
         );
+
+        if (res.ok) {
+          const data = await res.json();
+          const items = data.results as Array<{ status: string }>;
+          const activated = items.filter((r) => r.status === "activated").length;
+          const errors = items.filter((r) => r.status === "error").length;
+          if (activated > 0) {
+            toast.success(
+              `${activated} ${activated === 1 ? "konto" : "kontoer"} importert. Transaksjoner hentes i bakgrunnen.`,
+            );
+          }
+          if (errors > 0) {
+            toast.error(
+              `${errors} ${errors === 1 ? "konto" : "kontoer"} kunne ikke aktiveres.`,
+            );
+          }
+        } else {
+          toast.error("Import feilet. Prøv igjen.");
+        }
+      } catch {
+        toast.error("Nettverksfeil. Prøv igjen.");
       } finally {
         setActivating(new Set());
+        router.refresh();
       }
     },
-    [companyId, router]
+    [companyId, router],
   );
 
   async function handleConfirmImport() {

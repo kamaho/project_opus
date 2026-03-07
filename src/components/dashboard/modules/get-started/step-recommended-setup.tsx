@@ -499,31 +499,25 @@ export function WorkFolderSetup({
           { numbers: withTx, level: "transactions" as const },
         ]) {
           if (batch.numbers.length === 0) continue;
-          const chunks: string[][] = [];
-          for (let j = 0; j < batch.numbers.length; j += 20) {
-            chunks.push(batch.numbers.slice(j, j + 20));
-          }
-          for (const chunk of chunks) {
-            const res = await fetch(
-              `/api/companies/${companyId}/accounts/bulk-activate`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  accountNumbers: chunk,
-                  dateFrom: `${new Date().getFullYear()}-01-01`,
-                  syncLevel: batch.level,
-                }),
-              }
-            );
-            if (res.ok) {
-              const data = await res.json();
-              for (const r of data.results as Array<{
-                status: string;
-                clientId?: string;
-              }>) {
-                if (r.clientId) clientIds.push(r.clientId);
-              }
+          const res = await fetch(
+            `/api/companies/${companyId}/accounts/bulk-activate`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                accountNumbers: batch.numbers,
+                dateFrom: `${new Date().getFullYear()}-01-01`,
+                syncLevel: batch.level,
+              }),
+            },
+          );
+          if (res.ok) {
+            const data = await res.json();
+            for (const r of data.results as Array<{
+              status: string;
+              clientId?: string;
+            }>) {
+              if (r.clientId) clientIds.push(r.clientId);
             }
           }
         }
