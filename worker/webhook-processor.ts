@@ -59,6 +59,22 @@ function backoffDelay(attempts: number): number {
   return Math.min(30_000 * 2 ** attempts, 960_000); // 30s, 60s, 120s, 240s, 480s — max ~16 min
 }
 
+const STALE_PROCESSING_MINUTES = 10;
+
+/**
+ * Reset webhook events stuck in 'processing' for too long (worker crash recovery).
+ */
+async function resetStaleProcessing(db: Db): Promise<number> {
+  const result = await db.execute<{ id: string }>(sql`
+    UPDATE webhook_inbox
+    SET status = 'pending', process_after = now()
+    WHERE status = 'processing'
+      AND created_at < now() - interval '${sql.raw(String(STALE_PROCESSING_MINUTES))} minutes'
+    RETURNING id
+  `);
+  return Array.from(result).length;
+}
+
 /**
  * Claims pending webhook events using FOR UPDATE SKIP LOCKED.
  * Returns claimed events grouped by (tenantId, source, eventPrefix) for debounce.
@@ -523,6 +539,11 @@ async function processTripletexGroup(
  * Called by the Worker on a faster interval (5s).
  */
 export async function pollWebhookInbox(db: Db): Promise<number> {
+  const staleReset = await resetStaleProcessing(db);
+  if (staleReset > 0) {
+    log(`Reset ${staleReset} stale processing event(s)`);
+  }
+
   const { groups } = await claimPendingEvents(db);
 
   if (groups.length === 0) return 0;
