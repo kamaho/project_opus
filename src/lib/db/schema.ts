@@ -983,7 +983,7 @@ export const tripletexSyncConfigs = pgTable(
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     lastSyncPostingId: bigint("last_sync_posting_id", { mode: "number" }),
     lastSyncBankTxId: bigint("last_sync_bank_tx_id", { mode: "number" }),
-    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(60),
+    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(15),
     syncStatus: text("sync_status", {
       enum: ["pending", "syncing", "completed", "failed"],
     }).default("pending"),
@@ -1052,7 +1052,7 @@ export const vismaNxtSyncConfigs = pgTable(
     dateFrom: date("date_from").notNull(),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     lastSyncCursor: text("last_sync_cursor"),
-    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(60),
+    syncIntervalMinutes: integer("sync_interval_minutes").notNull().default(15),
     syncStatus: text("sync_status", {
       enum: ["pending", "syncing", "completed", "failed"],
     }).default("pending"),

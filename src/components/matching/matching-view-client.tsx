@@ -2542,9 +2542,6 @@ export function MatchingViewClient({
               unmatchAllLoading={unmatchAllLoading}
               hasMatches={allMatchedGroups.length > 0}
               onAgentSettings={() => setAgentSettingsOpen(true)}
-              clientId={clientId}
-              integrationSource={integrationSource}
-              onSyncComplete={refreshData}
             />
           </div>
         </div>
