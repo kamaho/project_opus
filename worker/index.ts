@@ -7,6 +7,7 @@ import { agentReportConfigs } from "../src/lib/db/schema";
 import { and, eq, lte, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { runJob } from "./job-runner";
 import { pollWebhookInbox } from "./webhook-processor";
+import { pollTripletexSync } from "./tripletex-sync-poller";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
@@ -17,16 +18,19 @@ if (!DATABASE_URL) {
 const CONCURRENCY = parseInt(process.env.WORKER_CONCURRENCY ?? "3", 10);
 const POLL_INTERVAL = parseInt(process.env.WORKER_POLL_INTERVAL_MS ?? "30000", 10);
 const WEBHOOK_POLL_INTERVAL = parseInt(process.env.WEBHOOK_POLL_INTERVAL_MS ?? "5000", 10);
+const SYNC_POLL_INTERVAL = parseInt(process.env.SYNC_POLL_INTERVAL_MS ?? "10000", 10);
 const LOCK_TIMEOUT = parseInt(process.env.LOCK_TIMEOUT_MS ?? "600000", 10);
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
+const SYNC_CONCURRENCY = parseInt(process.env.SYNC_CONCURRENCY ?? "10", 10);
+
 const client = postgres(DATABASE_URL, {
-  max: CONCURRENCY + 2,
+  max: CONCURRENCY + SYNC_CONCURRENCY + 4,
   idle_timeout: 20,
   connect_timeout: 10,
   prepare: false,
   connection: {
-    statement_timeout: 60_000,
+    statement_timeout: 120_000,
   },
 });
 export const db = drizzle(client, { schema });
@@ -151,13 +155,31 @@ async function webhookPollLoop() {
   }
 }
 
+async function syncPollLoop() {
+  while (!shuttingDown) {
+    try {
+      const count = await pollTripletexSync(db);
+      if (count > 0) {
+        log(`Tripletex sync: processed ${count} config(s)`);
+      }
+    } catch (err) {
+      log(`Sync poll error: ${err instanceof Error ? err.message : err}`);
+    }
+    await new Promise((r) => setTimeout(r, SYNC_POLL_INTERVAL));
+  }
+}
+
 async function main() {
-  log(`Starting worker (concurrency=${CONCURRENCY}, poll=${POLL_INTERVAL}ms, webhookPoll=${WEBHOOK_POLL_INTERVAL}ms)`);
+  log(
+    `Starting worker (agents=${CONCURRENCY}, sync=${SYNC_CONCURRENCY}, ` +
+      `agentPoll=${POLL_INTERVAL}ms, webhookPoll=${WEBHOOK_POLL_INTERVAL}ms, syncPoll=${SYNC_POLL_INTERVAL}ms)`
+  );
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
 
   webhookPollLoop();
+  syncPollLoop();
 
   while (!shuttingDown) {
     await poll();
