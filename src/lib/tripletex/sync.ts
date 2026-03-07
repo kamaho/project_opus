@@ -561,6 +561,7 @@ export async function syncPostings(
 
   for (const accountId of accountIds) {
     const params: Record<string, string | number | boolean> = {
+      dateFrom: config.dateFrom,
       dateTo: today,
       accountId,
       fields: "*,account(*),voucher(*),currency(*)",
@@ -568,8 +569,6 @@ export async function syncPostings(
 
     if (lastId > 0) {
       params.id = `>${lastId}`;
-    } else {
-      params.dateFrom = config.dateFrom;
     }
 
     const allPostings = await fetchAllPages<TxPosting>(
@@ -625,6 +624,7 @@ export async function syncBankTransactions(
 
   for (const accountId of accountIds) {
     const params: Record<string, string | number | boolean> = {
+      transactionDateFrom: config.dateFrom,
       transactionDateTo: today,
       accountId,
       fields: "*,account(*)",
@@ -632,8 +632,6 @@ export async function syncBankTransactions(
 
     if (lastId > 0) {
       params.id = `>${lastId}`;
-    } else {
-      params.transactionDateFrom = config.dateFrom;
     }
 
     const allTx = await fetchAllPages<TxBankTransaction>(
