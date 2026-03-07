@@ -1,9 +1,10 @@
 "use client";
 
-import { forwardRef } from "react";
-import { CalendarClock, CalendarDays, Unlink, X } from "lucide-react";
+import { forwardRef, useState, useCallback } from "react";
+import { CalendarClock, CalendarDays, RefreshCw, Unlink, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SmartMatchButton } from "@/components/matching/smart-match-button";
+import { toast } from "sonner";
 
 export type ViewMode = "open" | "closed";
 
@@ -21,6 +22,9 @@ interface MatchingToolbarProps {
   unmatchAllLoading?: boolean;
   hasMatches?: boolean;
   onAgentSettings?: () => void;
+  clientId?: string;
+  integrationSource?: "tripletex" | "visma_nxt" | null;
+  onSyncComplete?: () => void;
 }
 
 export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProps>(function MatchingToolbar({
@@ -37,7 +41,40 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
   unmatchAllLoading,
   hasMatches,
   onAgentSettings,
+  clientId,
+  integrationSource,
+  onSyncComplete,
 }, closedBtnRef) {
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = useCallback(async () => {
+    if (!clientId || !integrationSource || syncing) return;
+    setSyncing(true);
+    try {
+      const endpoint = integrationSource === "tripletex"
+        ? "/api/tripletex/sync"
+        : "/api/visma-nxt/sync";
+      const body = integrationSource === "tripletex"
+        ? { clientId }
+        : undefined;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      if (res.ok) {
+        toast.success("Synkronisering fullført — data oppdateres");
+        onSyncComplete?.();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error ?? "Synkronisering feilet");
+      }
+    } catch {
+      toast.error("Nettverksfeil under synkronisering");
+    } finally {
+      setSyncing(false);
+    }
+  }, [clientId, integrationSource, syncing, onSyncComplete]);
   const hasDateFilter = dateFrom || dateTo;
   return (
     <div className="relative flex items-center border-b bg-muted/30 px-2 py-1.5 min-w-0 overflow-hidden" data-smart-info="Verktøylinjen for matching. Inneholder handlinger for å matche, søke og administrere poster.">
@@ -97,8 +134,23 @@ export const MatchingToolbar = forwardRef<HTMLButtonElement, MatchingToolbarProp
         )}
       </div>
 
-      {/* Høyre: Agent + Datovelger */}
+      {/* Høyre: Synk + Agent + Datovelger */}
       <div className="flex items-center gap-1 ml-auto">
+        {integrationSource && clientId && (
+          <button
+            type="button"
+            disabled={syncing}
+            className={cn(
+              "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors mr-1",
+              syncing && "opacity-50"
+            )}
+            onClick={handleSync}
+            title="Hent nye data fra regnskapssystemet"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} />
+            {syncing ? "Synkroniserer…" : "Synk nå"}
+          </button>
+        )}
         {onAgentSettings && (
           <button
             type="button"

@@ -205,6 +205,7 @@ export interface MatchingViewClientProps {
   openingBalanceDate: string | null;
   set1Source?: string | null;
   set2Source?: string | null;
+  integrationSource?: "tripletex" | "visma_nxt" | null;
   totalUnmatched1?: number;
   totalUnmatched2?: number;
   totalMatched?: number;
@@ -339,6 +340,7 @@ export function MatchingViewClient({
   openingBalanceDate,
   set1Source,
   set2Source,
+  integrationSource,
   totalUnmatched1,
   totalUnmatched2,
   totalMatched,
@@ -2540,6 +2542,9 @@ export function MatchingViewClient({
               unmatchAllLoading={unmatchAllLoading}
               hasMatches={allMatchedGroups.length > 0}
               onAgentSettings={() => setAgentSettingsOpen(true)}
+              clientId={clientId}
+              integrationSource={integrationSource}
+              onSyncComplete={refreshData}
             />
           </div>
         </div>

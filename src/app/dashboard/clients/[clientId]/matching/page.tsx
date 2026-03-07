@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { transactions, imports, matches, clients, transactionAttachments, tripletexSyncConfigs } from "@/lib/db/schema";
+import { transactions, imports, matches, clients, transactionAttachments, tripletexSyncConfigs, vismaNxtSyncConfigs } from "@/lib/db/schema";
 import { eq, and, sql, exists, count } from "drizzle-orm";
 import { MatchingViewClient } from "@/components/matching/matching-view-client";
 import type { TransactionRow } from "@/components/matching/transaction-panel";
@@ -75,7 +75,7 @@ export default async function MatchingPage({
       )
       .then((r) => r[0]?.value ?? 0);
 
-  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows, syncConfig, totalUnmatched1, totalUnmatched2, balanceSums, totalMatchedCount] = await Promise.all([
+  const [set1Account, set2Account, clientData, txSet1, txSet2, matchedTxRows, matchRows, syncConfig, vismaSyncConfig, totalUnmatched1, totalUnmatched2, balanceSums, totalMatchedCount] = await Promise.all([
     getCachedAccount(clientRow.set1AccountId, orgId),
     getCachedAccount(clientRow.set2AccountId, orgId),
     db
@@ -131,6 +131,16 @@ export default async function MatchingPage({
       .where(eq(tripletexSyncConfigs.clientId, clientId))
       .limit(1)
       .then((rows) => rows[0] ?? null),
+    db
+      .select({
+        isActive: vismaNxtSyncConfigs.isActive,
+        set1Ids: vismaNxtSyncConfigs.set1AccountIds,
+        set2Ids: vismaNxtSyncConfigs.set2AccountIds,
+      })
+      .from(vismaNxtSyncConfigs)
+      .where(eq(vismaNxtSyncConfigs.clientId, clientId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
     unmatchedCountQuery(1),
     unmatchedCountQuery(2),
     db
@@ -166,8 +176,20 @@ export default async function MatchingPage({
   const set1AccountNumber = set1Account?.accountNumber ?? "";
   const set2AccountNumber = set2Account?.accountNumber ?? "";
 
-  const set1Source = syncConfig?.isActive && (syncConfig.set1Ids?.length ?? 0) > 0 ? "tripletex" : null;
-  const set2Source = syncConfig?.isActive && (syncConfig.set2Ids?.length ?? 0) > 0 ? "tripletex" : null;
+  const txActive = syncConfig?.isActive && ((syncConfig.set1Ids?.length ?? 0) > 0 || (syncConfig.set2Ids?.length ?? 0) > 0);
+  const vnxtActive = vismaSyncConfig?.isActive && ((vismaSyncConfig.set1Ids?.length ?? 0) > 0 || (vismaSyncConfig.set2Ids?.length ?? 0) > 0);
+  const integrationSource: "tripletex" | "visma_nxt" | null = txActive ? "tripletex" : vnxtActive ? "visma_nxt" : null;
+
+  const set1Source = txActive && (syncConfig!.set1Ids?.length ?? 0) > 0
+    ? "tripletex"
+    : vnxtActive && (vismaSyncConfig!.set1Ids?.length ?? 0) > 0
+      ? "visma_nxt"
+      : null;
+  const set2Source = txActive && (syncConfig!.set2Ids?.length ?? 0) > 0
+    ? "tripletex"
+    : vnxtActive && (vismaSyncConfig!.set2Ids?.length ?? 0) > 0
+      ? "visma_nxt"
+      : null;
 
   const toRow = (
     t: {
@@ -255,6 +277,7 @@ export default async function MatchingPage({
         openingBalanceDate={clientData?.openingBalanceDate ?? null}
         set1Source={set1Source}
         set2Source={set2Source}
+        integrationSource={integrationSource}
         totalUnmatched1={totalUnmatched1}
         totalUnmatched2={totalUnmatched2}
         totalMatched={totalMatchedCount}
