@@ -553,7 +553,9 @@ export async function syncPostings(
   if (accountIds.length === 0) return { fetched: 0, inserted: 0 };
 
   const enabledFields = (config.enabledFields as EnabledFields | null) ?? null;
-  const today = new Date().toISOString().split("T")[0];
+  const dateTo = new Date();
+  dateTo.setDate(dateTo.getDate() + 30);
+  const dateToStr = dateTo.toISOString().split("T")[0];
   let totalFetched = 0;
   let totalInserted = 0;
 
@@ -562,7 +564,7 @@ export async function syncPostings(
   for (const accountId of accountIds) {
     const params: Record<string, string | number | boolean> = {
       dateFrom: config.dateFrom,
-      dateTo: today,
+      dateTo: dateToStr,
       accountId,
       fields: "*,account(*),voucher(*),currency(*)",
     };
@@ -616,7 +618,9 @@ export async function syncBankTransactions(
   if (accountIds.length === 0) return { fetched: 0, inserted: 0 };
 
   const enabledFields = (config.enabledFields as EnabledFields | null) ?? null;
-  const today = new Date().toISOString().split("T")[0];
+  const dateTo = new Date();
+  dateTo.setDate(dateTo.getDate() + 30);
+  const dateToStr = dateTo.toISOString().split("T")[0];
   let totalFetched = 0;
   let totalInserted = 0;
 
@@ -625,7 +629,7 @@ export async function syncBankTransactions(
   for (const accountId of accountIds) {
     const params: Record<string, string | number | boolean> = {
       transactionDateFrom: config.dateFrom,
-      transactionDateTo: today,
+      transactionDateTo: dateToStr,
       accountId,
       fields: "*,account(*)",
     };
@@ -730,8 +734,13 @@ export async function syncBalances(
 // runFullSync — orchestrator for a single client sync config (backward compat)
 // ---------------------------------------------------------------------------
 
+export interface RunFullSyncOptions {
+  skipAccountSync?: boolean;
+}
+
 export async function runFullSync(
-  configId: string
+  configId: string,
+  options?: RunFullSyncOptions
 ): Promise<SyncResult> {
   const [config] = await db
     .select()
@@ -752,26 +761,28 @@ export async function runFullSync(
     .where(eq(tripletexSyncConfigs.id, configId));
 
   try {
-    // Ensure the Tripletex company record exists, then use the client's
-    // own company_id for account sync so data lands in the right place.
-    const tCompany = Date.now();
-    await syncCompany(config.tripletexCompanyId, config.tenantId);
-    console.log(`[sync] config=${configId} syncCompany done in ${Date.now() - tCompany}ms`);
+    if (!options?.skipAccountSync) {
+      const tCompany = Date.now();
+      await syncCompany(config.tripletexCompanyId, config.tenantId);
+      console.log(`[sync] config=${configId} syncCompany done in ${Date.now() - tCompany}ms`);
 
-    const [clientRow] = await db
-      .select({ companyId: clients.companyId })
-      .from(clients)
-      .where(eq(clients.id, config.clientId))
-      .limit(1);
+      const [clientRow] = await db
+        .select({ companyId: clients.companyId })
+        .from(clients)
+        .where(eq(clients.id, config.clientId))
+        .limit(1);
 
-    const companyId = clientRow?.companyId;
-    if (!companyId) {
-      throw new Error(`Client ${config.clientId} not found — cannot determine company for account sync`);
+      const companyId = clientRow?.companyId;
+      if (!companyId) {
+        throw new Error(`Client ${config.clientId} not found — cannot determine company for account sync`);
+      }
+
+      const tAccounts = Date.now();
+      await syncAccountList(config.tripletexCompanyId, companyId, config.tenantId);
+      console.log(`[sync] config=${configId} syncAccountList done in ${Date.now() - tAccounts}ms`);
+    } else {
+      console.log(`[sync] config=${configId} skipping account sync (already done for this company)`);
     }
-
-    const tAccounts = Date.now();
-    await syncAccountList(config.tripletexCompanyId, companyId, config.tenantId);
-    console.log(`[sync] config=${configId} syncAccountList done in ${Date.now() - tAccounts}ms`);
 
     const tPostings = Date.now();
     const [postings, bankTransactions] = await Promise.all([

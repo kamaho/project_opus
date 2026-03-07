@@ -22,7 +22,7 @@ const SYNC_POLL_INTERVAL = parseInt(process.env.SYNC_POLL_INTERVAL_MS ?? "10000"
 const LOCK_TIMEOUT = parseInt(process.env.LOCK_TIMEOUT_MS ?? "600000", 10);
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
 
-const SYNC_CONCURRENCY = parseInt(process.env.SYNC_CONCURRENCY ?? "10", 10);
+const SYNC_CONCURRENCY = parseInt(process.env.SYNC_CONCURRENCY ?? "5", 10);
 
 const client = postgres(DATABASE_URL, {
   max: CONCURRENCY + SYNC_CONCURRENCY + 4,
@@ -30,7 +30,7 @@ const client = postgres(DATABASE_URL, {
   connect_timeout: 10,
   prepare: false,
   connection: {
-    statement_timeout: 120_000,
+    statement_timeout: 180_000,
   },
 });
 export const db = drizzle(client, { schema });
