@@ -35,8 +35,9 @@ const client = postgres(DATABASE_URL, {
 });
 export const db = drizzle(client, { schema });
 
-let shuttingDown = false;
+export let shuttingDown = false;
 let activeJobs = 0;
+let activeSyncBatch: Promise<number> | null = null;
 
 function log(msg: string) {
   console.log(`[${new Date().toISOString()}] [${WORKER_ID}] ${msg}`);
@@ -125,15 +126,19 @@ async function shutdown(signal: string) {
   log(`${signal} received, shutting down gracefully...`);
   shuttingDown = true;
 
-  const maxWait = 60_000;
+  const maxWait = 120_000;
   const start = Date.now();
-  while (activeJobs > 0 && Date.now() - start < maxWait) {
-    log(`Waiting for ${activeJobs} active job(s)...`);
+
+  while ((activeJobs > 0 || activeSyncBatch) && Date.now() - start < maxWait) {
+    const parts: string[] = [];
+    if (activeJobs > 0) parts.push(`${activeJobs} agent job(s)`);
+    if (activeSyncBatch) parts.push("sync batch");
+    log(`Waiting for ${parts.join(" + ")}...`);
     await new Promise((r) => setTimeout(r, 2000));
   }
 
-  if (activeJobs > 0) {
-    log(`Force exiting with ${activeJobs} active job(s)`);
+  if (activeJobs > 0 || activeSyncBatch) {
+    log(`Force exiting with active work still running`);
   }
 
   await client.end();
@@ -156,16 +161,23 @@ async function webhookPollLoop() {
 }
 
 async function syncPollLoop() {
+  const shouldStop = () => shuttingDown;
   while (!shuttingDown) {
     try {
-      const count = await pollTripletexSync(db);
+      const batch = pollTripletexSync(db, shouldStop);
+      activeSyncBatch = batch;
+      const count = await batch;
+      activeSyncBatch = null;
       if (count > 0) {
         log(`Tripletex sync: processed ${count} config(s)`);
       }
     } catch (err) {
+      activeSyncBatch = null;
       log(`Sync poll error: ${err instanceof Error ? err.message : err}`);
     }
-    await new Promise((r) => setTimeout(r, SYNC_POLL_INTERVAL));
+    if (!shuttingDown) {
+      await new Promise((r) => setTimeout(r, SYNC_POLL_INTERVAL));
+    }
   }
 }
 

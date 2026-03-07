@@ -184,12 +184,17 @@ async function processSyncConfig(config: SyncConfig): Promise<void> {
 
 async function runWithConcurrency(
   configs: SyncConfig[],
-  concurrency: number
+  concurrency: number,
+  shouldStop?: () => boolean
 ): Promise<void> {
   let idx = 0;
 
   async function next(): Promise<void> {
     while (idx < configs.length) {
+      if (shouldStop?.()) {
+        log("Shutdown signal received, skipping remaining configs");
+        return;
+      }
       const config = configs[idx++];
       await processSyncConfig(config);
     }
@@ -205,12 +210,20 @@ async function runWithConcurrency(
 /**
  * Single poll iteration: reset stale configs, claim due ones, process them.
  * Called by the worker on a 10s interval.
+ * @param shouldStop — callback returning true when SIGTERM received; skips claiming and stops processing remaining configs
  */
-export async function pollTripletexSync(db: Db): Promise<number> {
+export async function pollTripletexSync(
+  db: Db,
+  shouldStop?: () => boolean
+): Promise<number> {
+  if (shouldStop?.()) return 0;
+
   const staleReset = await resetStaleSyncing(db);
   if (staleReset > 0) {
     log(`Reset ${staleReset} stale syncing config(s)`);
   }
+
+  if (shouldStop?.()) return 0;
 
   const configs = await claimDueConfigs(db);
   if (configs.length === 0) return 0;
@@ -218,7 +231,7 @@ export async function pollTripletexSync(db: Db): Promise<number> {
   log(`Claimed ${configs.length} config(s) for sync`);
 
   await runAccountSyncPerCompany(configs);
-  await runWithConcurrency(configs, SYNC_CONCURRENCY);
+  await runWithConcurrency(configs, SYNC_CONCURRENCY, shouldStop);
 
   return configs.length;
 }
