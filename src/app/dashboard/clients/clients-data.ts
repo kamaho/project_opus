@@ -78,7 +78,8 @@ async function fetchClientsPageDataInner(
       .innerJoin(accounts, eq(clients.set1AccountId, accounts.id))
       .leftJoin(tripletexSyncConfigs, eq(tripletexSyncConfigs.clientId, clients.id))
       .leftJoin(vismaNxtSyncConfigs, eq(vismaNxtSyncConfigs.clientId, clients.id))
-      .where(companyFilter),
+      .where(companyFilter)
+      .orderBy(asc(accounts.accountNumber)),
     db.select({ id: companies.id }).from(companies).where(companyFilter),
     db
       .select()
