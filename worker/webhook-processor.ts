@@ -240,73 +240,127 @@ async function processTripletexGroup(
 ): Promise<void> {
   switch (eventPrefix) {
     case "sync": {
-      for (const id of eventIds) {
-        const [evt] = await db
-          .select({ payload: webhookInbox.payload, eventType: webhookInbox.eventType })
-          .from(webhookInbox)
-          .where(eq(webhookInbox.id, id))
-          .limit(1);
+      // Pre-fetch all events to separate by type
+      const evtRows = await Promise.all(
+        eventIds.map(async (id) => {
+          const [evt] = await db
+            .select({ payload: webhookInbox.payload, eventType: webhookInbox.eventType })
+            .from(webhookInbox)
+            .where(eq(webhookInbox.id, id))
+            .limit(1);
+          return { id, payload: evt?.payload as Record<string, unknown> | null, eventType: evt?.eventType ?? "" };
+        })
+      );
 
-        const payload = evt?.payload as Record<string, unknown> | null;
-        const eventType = evt?.eventType ?? "";
+      // Handle balance requests first (fast, ~1s each)
+      for (const { id, payload, eventType } of evtRows) {
+        if (eventType !== "sync.balances.requested") continue;
+        const companyId = payload?.companyId as string;
+        const payloadTenantId = (payload?.tenantId as string) || tenantId;
+        if (!companyId) {
+          log(`sync.balances.requested ${id}: no companyId in payload, skipping`);
+          continue;
+        }
+        const { syncBalancesForAccounts } = await import("../src/lib/tripletex/sync");
+        log(`Running balance sync for company=${companyId} tenant=${payloadTenantId}`);
+        const result = await syncBalancesForAccounts(companyId, payloadTenantId);
+        log(`Balance sync done: ${result.balancesUpdated} balances in ${result.duration}ms`);
+        await db.insert(notifications).values({
+          tenantId: payloadTenantId, userId: "system", type: "system",
+          title: "Saldoer oppdatert",
+          body: `${result.balancesUpdated} kontosaldoer hentet fra Tripletex.`,
+          link: "/dashboard/clients",
+        });
+      }
 
-        if (eventType === "sync.balances.requested") {
-          const companyId = payload?.companyId as string;
-          const payloadTenantId = (payload?.tenantId as string) || tenantId;
-          if (!companyId) {
-            log(`sync.balances.requested ${id}: no companyId in payload, skipping`);
-            continue;
-          }
-          const { syncBalancesForAccounts } = await import("../src/lib/tripletex/sync");
-          log(`Running balance sync for company=${companyId} tenant=${payloadTenantId}`);
-          const result = await syncBalancesForAccounts(companyId, payloadTenantId);
-          log(`Balance sync done: ${result.balancesUpdated} balances in ${result.duration}ms`);
+      // Handle bulk activation events (single event with all configIds)
+      const bulkEvents = evtRows.filter((e) => e.eventType === "sync.bulk.activated");
+      for (const { payload } of bulkEvents) {
+        const configIds = payload?.configIds as string[] | undefined;
+        if (configIds?.length) {
+          const { syncBulkTransactionsForConfigs } = await import("../src/lib/tripletex/sync");
+          log(`Running bulk transaction sync for ${configIds.length} configs`);
+          const t0 = Date.now();
+          const result = await syncBulkTransactionsForConfigs(configIds);
+          log(`Bulk sync done in ${Date.now() - t0}ms: ${result.postings} postings, ${result.bankTx} bankTx, ${result.configs}/${configIds.length} OK`);
 
           await db.insert(notifications).values({
-            tenantId: payloadTenantId,
-            userId: "system",
-            type: "system",
-            title: "Saldoer oppdatert",
-            body: `${result.balancesUpdated} kontosaldoer hentet fra Tripletex.`,
+            tenantId, userId: "system", type: "system",
+            title: "Import fullført",
+            body: `${result.configs} kontoer importert fra Tripletex (${result.postings} transaksjoner).`,
             link: "/dashboard/clients",
           });
-          continue;
         }
+      }
 
-        const configId = (payload?.configId as string) ?? null;
+      // Collect individual account activated events (fallback for single activations)
+      const activatedEvents = evtRows.filter(
+        (e) => e.eventType === "sync.account.activated" && e.payload?.configId
+      );
+      const otherSyncEvents = evtRows.filter(
+        (e) => e.eventType !== "sync.balances.requested" && e.eventType !== "sync.account.activated" && e.eventType !== "sync.bulk.activated" && e.payload?.configId
+      );
 
-        if (!configId) {
-          log(`sync event ${id}: no configId in payload, skipping`);
-          continue;
-        }
+      // Process account activations in parallel (concurrency 5)
+      if (activatedEvents.length > 0) {
+        const ACTIVATION_CONCURRENCY = 5;
+        log(`Processing ${activatedEvents.length} account activation(s) with concurrency ${ACTIVATION_CONCURRENCY}`);
+        const { syncTransactionsForAccount } = await import("../src/lib/tripletex/sync");
 
-        if (eventType === "sync.account.activated") {
-          // Level 2: on-demand transaction sync for a single account
-          const { syncTransactionsForAccount } = await import("../src/lib/tripletex/sync");
-          log(`Running transaction sync for config=${configId} (account activated)`);
-          const result = await syncTransactionsForAccount(configId);
-          const total = result.postings.inserted + result.bankTransactions.inserted;
-          log(`Account sync done for config=${configId}: ${total} transactions`);
+        let idx = 0;
+        async function nextActivation(): Promise<void> {
+          while (idx < activatedEvents.length) {
+            const evt = activatedEvents[idx++];
+            const configId = evt.payload!.configId as string;
+            const accountNumber = (evt.payload?.accountNumber as string) ?? "";
+            try {
+              log(`Running transaction sync for config=${configId} (account activated)`);
+              const result = await syncTransactionsForAccount(configId);
+              const total = result.postings.inserted + result.bankTransactions.inserted;
+              log(`Account sync done for config=${configId}: ${total} transactions`);
 
-          const accountNumber = (payload?.accountNumber as string) ?? "";
-          const [config] = await db
-            .select({ clientId: tripletexSyncConfigs.clientId })
-            .from(tripletexSyncConfigs)
-            .where(eq(tripletexSyncConfigs.id, configId))
-            .limit(1);
+              const [config] = await db
+                .select({ clientId: tripletexSyncConfigs.clientId })
+                .from(tripletexSyncConfigs)
+                .where(eq(tripletexSyncConfigs.id, configId))
+                .limit(1);
 
-          if (config) {
-            await db.insert(notifications).values({
-              tenantId,
-              userId: "system",
-              type: "system",
-              title: "Konto klar for avstemming",
-              body: `Konto ${accountNumber}: ${total} transaksjoner importert fra Tripletex.`,
-              link: `/dashboard/clients/${config.clientId}`,
-            });
+              if (config) {
+                await db.insert(notifications).values({
+                  tenantId, userId: "system", type: "system",
+                  title: "Konto klar for avstemming",
+                  body: `Konto ${accountNumber}: ${total} transaksjoner importert fra Tripletex.`,
+                  link: `/dashboard/clients/${config.clientId}`,
+                });
+              }
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              log(`Account activation sync FAILED for config=${configId}: ${msg.slice(0, 200)}`);
+            }
           }
-        } else {
-          // sync.initial — full sync for backward compatibility
+        }
+
+        const workers = Array.from(
+          { length: Math.min(ACTIVATION_CONCURRENCY, activatedEvents.length) },
+          () => nextActivation()
+        );
+        await Promise.all(workers);
+
+        // Send a single summary notification instead of one per account
+        if (activatedEvents.length > 1) {
+          await db.insert(notifications).values({
+            tenantId, userId: "system", type: "system",
+            title: "Import fullført",
+            body: `${activatedEvents.length} kontoer importert fra Tripletex.`,
+            link: "/dashboard/clients",
+          });
+        }
+      }
+
+      // Process other sync events sequentially
+      for (const { payload, eventType } of otherSyncEvents) {
+        const configId = payload!.configId as string;
+        if (eventType === "sync.initial" || eventType === "sync") {
           const { runFullSync } = await import("../src/lib/tripletex/sync");
           log(`Running initial sync for config=${configId}`);
           const result = await runFullSync(configId);

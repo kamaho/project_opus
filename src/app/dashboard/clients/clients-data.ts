@@ -101,11 +101,6 @@ async function fetchClientsPageDataInner(
 
   const clientIds = list.map((c) => c.id);
 
-  const accountSyncRows = rawAcctRows.map((r) => ({
-    accountNumber: r.accountNumber,
-    balanceIn: r.balanceIn,
-  }));
-
   if (clientIds.length === 0 && rawAcctRows.length === 0) {
     if (selectedCompanyIds.length === 1) {
       const [selectedCo] = await db
@@ -161,10 +156,11 @@ async function fetchClientsPageDataInner(
       : Promise.resolve([]),
   ]);
 
-  const ibByAccount = new Map<string, number>();
-  for (const r of accountSyncRows) {
-    if (r.balanceIn) {
-      ibByAccount.set(r.accountNumber, parseFloat(r.balanceIn));
+  const ubByAccount = new Map<string, number>();
+  for (const r of rawAcctRows) {
+    const ub = r.balanceOut ? parseFloat(r.balanceOut) : null;
+    if (ub != null) {
+      ubByAccount.set(r.accountNumber, ub);
     }
   }
 
@@ -173,8 +169,8 @@ async function fetchClientsPageDataInner(
     { openSet1: number; openSet2: number; leftBalance: number; rightBalance: number }
   >();
   for (const c of list) {
-    const ib = ibByAccount.get(c.set1AccountNumber ?? "") ?? 0;
-    byClient.set(c.id, { openSet1: 0, openSet2: 0, leftBalance: ib, rightBalance: 0 });
+    const ub = ubByAccount.get(c.set1AccountNumber ?? "") ?? 0;
+    byClient.set(c.id, { openSet1: 0, openSet2: 0, leftBalance: ub, rightBalance: 0 });
   }
   for (const r of unmatchedCounts) {
     const cur = byClient.get(r.clientId);
@@ -182,10 +178,17 @@ async function fetchClientsPageDataInner(
     if (r.setNumber === 1) cur.openSet1 = Number(r.count) ?? 0;
     else cur.openSet2 = Number(r.count) ?? 0;
   }
+  const hasUbFromIntegration = new Set<string>();
+  for (const c of list) {
+    if (ubByAccount.has(c.set1AccountNumber ?? "")) {
+      hasUbFromIntegration.add(c.id);
+    }
+  }
   for (const r of totalBalances) {
     const cur = byClient.get(r.clientId);
     if (!cur) continue;
     const sum = parseFloat(r.sum ?? "0");
+    if (r.setNumber === 1 && hasUbFromIntegration.has(r.clientId)) continue;
     if (r.setNumber === 1) cur.leftBalance += sum;
     else cur.rightBalance += sum;
   }

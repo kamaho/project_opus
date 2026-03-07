@@ -12,7 +12,7 @@ import { zodError } from "@/lib/api/zod-error";
 
 export const dynamic = "force-dynamic";
 
-const MAX_BULK_ACTIVATE = 20;
+const MAX_BULK_ACTIVATE = 100;
 
 /**
  * POST /api/companies/[companyId]/accounts/bulk-activate
@@ -84,6 +84,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
     );
 
   const resolvedDateFrom = dateFrom ?? `${new Date().getFullYear()}-01-01`;
+  const allConfigIds: string[] = [];
   const results: Array<{
     accountNumber: string;
     status: "activated" | "already_active" | "error";
@@ -159,17 +160,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
           .set({ syncLevel: "transactions", updatedAt: new Date() })
           .where(eq(accountSyncSettings.id, setting.id));
 
-        if (cfgId) {
-          try {
-            await db.insert(webhookInbox).values({
-              tenantId,
-              source: integration,
-              eventType: "sync.account.activated",
-              externalId: cfgId,
-              payload: { configId: cfgId, clientId: setting.clientId, accountNumber: setting.accountNumber },
-            });
-          } catch { /* cron fallback */ }
-        }
+        if (cfgId) allConfigIds.push(cfgId);
 
         results.push({ accountNumber: setting.accountNumber, status: "activated", clientId: setting.clientId });
         continue;
@@ -287,17 +278,7 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
           await seedStandardRules(clientId, tenantId);
         } catch { /* non-fatal */ }
 
-        if (configId) {
-          try {
-            await db.insert(webhookInbox).values({
-              tenantId,
-              source: integration,
-              eventType: "sync.account.activated",
-              externalId: configId,
-              payload: { configId, clientId, accountNumber: setting.accountNumber },
-            });
-          } catch { /* cron fallback */ }
-        }
+        if (configId) allConfigIds.push(configId);
       }
 
       results.push({
@@ -312,6 +293,19 @@ export const POST = withTenant(async (req, { tenantId, userId }, params) => {
         error: err instanceof Error ? err.message : "Ukjent feil",
       });
     }
+  }
+
+  // Queue a single bulk sync event instead of N individual events
+  if (allConfigIds.length > 0 && integration === "tripletex") {
+    try {
+      await db.insert(webhookInbox).values({
+        tenantId,
+        source: integration,
+        eventType: "sync.bulk.activated",
+        externalId: companyId,
+        payload: { configIds: allConfigIds, companyId, tenantId },
+      });
+    } catch { /* sync poller fallback */ }
   }
 
   const notFound = accountNumbers.filter(
