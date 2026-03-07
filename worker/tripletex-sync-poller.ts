@@ -71,19 +71,22 @@ async function claimDueConfigs(db: Db): Promise<SyncConfig[]> {
 }
 
 async function processSyncConfig(config: SyncConfig): Promise<void> {
+  const configId = config.id;
+  const clientId =
+    config.clientId ?? (config as Record<string, unknown>)["client_id"] ?? "unknown";
   const t0 = Date.now();
   try {
     const { runFullSync } = await import("../src/lib/tripletex/sync");
-    const result = await runFullSync(config.id);
+    const result = await runFullSync(configId);
     const dur = Date.now() - t0;
     log(
-      `config=${config.id.slice(0, 8)} client=${config.clientId.slice(0, 8)} ` +
+      `config=${configId.slice(0, 8)} client=${String(clientId).slice(0, 8)} ` +
         `completed in ${dur}ms — postings=${result.postings.inserted} bankTx=${result.bankTransactions.inserted}`
     );
   } catch (error) {
     const dur = Date.now() - t0;
     const msg = error instanceof Error ? error.message : String(error);
-    log(`config=${config.id.slice(0, 8)} FAILED after ${dur}ms: ${msg.slice(0, 200)}`);
+    log(`config=${configId.slice(0, 8)} FAILED after ${dur}ms: ${msg.slice(0, 200)}`);
   }
 }
 
